@@ -1,0 +1,511 @@
+# ============================================================================
+# DSSAT-CSM Failure Episode Log
+# ============================================================================
+# Recorded during VIC-DSSAT coupling build (2026-03-16).
+# Each episode is a complete debugging story from the first Linux deployment
+# of DSSAT-CSM v4.8.5 and the construction of the HydroCraft bridge skill.
+#
+# These episodes generated 5 new diagnostic triplets (dt_045 through dt_049)
+# and validated 2 existing ones (dt_001, dt_040).
+# ============================================================================
+
+episodes:
+
+  # =========================================================================
+  # EP_001: MODEL.ERR not found — executable path assumption
+  # =========================================================================
+  - id: "ep_001"
+    timestamp: "2026-03-16T16:10:00"
+    model: "DSSAT-CSM v4.8.5 Build 41"
+    platform: "Linux x86_64, Ubuntu 24.04, gfortran 13.3.0"
+    stage: "s8_batch_execution"
+
+    context:
+      goal: "Run DSSAT for the first time on Linux after compiling from source"
+      action: "Execute dscsm048 from the build directory, pointing at test case in run_test/"
+      command: "/home/server/DSSAT/build/bin/dscsm048 MZCER048 B DSSBatch.v48"
+      working_directory: "/home/server/DSSAT/run_test"
+      input_files: ["DSSBatch.v48", "UFGA8201.MZX", "Weather/UFGA8201.WTH", "Soil/SOIL.SOL"]
+      preceding_steps: ["cmake configured successfully", "make compiled 14MB binary"]
+
+    error:
+      observed_output: "Could not locate error file: /home/server/DSSAT/build/bin/MODEL.ERR"
+      error_pattern: "Could not locate error file.*MODEL\\.ERR"
+      exit_code: 99
+      error_file: "stderr"
+      misleading: true  # suggests MODEL.ERR is missing, but the real issue is path resolution
+
+    debugging_trace:
+      - step: "Checked if MODEL.ERR exists anywhere"
+        result: "Found at /home/server/DSSAT/Data/MODEL.ERR and /home/server/DSSAT/run_test/MODEL.ERR"
+        useful: true
+      - step: "Copied MODEL.ERR to the build/bin/ directory next to the executable"
+        result: "Different error appeared (Error 29 — File not found for experiment)"
+        useful: true
+      - step: "Realized DSSAT searches for support files relative to the executable path, not cwd"
+        result: "Copied the executable INTO the run_test working directory instead"
+        useful: true
+
+    resolution:
+      root_cause: "DSSAT resolves MODEL.ERR and other support files relative to the executable's own directory, not the current working directory. When the binary is at build/bin/ but data is at run_test/, it can't find anything."
+      fix_action: "Copy dscsm048 into the working directory and run it from there: cp build/bin/dscsm048 run_test/ && cd run_test && ./dscsm048 B DSSBatch.v48"
+      fix_command: "cp /home/server/DSSAT/build/bin/dscsm048 . && ./dscsm048 B DSSBatch.v48"
+      time_to_resolve_minutes: 5
+      difficulty: "moderate"
+
+    infrastructure_feedback:
+      triplet_id: "dt_045"
+      triplet_action: "new"
+      preventable_by_existing_docs: false
+      skill_gap: "s8_batch_execution_skill.md does not mention that dscsm048 must be in the working directory on Linux"
+      tool_gap: "run_dssat tool should copy executable to workdir automatically"
+      common_failure_pattern: "cfp_001"
+
+    failure_domain: "path_resolution"
+    severity: "fatal"
+    tags: ["linux", "first_run", "executable_path", "MODEL.ERR"]
+
+  # =========================================================================
+  # EP_002: Batch file 92-char column truncation
+  # =========================================================================
+  - id: "ep_002"
+    timestamp: "2026-03-16T16:12:00"
+    model: "DSSAT-CSM v4.8.5 Build 41"
+    platform: "Linux x86_64"
+    stage: "s8_batch_execution"
+
+    context:
+      goal: "Run test case after fixing MODEL.ERR issue"
+      action: "Used sed to replace macOS paths in DSSBatch.v48 with Linux paths"
+      command: "sed 's|/Users/leo/Desktop/DSSAT/run_test|/home/server/DSSAT/run_test|g' DSSBatch.v48"
+      working_directory: "/home/server/DSSAT/run_test"
+      input_files: ["DSSBatch.v48"]
+      preceding_steps: ["ep_001 resolved — executable now in working directory"]
+
+    error:
+      observed_output: "File not found. File: /home/server/DSSAT/run_test/UFGA8201.   Line: 0   Error key: IPEXP"
+      error_pattern: "File not found.*UFGA8201\\."
+      exit_code: 99
+      error_file: "WARNING.OUT"
+      misleading: true  # says "file not found" but the file exists — the path is being truncated
+
+    debugging_trace:
+      - step: "Noticed the filename was truncated to 'UFGA8201.' — missing the extension '.MZX'"
+        result: "The batch file uses a 92-character fixed-width field for the FileX path (Fortran FORMAT)"
+        useful: true
+      - step: "Checked exact column positions with cat -A"
+        result: "The sed replacement changed path length, shifting the TRTNO value into the path field. The '1' from TRTNO was appended to the path."
+        useful: true
+      - step: "Tried to manually pad spaces — error-prone"
+        result: "Failed — hard to get exactly 92 characters right by hand"
+        useful: false
+      - step: "Used DSSAT knowledge infrastructure's create_batch_file.py tool"
+        result: "Produced correctly formatted batch file on first try"
+        useful: true
+
+    resolution:
+      root_cause: "DSSBatch.v48 uses Fortran fixed-width FORMAT: path occupies columns 1-92 (right-padded), TRTNO starts at column 93. When sed changes the path length without re-padding, the column alignment breaks and DSSAT reads garbage."
+      fix_action: "Never hand-edit DSSBatch.v48 — always use create_batch_file.py from the knowledge infrastructure"
+      fix_command: "python knowledge_infrastructure/tools/s8_batch_execution/create_batch_file.py"
+      time_to_resolve_minutes: 10
+      difficulty: "moderate"
+
+    infrastructure_feedback:
+      triplet_id: "dt_040"
+      triplet_action: "validated"
+      preventable_by_existing_docs: true
+      skill_gap: ""
+      tool_gap: ""
+      common_failure_pattern: "cfp_001"
+
+    failure_domain: "string_overflow"
+    severity: "fatal"
+    tags: ["batch_file", "fixed_width", "fortran_format", "sed_danger"]
+
+  # =========================================================================
+  # EP_003: DSSATPRO.v48 path format issues (Windows → Linux)
+  # =========================================================================
+  - id: "ep_003"
+    timestamp: "2026-03-16T16:18:00"
+    model: "DSSAT-CSM v4.8.5 Build 41"
+    platform: "Linux x86_64"
+    stage: "s8_batch_execution"
+
+    context:
+      goal: "Run test case after fixing batch file"
+      action: "DSSAT now reads FileX correctly but can't find weather, soil, or genotype files"
+      command: "./dscsm048 MZCER048 B DSSBatch.v48"
+      working_directory: "/home/server/DSSAT/run_test"
+      input_files: ["DSSATPRO.v48", "Weather/UFGA8201.WTH", "Soil/SOIL.SOL", "Genotype/MZCER048.CUL"]
+      preceding_steps: ["ep_001 and ep_002 resolved"]
+
+    error:
+      observed_output: "Weather file not found. Neither UFGA8201.WTH nor UFGA.WTH were found in weather or experiment directories."
+      error_pattern: "Weather file not found.*Neither.*nor.*were found"
+      exit_code: 99
+      error_file: "WARNING.OUT"
+      misleading: false
+
+    debugging_trace:
+      - step: "Checked DSSATPRO.v48 — WED path had Windows backslashes"
+        result: "WED /home/server/DSSAT/run_test\\Weather — backslash invalid on Linux"
+        useful: true
+      - step: "Fixed backslashes with sed 's|\\\\|/|g'"
+        result: "Path now correct but DSSAT still can't find files — case sensitivity issue"
+        useful: true
+      - step: "Checked actual directory names: Soil/ vs SOIL, Genotype/ vs GENOTYPE"
+        result: "Linux is case-sensitive; DSSATPRO had uppercase names from Windows convention"
+        useful: true
+      - step: "Fixed case: SOIL→Soil, GENOTYPE→Genotype, WEATHER→Weather"
+        result: "DSSAT still couldn't find files through DSSATPRO paths"
+        useful: false
+      - step: "Gave up on DSSATPRO path resolution — copied all needed files into working directory"
+        result: "Weather, soil, genotype files all in cwd — DSSAT found them"
+        useful: true
+
+    resolution:
+      root_cause: "Three compounding issues: (1) Windows backslashes in paths, (2) case-sensitive directory names on Linux, (3) DSSATPRO.v48 path format had trailing spaces from sed that broke Fortran string parsing. Copying files to the working directory bypasses all three."
+      fix_action: "For gridded runs, copy all needed files into each cell's working directory rather than relying on DSSATPRO path resolution"
+      fix_command: "cp Weather/UFGA8201.WTH Soil/SOIL.SOL Genotype/MZCER048.* ."
+      time_to_resolve_minutes: 15
+      difficulty: "hard"
+
+    infrastructure_feedback:
+      triplet_id: "dt_046"
+      triplet_action: "new"
+      preventable_by_existing_docs: false
+      skill_gap: "s8_batch_execution_skill.md assumes Windows or macOS; no Linux path guidance"
+      tool_gap: "run_dssat tool should handle file staging into working directory"
+      common_failure_pattern: "cfp_003"
+
+    failure_domain: "path_resolution"
+    severity: "fatal"
+    tags: ["windows_to_linux", "case_sensitivity", "backslash", "DSSATPRO"]
+
+  # =========================================================================
+  # EP_004: DSSATPRO.L48 required on Linux (not .v48)
+  # =========================================================================
+  - id: "ep_004"
+    timestamp: "2026-03-16T16:45:00"
+    model: "DSSAT-CSM v4.8.5 Build 41"
+    platform: "Linux x86_64"
+    stage: "s8_batch_execution"
+
+    context:
+      goal: "Run DSSAT across 224 grid cells using run_dssat_grid.py"
+      action: "Generated DSSATPRO.v48 in each cell's working directory"
+      command: "./dscsm048 B DSSBatch.v48"
+      working_directory: "/tmp/dssat_runs/c0001"
+      input_files: ["DSSATPRO.v48", "V0018001.MZX", "V0018001.WTH", "SOIL.SOL"]
+      preceding_steps: ["weather bridge, soil bridge, FileX generation all succeeded"]
+
+    error:
+      observed_output: "Configuration file not found. File: /DSSAT48/DSSATPRO.L48"
+      error_pattern: "Configuration file not found.*DSSATPRO\\.L48"
+      exit_code: 99
+      error_file: "WARNING.OUT"
+      misleading: false
+
+    debugging_trace:
+      - step: "Searched for DSSATPRO.L48 in run_test directory"
+        result: "Found it — Linux builds look for .L48 (Linux), not .v48 (Windows)"
+        useful: true
+      - step: "Compared format: .L48 uses '// /path' prefix, .v48 uses 'C:\\path'"
+        result: "The '// ' prefix is DSSAT's convention for Linux absolute paths"
+        useful: true
+
+    resolution:
+      root_cause: "DSSAT's PATH.for module looks for DSSATPRO.L48 on Linux and DSSATPRO.v48 on Windows. The .L48 format uses '// ' prefix before each path. Generating .v48 on Linux is silently ignored."
+      fix_action: "Generate DSSATPRO.L48 (not .v48) with '// ' path prefix for all directory entries"
+      fix_command: "Write file named DSSATPRO.L48 with lines like: DDB // /tmp/dssat_runs/c0001"
+      time_to_resolve_minutes: 5
+      difficulty: "moderate"
+
+    infrastructure_feedback:
+      triplet_id: "dt_047"
+      triplet_action: "new"
+      preventable_by_existing_docs: false
+      skill_gap: "s8_batch_execution_skill.md doesn't mention platform-specific DSSATPRO filename"
+      tool_gap: "Need a generate_dssatpro tool that detects platform and writes correct format"
+      common_failure_pattern: ""
+
+    failure_domain: "environment"
+    severity: "fatal"
+    tags: ["linux", "DSSATPRO", "platform_specific", "config_file"]
+
+  # =========================================================================
+  # EP_005: Fortran string truncation in DSSATPRO.L48 paths
+  # =========================================================================
+  - id: "ep_005"
+    timestamp: "2026-03-16T16:48:00"
+    model: "DSSAT-CSM v4.8.5 Build 41"
+    platform: "Linux x86_64"
+    stage: "s8_batch_execution"
+
+    context:
+      goal: "Run gridded DSSAT after fixing .L48 filename issue"
+      action: "Generated DSSATPRO.L48 with correct format but long paths"
+      command: "./dscsm048 B DSSBatch.v48"
+      working_directory: "/mnt/disk1/Hydrocraft_server/outputs/bengbu_1980_1990_cama/dssat/runs/cell_0001"
+      input_files: ["DSSATPRO.L48"]
+      preceding_steps: ["ep_004 resolved — using .L48 format"]
+
+    error:
+      observed_output: "No valid model found in DSSATPRO for this crop. Crop: MZ"
+      error_pattern: "No valid model found in DSSATPRO"
+      exit_code: 99
+      error_file: "WARNING.OUT"
+      misleading: true  # says "no valid model" but the model entry exists — it's the path being truncated
+
+    debugging_trace:
+      - step: "Checked DSSATPRO.L48 — MMZ entry looks correct"
+        result: "MMZ // /mnt/disk1/Hydrocraft_server/outputs/bengbu_1980_1990_cama/dssat/runs/cell_0001 dscsm048 MZCER048"
+        useful: true
+      - step: "Counted path length: 85 characters"
+        result: "The reference DSSATPRO.L48 that works has 38-char paths. DSSAT Fortran CHARACTER for paths is likely ~60-80 chars."
+        useful: true
+      - step: "Changed working directory to /tmp/dssat_runs/c0001 (22 chars)"
+        result: "Model entry now readable — different error (planting depth format)"
+        useful: true
+
+    resolution:
+      root_cause: "DSSAT's Fortran source uses CHARACTER variables with fixed length (~60-80 chars) for paths in DSSATPRO. Paths longer than this are silently truncated, causing the model name field to be unreadable. The error message 'no valid model' is misleading — the model entry exists but the path portion consumed all available characters."
+      fix_action: "Use short working directory paths. Create dirs under /tmp/dssat_runs/ instead of deeply nested output directories."
+      fix_command: "Use /tmp/dssat_runs/c{NNNN}/ as working directories (22 chars max)"
+      time_to_resolve_minutes: 15
+      difficulty: "hard"
+
+    infrastructure_feedback:
+      triplet_id: "dt_045"
+      triplet_action: "updated"
+      preventable_by_existing_docs: false
+      skill_gap: "No mention of path length limits anywhere in DSSAT documentation"
+      tool_gap: "run_dssat_grid.py should enforce short paths automatically"
+      common_failure_pattern: "cfp_001"
+
+    failure_domain: "string_overflow"
+    severity: "fatal"
+    tags: ["fortran_truncation", "path_length", "cfp_001", "misleading_error"]
+
+  # =========================================================================
+  # EP_006: FileX fixed-width column alignment (planting depth)
+  # =========================================================================
+  - id: "ep_006"
+    timestamp: "2026-03-16T16:50:00"
+    model: "DSSAT-CSM v4.8.5 Build 41"
+    platform: "Linux x86_64"
+    stage: "s7_management_spec"
+
+    context:
+      goal: "Run DSSAT with generated FileX after fixing path issues"
+      action: "FileX generated by generate_filex_grid.py has planting section"
+      command: "./dscsm048 B DSSBatch.v48"
+      working_directory: "/tmp/dssat_runs/c0001"
+      input_files: ["V0018001.MZX"]
+      preceding_steps: ["ep_004 and ep_005 resolved"]
+
+    error:
+      observed_output: "Error in planting depth input. Check format. File: V0018001.MZX Line: 42"
+      error_pattern: "Error in planting depth input"
+      exit_code: 99
+      error_file: "WARNING.OUT"
+      misleading: false
+
+    debugging_trace:
+      - step: "Compared generated planting line with reference UFGA8201.MZX character by character"
+        result: "PLDP field was 6 chars wide (     5) instead of 5 chars (    7 in reference)"
+        useful: true
+      - step: "Checked all field widths in *PLANTING DETAILS header"
+        result: "Each field has a specific width: PLRS=5, PLRD=5, PLDP=5 — my format strings had inconsistent widths"
+        useful: true
+
+    resolution:
+      root_cause: "DSSAT parses FileX sections using fixed-column Fortran FORMAT statements. The PLDP (planting depth) field must be exactly 5 characters wide, right-justified. An extra space pushed all subsequent fields out of alignment."
+      fix_action: "Use {PLANTING_DEPTH:5d} (5-wide) not {PLANTING_DEPTH:4d} (4-wide). Always validate generated FileX against a known-working reference by comparing column positions."
+      fix_command: "diff <(cut -c1-80 generated.MZX) <(cut -c1-80 reference.MZX)"
+      time_to_resolve_minutes: 5
+      difficulty: "easy"
+
+    infrastructure_feedback:
+      triplet_id: "dt_048"
+      triplet_action: "new"
+      preventable_by_existing_docs: true
+      skill_gap: "s1_experiment_design_skill.md documents column widths but generate_filex_grid.py didn't reference it"
+      tool_gap: "validate_filex_structure.py should catch column misalignment"
+      common_failure_pattern: "cfp_006"
+
+    failure_domain: "parameter_format"
+    severity: "fatal"
+    tags: ["FileX", "fixed_width", "column_alignment", "planting"]
+
+  # =========================================================================
+  # EP_007: FileX XCRD/YCRD column width mismatch
+  # =========================================================================
+  - id: "ep_007"
+    timestamp: "2026-03-16T16:51:00"
+    model: "DSSAT-CSM v4.8.5 Build 41"
+    platform: "Linux x86_64"
+    stage: "s1_experiment_design"
+
+    context:
+      goal: "Run DSSAT after fixing planting depth format"
+      action: "FileX coordinate fields in *FIELDS section"
+      command: "./dscsm048 B DSSBatch.v48"
+      working_directory: "/tmp/dssat_runs/c0001"
+      input_files: ["V0018001.MZX"]
+      preceding_steps: ["ep_006 resolved"]
+
+    error:
+      observed_output: "Unknown ERROR. Error number: 5010. File: V0018001.MZX Line: 23"
+      error_pattern: "Unknown ERROR.*Error number:\\s*5010"
+      exit_code: 99
+      error_file: "WARNING.OUT"
+      misleading: true  # "Unknown ERROR" gives no clue what's wrong
+
+    debugging_trace:
+      - step: "Looked at line 23 — it's the XCRD/YCRD coordinate line"
+        result: "Generated: ' 1         113.3750          34.8750'; reference: ' 1          29.638        -82.3689'"
+        useful: true
+      - step: "Compared field widths: XCRD is a 16-char field in the header ('...........XCRD')"
+        result: "My format {lon:10.4f} produces 10 chars but the field expects 16"
+        useful: true
+
+    resolution:
+      root_cause: "The XCRD and YCRD fields in *FIELDS section are 16 characters wide (header shows '...........XCRD' = 15 dots + 4 letters). Using a narrower format shifts all subsequent fields."
+      fix_action: "Use {lon:12.4f} with 4 leading spaces to fill the 16-char field. Always count dots in the header to determine field width."
+      fix_command: "Compare header '@L ...........XCRD' dot-count with data field width"
+      time_to_resolve_minutes: 5
+      difficulty: "easy"
+
+    infrastructure_feedback:
+      triplet_id: "dt_048"
+      triplet_action: "updated"
+      preventable_by_existing_docs: true
+      skill_gap: "s1_experiment_design_skill.md should include a field-width table for ALL FileX sections"
+      tool_gap: "validate_filex_structure.py should check coordinate field widths"
+      common_failure_pattern: "cfp_006"
+
+    failure_domain: "parameter_format"
+    severity: "fatal"
+    tags: ["FileX", "fixed_width", "coordinates", "XCRD", "error_5010"]
+
+  # =========================================================================
+  # EP_008: Model name truncation on command line
+  # =========================================================================
+  - id: "ep_008"
+    timestamp: "2026-03-16T16:52:00"
+    model: "DSSAT-CSM v4.8.5 Build 41"
+    platform: "Linux x86_64"
+    stage: "s8_batch_execution"
+
+    context:
+      goal: "Run DSSAT with fixed FileX"
+      action: "Passed crop model name as CLI argument"
+      command: "./dscsm048 MZCER048 B DSSBatch.v48"
+      working_directory: "/tmp/dssat_runs/c0001"
+      input_files: ["DSSBatch.v48"]
+      preceding_steps: ["ep_006 and ep_007 resolved"]
+
+    error:
+      observed_output: "Invalid model specified. Crop: MZ; Model: MZCE048"
+      error_pattern: "Invalid model specified.*Model:\\s*MZCE"
+      exit_code: 99
+      error_file: "WARNING.OUT"
+      misleading: true  # it truncated MZCER048 to MZCE048 (7 chars instead of 8)
+
+    debugging_trace:
+      - step: "Noticed model name truncated from MZCER048 to MZCE048 (missing 'R')"
+        result: "CLI argument parsing truncates the model name"
+        useful: true
+      - step: "Tried without model argument: ./dscsm048 B DSSBatch.v48"
+        result: "Works — DSSAT picks model from DSSATPRO.L48 based on crop code in FileX"
+        useful: true
+
+    resolution:
+      root_cause: "The command-line parser for the model name argument has a 7-character limit (or misparses the 8-char name). Since the model is already specified in DSSATPRO.L48 mapped to the crop code, the CLI argument is redundant."
+      fix_action: "Don't pass the model name on the command line. Use: ./dscsm048 B DSSBatch.v48"
+      fix_command: "./dscsm048 B DSSBatch.v48"
+      time_to_resolve_minutes: 3
+      difficulty: "easy"
+
+    infrastructure_feedback:
+      triplet_id: "dt_049"
+      triplet_action: "new"
+      preventable_by_existing_docs: false
+      skill_gap: "s8_batch_execution_skill.md shows model arg as optional but doesn't warn about truncation"
+      tool_gap: ""
+      common_failure_pattern: ""
+
+    failure_domain: "string_overflow"
+    severity: "fatal"
+    tags: ["cli_argument", "model_name", "truncation"]
+
+  # =========================================================================
+  # EP_009: Summary.OUT parsing — spaces in TNAME break split()
+  # =========================================================================
+  - id: "ep_009"
+    timestamp: "2026-03-16T16:53:00"
+    model: "DSSAT-CSM v4.8.5 Build 41"
+    platform: "Linux x86_64"
+    stage: "s9_output_parsing"
+
+    context:
+      goal: "Parse yields from Summary.OUT after successful 224-cell run"
+      action: "Used line.split() to extract HWAM column"
+      command: "run_dssat_grid.py output parsing"
+      working_directory: "/tmp/dssat_runs/c0001"
+      input_files: ["Summary.OUT"]
+      preceding_steps: ["All 224 cells ran successfully — STOP 99 errors all resolved"]
+
+    error:
+      observed_output: "Yield mean: 1,980,237 kg/ha (implausible — should be 1000-10000)"
+      error_pattern: ""
+      exit_code: 0
+      error_file: ""
+      misleading: false
+
+    debugging_trace:
+      - step: "Checked Summary.OUT format"
+        result: "TNAME field 'RAINFED MZ GRID 0001' contains spaces — split() breaks it into 4 tokens, shifting all subsequent column indices"
+        useful: true
+      - step: "Tried counting fields: expected HWAM at index 23, but got SDAT (year 1980237)"
+        result: "Confirmed: the '1980237' value was SDAT (simulation date in YYYYDDD), not yield"
+        useful: true
+      - step: "Switched to header-based column position parsing"
+        result: "Find '@' header line, locate 'HWAM' position, extract value at same character position from data line"
+        useful: true
+
+    resolution:
+      root_cause: "Summary.OUT uses fixed-width Fortran FORMAT, not delimiter-separated. The TNAME field is 25 characters wide and can contain spaces. Using Python's str.split() (which splits on whitespace) misaligns all columns after TNAME."
+      fix_action: "Parse Summary.OUT by column positions from the @ header line, not by split(). Find each variable name in the header, then extract the value at the same character position from the data line."
+      fix_command: "pos = header.find('HWAM'); value = data_line[pos:pos+8].strip()"
+      time_to_resolve_minutes: 10
+      difficulty: "moderate"
+
+    infrastructure_feedback:
+      triplet_id: "dt_050"
+      triplet_action: "new"
+      preventable_by_existing_docs: true
+      skill_gap: "s9_output_parsing_skill.md mentions fixed-width format but parse_summary_out.py handles it correctly — the gridded runner reimplemented parsing without reading the skill doc"
+      tool_gap: "run_dssat_grid.py should import parse_summary_out.py from the knowledge infrastructure rather than reimplementing"
+      common_failure_pattern: "cfp_006"
+
+    failure_domain: "silent_error"
+    severity: "silent"
+    tags: ["output_parsing", "fixed_width", "split_danger", "silent_error", "TNAME"]
+
+# ============================================================================
+# Summary Statistics
+# ============================================================================
+# Total episodes: 9
+# Failure domains: path_resolution (3), string_overflow (3), parameter_format (2), silent_error (1)
+# Common failure patterns matched: cfp_001 (3 episodes), cfp_003 (1), cfp_006 (3)
+# New triplets generated: dt_045, dt_046, dt_047, dt_048, dt_049, dt_050
+# Existing triplets validated: dt_040
+# Errors preventable by existing docs: 3/9 (33%)
+# Errors requiring new documentation: 6/9 (67%)
+#
+# Key insight: 7/9 errors (78%) are about path/string handling in Fortran
+# legacy code. This is the dominant failure mode for DSSAT on Linux.
+# The knowledge infrastructure had 44 triplets but none specifically
+# addressed Linux deployment, which is a critical gap.

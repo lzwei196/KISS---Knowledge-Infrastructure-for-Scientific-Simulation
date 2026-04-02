@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<mxfile>
+  <diagram name="DSSAT Pipeline">
+    <mxGraphModel>
+      <root>
+    <mxCell id="0"/>
+    <mxCell id="1" parent="0"/>
+    <mxCell id="title" value="DSSAT-CSM v4.8.5 Pipeline Workflow (edit in draw.io)" style="text;html=1;align=center;verticalAlign=middle;resizable=0;points=[];autosize=1;strokeColor=none;fillColor=none;fontSize=14;fontStyle=1;fontColor=#1B4332;" vertex="1" parent="1"><mxGeometry x="100" y="10" width="420" height="30" as="geometry"/></mxCell>
+    <mxCell id="start" value="START" style="ellipse;whiteSpace=wrap;html=1;fillColor=#2E7D6F;fontColor=#FFFFFF;strokeColor=#1B4332;fontSize=11;fontStyle=1;" vertex="1" parent="1"><mxGeometry x="260" y="50" width="100" height="40" as="geometry"/></mxCell>
+    <mxCell id="stage_s1" value="S1. Experiment Design" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFF8E1;strokeColor=#C4A052;fontSize=11;fontStyle=1;" vertex="1" parent="1"><mxGeometry x="30" y="130" width="160" height="40" as="geometry"/></mxCell>
+    <mxCell id="stage_s2" value="S2. Weather Prep" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#E8F5E9;strokeColor=#2E7D6F;fontSize=11;fontStyle=1;" vertex="1" parent="1"><mxGeometry x="230" y="130" width="160" height="40" as="geometry"/></mxCell>
+    <mxCell id="stage_s3" value="S3. Soil Setup" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#E8F5E9;strokeColor=#2E7D6F;fontSize=11;fontStyle=1;" vertex="1" parent="1"><mxGeometry x="430" y="130" width="160" height="40" as="geometry"/></mxCell>
+    <mxCell id="stage_s4" value="S4. Genotype Config" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFF8E1;strokeColor=#C4A052;fontSize=11;fontStyle=1;" vertex="1" parent="1"><mxGeometry x="230" y="210" width="160" height="40" as="geometry"/></mxCell>
+    <mxCell id="stage_s5" value="S5. Simulation Controls" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFF8E1;strokeColor=#C4A052;fontSize=11;fontStyle=1;" vertex="1" parent="1"><mxGeometry x="30" y="290" width="160" height="40" as="geometry"/></mxCell>
+    <mxCell id="stage_s6" value="S6. Initial Conditions" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFF8E1;strokeColor=#C4A052;fontSize=11;fontStyle=1;" vertex="1" parent="1"><mxGeometry x="430" y="210" width="160" height="40" as="geometry"/></mxCell>
+    <mxCell id="stage_s7" value="S7. Management Spec" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#FFF8E1;strokeColor=#C4A052;fontSize=11;fontStyle=1;" vertex="1" parent="1"><mxGeometry x="30" y="370" width="160" height="40" as="geometry"/></mxCell>
+    <mxCell id="stage_s8" value="S8. Batch Execution" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#E8EAF6;strokeColor=#1B4332;fontSize=11;fontStyle=1;" vertex="1" parent="1"><mxGeometry x="230" y="450" width="160" height="40" as="geometry"/></mxCell>
+    <mxCell id="stage_s9" value="S9. Output Parsing" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#E8F5E9;strokeColor=#2E7D6F;fontSize=11;fontStyle=1;" vertex="1" parent="1"><mxGeometry x="230" y="530" width="160" height="40" as="geometry"/></mxCell>
+    <mxCell id="end" value="FINISH" style="ellipse;whiteSpace=wrap;html=1;fillColor=#2E7D6F;fontColor=#FFFFFF;strokeColor=#1B4332;fontSize=11;fontStyle=1;" vertex="1" parent="1"><mxGeometry x="260" y="610" width="100" height="40" as="geometry"/></mxCell>
+    <mxCell id="e_start_s1" style="strokeColor=#2E7D6F;strokeWidth=2;" edge="1" source="start" target="stage_s1" parent="1"/>
+    <mxCell id="e_start_s2" style="strokeColor=#2E7D6F;strokeWidth=2;" edge="1" source="start" target="stage_s2" parent="1"/>
+    <mxCell id="e_start_s3" style="strokeColor=#2E7D6F;strokeWidth=2;" edge="1" source="start" target="stage_s3" parent="1"/>
+    <mxCell id="e_start_s4" style="strokeColor=#2E7D6F;strokeWidth=2;" edge="1" source="start" target="stage_s4" parent="1"/>
+    <mxCell id="dep_s1_s5" style="strokeColor=#2E7D6F;strokeWidth=2;" edge="1" source="stage_s1" target="stage_s5" parent="1"/>
+    <mxCell id="dep_s1_s7" style="strokeColor=#2E7D6F;strokeWidth=2;" edge="1" source="stage_s1" target="stage_s7" parent="1"/>
+    <mxCell id="dep_s3_s6" style="strokeColor=#2E7D6F;strokeWidth=2;" edge="1" source="stage_s3" target="stage_s6" parent="1"/>
+    <mxCell id="dep_s1_s8" style="strokeColor=#2E7D6F;strokeWidth=2;" edge="1" source="stage_s5" target="stage_s8" parent="1"/>
+    <mxCell id="dep_s2_s8" style="strokeColor=#2E7D6F;strokeWidth=2;" edge="1" source="stage_s2" target="stage_s8" parent="1"/>
+    <mxCell id="dep_s3_s8" style="strokeColor=#2E7D6F;strokeWidth=2;" edge="1" source="stage_s6" target="stage_s8" parent="1"/>
+    <mxCell id="dep_s4_s8" style="strokeColor=#2E7D6F;strokeWidth=2;" edge="1" source="stage_s4" target="stage_s8" parent="1"/>
+    <mxCell id="dep_s7_s8" style="strokeColor=#2E7D6F;strokeWidth=2;" edge="1" source="stage_s7" target="stage_s8" parent="1"/>
+    <mxCell id="dep_s8_s9" style="strokeColor=#2E7D6F;strokeWidth=2;" edge="1" source="stage_s8" target="stage_s9" parent="1"/>
+    <mxCell id="e_s9_end" style="strokeColor=#2E7D6F;strokeWidth=2;" edge="1" source="stage_s9" target="end" parent="1"/>
+    <mxCell id="imp_s2_s1" value="WSTA code match" style="strokeColor=#C4A052;strokeWidth=2;dashed=1;fontColor=#C4A052;fontSize=9;fontStyle=2;" edge="1" source="stage_s2" target="stage_s1" parent="1"/>
+    <mxCell id="imp_s3_s1" value="ID_SOIL match" style="strokeColor=#C4A052;strokeWidth=2;dashed=1;fontColor=#C4A052;fontSize=9;fontStyle=2;" edge="1" source="stage_s3" target="stage_s1" parent="1"/>
+    <mxCell id="imp_s4_s1" value="INGENO match" style="strokeColor=#C4A052;strokeWidth=2;dashed=1;fontColor=#C4A052;fontSize=9;fontStyle=2;" edge="1" source="stage_s4" target="stage_s1" parent="1"/>
+    <mxCell id="legend" value="Color Legend:  &#x25A0; Procedural (teal)  &#x25A0; Evaluative (gold)  &#x25A0; Debugging (blue/grey)  - - - Implicit dependency" style="text;html=1;align=left;verticalAlign=middle;strokeColor=none;fillColor=none;fontSize=10;fontColor=#4A5568;" vertex="1" parent="1"><mxGeometry x="100" y="670" width="440" height="25" as="geometry"/></mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

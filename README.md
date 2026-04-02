@@ -514,6 +514,30 @@ in practice across the 97-model dissection effort.
 
 ---
 
+## Model KI Examples (Full Knowledge Infrastructure)
+
+Three complete KI packages are included as reproducible examples. Each contains
+validated tools, diagnostic triplets, operational documentation, and preflight checks.
+
+| Model | Domain | KI Contents | Key Workflow |
+|-------|--------|-------------|-------------|
+| **VIC 5.1.0** | Distributed hydrology | SKILL.md + 10 tools (grid, soil, veg, forcing) + preflight | Basin → Grid → Soil → Veg → Forcing → VIC Run |
+| **Lohmann Routing** | Channel discharge | SKILL.md + 2 tools (VIC preprocessing, routing params) + preflight | VIC Output → 22→7 cols → Flow direction → UH → Discharge |
+| **CaMa-Flood 4.20** | River routing + flood | SKILL.md + 2 tools (VIC→NetCDF, date processing) + preflight | VIC Output → NetCDF → Map regionalization → Hydrodynamics |
+| **DSSAT 4.8.5** | Crop simulation | SKILL.md + 9 tools + 1752-line triplets + 9 stage docs + workflow | Weather → Soil → Cultivar → FileX → Run → Parse yields |
+
+### Using These KI Packages
+
+1. Copy `models/<Name>/` into your project
+2. Use `CLAUDE_TEMPLATE.md` as your master instruction file
+3. Point your agent at the model: *"Read `models/VIC/SKILL.md` and run a simulation for Bengbu"*
+4. The agent reads SKILL.md, calls validated tools, runs the binary, interprets results
+
+See [`AGENT_SERVICE_GUIDE.md`](AGENT_SERVICE_GUIDE.md) for the full deployment guide with
+VIC+Routing and VIC+CaMa-Flood workflow walkthroughs.
+
+---
+
 ## Results
 
 ### Summary Statistics
