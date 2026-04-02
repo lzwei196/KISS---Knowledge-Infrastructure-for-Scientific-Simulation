@@ -598,9 +598,8 @@ If you use KDT in your research, please cite:
 
 ```bibtex
 @article{zhang2026kdt,
-  title   = {Knowledge Dissection Toolkit: Autonomous Extraction of
-             Operational Knowledge from Earth Science Models},
-  author  = {Zhang, Jianyun and {co-authors}},
+  title   = {Knowledge Dissection Toolkit},
+  author  = {Li, Ziwei et al.},
   journal = {[Journal]},
   year    = {2026},
   note    = {Software available at https://github.com/[repo]}
