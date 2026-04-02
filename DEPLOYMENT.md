@@ -279,8 +279,13 @@ The `preflight_forcing.py` validator catches unit mismatches BEFORE the model ru
 ### Kimi Code
 - Skill-based instruction loading (`.kimi/skills/*/SKILL.md`)
 - SKILL.md naming collision risk with model KI files (see Rule 3)
-- Tends to give up and report literature values instead of debugging tool failures
-- Weaker at Fortran/fixed-width format handling — needs explicit tool references
+- **Requires significantly stronger KI harness than Claude** (see Rule 7 below)
+- Observed failure modes across 5 model tests:
+  - Writes custom scripts instead of using KI tools (HYPE: 13hr forcing script vs 5min KI tool)
+  - Gives up on complex setups ("too complex for demo") instead of executing the pipeline (SWAT+: 3 attempts, 0 completions)
+  - Overrides KI tool defaults with wrong values (WRF-Hydro: set CHRTOUT=0, faked discharge)
+  - Reports literature values as simulation results when model execution fails (DSSAT: Montreal corn)
+  - Manually edits Fortran fixed-width files instead of using validated utilities (DSSAT: FileX)
 
 ### Qwen Code
 - Convention unclear — `QWEN.md` in project root (assumed)
@@ -289,5 +294,88 @@ The `preflight_forcing.py` validator catches unit mismatches BEFORE the model ru
 
 ---
 
-*This document is part of KDT v4.0. Last updated: 2026-04-01.*
+## Rule 7: Agent-Specific KI Harness Strength
+
+### The Observation
+
+The same KI produces different outcomes depending on which agent reads it. From testing
+31 models across 5 providers on HydroCraft:
+
+| Agent | KI Compliance | Harness Needed | Failure Mode |
+|-------|--------------|----------------|-------------|
+| **Claude Code** | High | Light — CLAUDE.md system prompt is sufficient | Rarely deviates; follows multi-step workflows reliably |
+| **OpenAI Codex** | Medium | Medium — needs explicit tool paths in instructions | Tends to write custom code; follows instructions when specific |
+| **Gemini CLI** | Medium | Medium — reads files when told but needs reminders | May not proactively read model SKILL.md |
+| **Kimi Code** | Low | **Heavy** — needs per-message reminders + anti-shortcut rules | Actively seeks shortcuts; overrides tool defaults; gives up on complex tasks |
+| **Qwen Code** | Unknown | Unknown | Insufficient testing data |
+
+### Why Agents Differ
+
+1. **System prompt authority**: Claude Code treats CLAUDE.md as system-level instructions
+   (always in context, high priority). Other agents load instruction files with lower priority
+   that degrades over long conversations.
+
+2. **Tool usage tendency**: Claude Code defaults to using existing tools and reading documentation.
+   Kimi Code defaults to writing new code — even when told not to.
+
+3. **Complexity tolerance**: When a task requires 10+ sequential steps (SWAT+ setup), Claude Code
+   executes them methodically. Kimi Code looks for shortcuts after step 2-3.
+
+4. **Failure response**: When a model crashes, Claude Code reads diagnostics and tries the documented
+   fix. Kimi Code reports what "should" work from its training data instead.
+
+### Implementing Harness Levels
+
+**Light harness** (Claude Code):
+```
+Layer 1: CLAUDE.md auto-loaded into system prompt (sufficient)
+Layer 2: Minimal reminder about image paths
+```
+
+**Medium harness** (Codex, Gemini):
+```
+Layer 1: AGENTS.md / GEMINI.md loaded at session start
+Layer 2: System prompt with model-specific guardrails
+Layer 3: Per-message reminder (8 rules)
+```
+
+**Heavy harness** (Kimi Code):
+```
+Layer 1: SKILL.md loaded as project skill
+Layer 2: Full system prompt with model-specific guardrails + unit traps
+Layer 3: Per-message reminder with 10 rules including:
+   - "NO SHORTCUTS — EXECUTE THE FULL PIPELINE"
+   - "NEVER skip steps or use 'practical/simplified approach'"
+   - "NEVER report literature values as results"
+   - "NEVER say 'too complex for this demo'"
+   - "If a tool fails, read triplets.yaml — do NOT give up"
+   - "USE KI TOOLS — NEVER write custom scripts"
+```
+
+### Measuring Harness Effectiveness
+
+Track these metrics per provider to tune harness strength:
+
+| Metric | How to Measure | Target |
+|--------|---------------|--------|
+| **KI tool usage rate** | Did the agent call KI tools or write custom? | >90% |
+| **Pipeline completion rate** | Did the agent finish all steps? | 100% |
+| **Shortcut attempts** | Count of "simplified approach" / "too complex" / literature values | 0 |
+| **Model execution success** | Did the actual binary produce output? | >80% |
+| **Output correctness** | Are values physically reasonable? | >90% |
+
+### Key Insight
+
+> **KI quality is necessary but not sufficient.** The same validated KI that works perfectly
+> with Claude Code fails with Kimi Code — not because the KI is wrong, but because the agent
+> doesn't follow it. The harness (system prompt + reminders + anti-shortcut rules) is what
+> bridges the gap between KI availability and KI compliance.
+>
+> When deploying a KI service with multiple providers, **test each provider independently**
+> and adjust the harness strength until compliance metrics meet targets. Do not assume that
+> passing with Claude Code means passing with all providers.
+
+---
+
+*This document is part of KDT v4.0. Last updated: 2026-04-02.*
 *Lessons derived from deploying HydroCraft (31 models, 5 providers) at app.hydrocraft.ai.*
