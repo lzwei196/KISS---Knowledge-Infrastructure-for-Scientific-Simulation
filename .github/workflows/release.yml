@@ -255,6 +255,15 @@ jobs:
         with:
           python-version: "3.12"
 
+      # Linux runs in the browser, by choice. macOS gets a native window because
+      # WKWebView is part of the OS; the Linux equivalent is WebKitGTK, which
+      # PyInstaller cannot carry reliably — its typelib needs a hand-written
+      # hook, and its helper processes resolve from a path baked into the
+      # library that WEBKIT_EXEC_PATH does not override (measured on 4.1: a
+      # bundle carrying its own helpers still spawned the system ones). So no
+      # pywebview is installed here: `import webview` fails, and app.py takes
+      # the browser path it already documents and announces. One UI either way
+      # — it is the same HTML file — and nothing to go wrong per distro.
       - name: Build
         run: |
           python -m pip install --quiet pyinstaller pyyaml truststore certifi \
@@ -268,7 +277,12 @@ jobs:
           ./dist/kiss --help
           # The self-contained desktop build: KI packages travel inside it, as
           # on macOS, so one download is the whole product.
-          pyinstaller --onefile --name "GeoForge-Desktop" \
+          #
+          # --onedir, not --onefile: onefile unpacks the ENTIRE bundle to /tmp
+          # on every launch, and with the KI packages inside that is hundreds of
+          # MB of copying before anything appears. macOS gets this for free
+          # because a .app is already a directory; Linux has to ask for it.
+          pyinstaller --onedir --name "GeoForge-Desktop" \
             --collect-all truststore \
             --collect-data certifi \
             --hidden-import spotpy \
@@ -289,13 +303,14 @@ jobs:
             --add-data "kiss/manifests:kiss/manifests" \
             --paths kiss \
             kiss/kiss_entry.py
-          ./dist/GeoForge-Desktop list | tail -2
-          ./dist/GeoForge-Desktop calibration-status | grep -q '"ready": true'
+          test -f dist/GeoForge-Desktop/_internal/kiss_cli/web/library.html
+          ./dist/GeoForge-Desktop/GeoForge-Desktop list | tail -2
+          ./dist/GeoForge-Desktop/GeoForge-Desktop calibration-status | grep -q '"ready": true'
 
       - name: Smoke test the frozen HTTPS stack
         run: |
           DEEPSEEK_API_KEY=definitely-invalid \
-            ./dist/GeoForge-Desktop gui --no-browser -p 18777 \
+            ./dist/GeoForge-Desktop/GeoForge-Desktop gui --no-browser -p 18777 \
             -w "$RUNNER_TEMP/geoforge-smoke" \
             > "$RUNNER_TEMP/geoforge-smoke.log" 2>&1 &
           APP_PID=$!
@@ -325,7 +340,72 @@ jobs:
         run: |
           mv dist/kiss kiss-linux-x86_64
           tar -czf kiss-linux-x86_64.tar.gz kiss-linux-x86_64
-          tar -czf GeoForge-Desktop-linux-x86_64.tar.gz -C dist GeoForge-Desktop
+
+          # A tarball of a binary is not an application. macOS users drag a
+          # .app to /Applications and get an icon and a launcher entry; the
+          # Linux equivalent is a .desktop file plus an icon in the hicolor
+          # theme, and a script that puts them where XDG says to look.
+          APP_VERSION="$(python -c 'import tomllib; print(tomllib.load(open("kiss/pyproject.toml", "rb"))["project"]["version"])')"
+          STAGE=GeoForge-Desktop-linux-x86_64
+          mkdir -p "$STAGE"
+          cp -a dist/GeoForge-Desktop "$STAGE/GeoForge-Desktop"
+          cp assets/logo-256.png "$STAGE/geoforge-desktop.png"
+
+          cat > "$STAGE/geoforge-desktop.desktop" <<DESKTOP
+          [Desktop Entry]
+          Type=Application
+          Name=GeoForge Desktop
+          GenericName=Earth-system model workbench
+          Comment=Earth-system models with their KISS Knowledge Infrastructures
+          Exec=GeoForge-Desktop
+          Icon=geoforge-desktop
+          Terminal=false
+          Categories=Science;Education;
+          X-AppVersion=${APP_VERSION}
+          DESKTOP
+          # No StartupWMClass: the UI is a browser tab here, so there is no
+          # window of our own for the launcher to match against.
+
+          cat > "$STAGE/install.sh" <<'INSTALL'
+          #!/usr/bin/env bash
+          # Install GeoForge Desktop for the current user. No root, no package
+          # manager: everything lands under ~/.local, which every mainstream
+          # desktop already reads.
+          set -euo pipefail
+          here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+          prefix="${PREFIX:-$HOME/.local}"
+          app="$prefix/lib/geoforge-desktop"
+
+          rm -rf "$app"
+          mkdir -p "$app" "$prefix/bin" "$prefix/share/applications" \
+                   "$prefix/share/icons/hicolor/256x256/apps"
+          cp -a "$here/GeoForge-Desktop/." "$app/"
+          ln -sf "$app/GeoForge-Desktop" "$prefix/bin/geoforge-desktop"
+          cp "$here/geoforge-desktop.png" \
+             "$prefix/share/icons/hicolor/256x256/apps/geoforge-desktop.png"
+          # Exec must be absolute once installed; the staged copy keeps a bare
+          # name so it also works when run straight from the unpacked folder.
+          sed "s|^Exec=.*|Exec=$app/GeoForge-Desktop|" \
+            "$here/geoforge-desktop.desktop" \
+            > "$prefix/share/applications/geoforge-desktop.desktop"
+
+          command -v update-desktop-database >/dev/null \
+            && update-desktop-database "$prefix/share/applications" || true
+          command -v gtk-update-icon-cache >/dev/null \
+            && gtk-update-icon-cache -qtf "$prefix/share/icons/hicolor" || true
+
+          echo "Installed to $app"
+          echo "Launch: geoforge-desktop   (or find 'GeoForge Desktop' in your launcher)"
+          case ":$PATH:" in
+            *":$prefix/bin:"*) ;;
+            *) echo "NOTE: $prefix/bin is not on PATH — add it to use the command." ;;
+          esac
+          INSTALL
+          chmod +x "$STAGE/install.sh"
+
+          # The Linux counterpart of the macOS CFBundleShortVersionString test.
+          grep -q "^X-AppVersion=${APP_VERSION}$" "$STAGE/geoforge-desktop.desktop"
+          tar -czf "$STAGE.tar.gz" "$STAGE"
 
       - uses: actions/upload-artifact@v4
         with:
@@ -348,8 +428,52 @@ jobs:
         with:
           python-version: "3.12"
 
+      # The version resource Explorer reads off the .exe — the Windows
+      # counterpart of the CFBundleShortVersionString the macOS job stamps with
+      # plutil. PyInstaller wants it as a file, so write it before building.
+      - name: Stamp the version resource
+        shell: bash
+        run: |
+          python - <<'PY'
+          import tomllib, pathlib
+          v = tomllib.load(open("kiss/pyproject.toml", "rb"))["project"]["version"]
+          parts = [int(x) for x in v.split(".")] + [0, 0, 0, 0]
+          quad = tuple(parts[:4])
+          pathlib.Path("version_info.txt").write_text(f"""VSVersionInfo(
+            ffi=FixedFileInfo(filevers={quad}, prodvers={quad}, mask=0x3f, flags=0x0,
+                              OS=0x40004, fileType=0x1, subtype=0x0, date=(0, 0)),
+            kids=[
+              StringFileInfo([StringTable('040904B0', [
+                StringStruct('CompanyName', 'GeoForge'),
+                StringStruct('FileDescription', 'GeoForge Desktop'),
+                StringStruct('FileVersion', '{v}'),
+                StringStruct('InternalName', 'GeoForge Desktop'),
+                StringStruct('OriginalFilename', 'GeoForge Desktop.exe'),
+                StringStruct('ProductName', 'GeoForge Desktop'),
+                StringStruct('ProductVersion', '{v}'),
+              ])]),
+              VarFileInfo([VarStruct('Translation', [1033, 1200])]),
+            ])
+          """, encoding="utf-8")
+          PY
+          echo "APP_VERSION=$(python -c 'import tomllib; print(tomllib.load(open("kiss/pyproject.toml","rb"))["project"]["version"])')" >> "$GITHUB_ENV"
+
       - name: Build
         shell: bash
+        # WINDOWS PATH RULE, and it bites in two different places:
+        #
+        # 1. --add-data separates source from destination with os.pathsep, so
+        #    ';' here and ':' everywhere else. A POSIX ':' silently bundles
+        #    NOTHING — no error, just a build that is missing its web UI or its
+        #    KI packages, discovered by a user staring at a blank window.
+        # 2. These steps run under Git Bash, whose MSYS layer rewrites anything
+        #    that looks like a POSIX path before the program sees it: a leading
+        #    '/' becomes 'C:/...' and ';'-joined values are treated as PATH-like
+        #    lists. That mangling is what corrupts --add-data arguments on this
+        #    runner and nowhere else. MSYS2_ARG_CONV_EXCL="*" turns it off for
+        #    the whole step so PyInstaller receives the strings as written.
+        env:
+          MSYS2_ARG_CONV_EXCL: "*"
         run: |
           python -m pip install --quiet pyinstaller pyyaml pywebview truststore certifi \
             -r kiss/requirements-calibration.txt
@@ -363,8 +487,15 @@ jobs:
           # --windowed gives it no console; pywebview drives the WebView2
           # runtime that ships with Windows 10 and 11. If that runtime is
           # missing on a user's machine, app.py falls back to the browser.
-          pyinstaller --onefile --windowed --name "GeoForge Desktop" \
+          #
+          # --onedir, not --onefile: onefile unpacks the ENTIRE bundle to %TEMP%
+          # on every launch, and with the KI packages inside that is ~700 MB
+          # rewritten before the window appears — with Defender scanning each
+          # extraction. A directory also lets the steps below assert what is
+          # actually inside the bundle, which a onefile .exe cannot show.
+          pyinstaller --onedir --windowed --name "GeoForge Desktop" \
             --icon assets/logo.ico \
+            --version-file version_info.txt \
             --collect-all truststore \
             --collect-data certifi \
             --hidden-import spotpy \
@@ -385,38 +516,78 @@ jobs:
             --add-data "kiss/manifests;kiss/manifests" \
             --paths kiss \
             kiss/kiss_entry.py
-          test -f "dist/GeoForge Desktop.exe"
+          # Prove the ';' actually worked. This is the assertion that would have
+          # caught a POSIX separator on the way in, instead of shipping it.
+          test -f "dist/GeoForge Desktop/GeoForge Desktop.exe"
+          test -f "dist/GeoForge Desktop/_internal/kiss_cli/web/library.html"
+          test -d "dist/GeoForge Desktop/_internal/models"
+          ACTUAL="$(powershell -NoProfile -Command \
+            "(Get-Item 'dist/GeoForge Desktop/GeoForge Desktop.exe').VersionInfo.ProductVersion" \
+            | tr -d '\r')"
+          echo "stamped ProductVersion=$ACTUAL expected=$APP_VERSION"
+          test "$ACTUAL" = "$APP_VERSION"
 
       - name: Smoke test the frozen HTTPS stack
         shell: bash
+        # Drive the APP, not the CLI. These are two different bundles built
+        # with two different flag sets, and only the app carries the KI
+        # packages — testing kiss.exe here left everything specific to the
+        # shipped application unverified. A --windowed .exe writes nothing to
+        # stdout on Windows, so everything it must prove is proved over its own
+        # HTTP API instead of by piping its output.
         run: |
           DEEPSEEK_API_KEY=definitely-invalid \
-            ./dist/kiss.exe gui --no-browser -p 18777 \
+            "./dist/GeoForge Desktop/GeoForge Desktop.exe" gui --no-browser -p 18777 \
             -w "$RUNNER_TEMP/geoforge-smoke" \
             > "$RUNNER_TEMP/geoforge-smoke.log" 2>&1 &
           APP_PID=$!
-          for _ in {1..60}; do
+          trap 'kill "$APP_PID" 2>/dev/null || true' EXIT
+          for _ in {1..80}; do
             curl -fsS http://127.0.0.1:18777/api/providers >/dev/null && break
             sleep 0.5
           done
+          # Every page the app can navigate to must exist in the bundle. A
+          # missing library.html shipped once and answered the Library button
+          # with a dead connection.
           for page in / /setup /library /i18n.js /clipboard.js; do
             curl -fsS "http://127.0.0.1:18777$page" >/dev/null
           done
+          # No --models flag was passed, so a populated list can only come from
+          # the copy bundled inside the .exe: the Windows stand-in for the
+          # macOS `"...app/Contents/MacOS/GeoForge Desktop" list | tail -2`.
+          curl -fsS http://127.0.0.1:18777/api/models > models.json
+          python -c "import json;d=json.load(open('models.json'));n=len(d if isinstance(d,list) else d.get('models',[]));print('bundled KIs:',n);raise SystemExit(0 if n else 1)"
           REPORT="$(curl -fsS 'http://127.0.0.1:18777/api/selfcheck?provider=api%3Adeepseek')"
           ! grep -q CERTIFICATE_VERIFY_FAILED <<< "$REPORT"
           grep -Eq 'HTTP (401|403)' <<< "$REPORT"
           kill "$APP_PID" 2>/dev/null || true
+          trap - EXIT
 
       - name: Smoke test against the real KI tree
         shell: bash
         run: |
           ./dist/kiss.exe --models models list | tail -3
+          ./dist/kiss.exe --models models doctor Landlab || true
 
       - name: Package
         shell: bash
         run: |
           mv dist/kiss.exe kiss-windows-x86_64.exe
-          7z a -tzip GeoForge-Desktop-windows-x86_64.zip "./dist/GeoForge Desktop.exe"
+          # No installer: unzip-and-run keeps the download honest and avoids a
+          # code-signing certificate we do not have. SmartScreen still warns on
+          # first launch, so say so where the user will read it.
+          cat > "dist/GeoForge Desktop/README.txt" <<'TXT'
+          GeoForge Desktop for Windows
+
+          1. Keep this folder together — "GeoForge Desktop.exe" needs the files
+             next to it.
+          2. Double-click "GeoForge Desktop.exe".
+          3. Windows SmartScreen will warn because the build is not signed:
+             More info -> Run anyway.
+
+          Optional: right-click the .exe -> Send to -> Desktop (create shortcut).
+          TXT
+          7z a -tzip GeoForge-Desktop-windows-x86_64.zip "./dist/GeoForge Desktop"
           7z a -tzip kiss-windows-x86_64.zip kiss-windows-x86_64.exe
 
       - uses: actions/upload-artifact@v4
