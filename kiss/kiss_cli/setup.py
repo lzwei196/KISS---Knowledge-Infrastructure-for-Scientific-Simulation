@@ -152,6 +152,106 @@ def clear_request(root: Path) -> None:
         pass
 
 
+#: What each package manager calls the build tools a model source needs. Same
+#: tools everywhere, different names — Homebrew's one `gcc` formula carries the
+#: Fortran compiler that Debian splits into `gfortran`, and the NetCDF Fortran
+#: bindings are a separate package almost everywhere.
+#:
+#: Every platform gets a real command. macOS used to be the only one that did;
+#: Linux and Windows were told to "use your system package manager" and left to
+#: work out that `nc-config` comes from `libnetcdf-dev`.
+_PACKAGES: dict[str, dict[str, str]] = {
+    "brew": {
+        "git": "git", "cmake": "cmake", "make": "make", "gmake": "make",
+        "gcc": "gcc", "g++": "gcc", "gfortran": "gcc",
+        "mpicc": "mpich", "mpicxx": "mpich", "mpif90": "mpich",
+        "nc-config": "netcdf", "nf-config": "netcdf-fortran",
+        "pkg-config": "pkg-config",
+    },
+    "apt": {
+        "git": "git", "cmake": "cmake", "make": "make", "gmake": "make",
+        "gcc": "gcc", "g++": "g++", "gfortran": "gfortran",
+        "mpicc": "libmpich-dev", "mpicxx": "libmpich-dev", "mpif90": "libmpich-dev",
+        "nc-config": "libnetcdf-dev", "nf-config": "libnetcdff-dev",
+        "pkg-config": "pkg-config",
+    },
+    "dnf": {
+        "git": "git", "cmake": "cmake", "make": "make", "gmake": "make",
+        "gcc": "gcc", "g++": "gcc-c++", "gfortran": "gcc-gfortran",
+        "mpicc": "mpich-devel", "mpicxx": "mpich-devel", "mpif90": "mpich-devel",
+        "nc-config": "netcdf-devel", "nf-config": "netcdf-fortran-devel",
+        "pkg-config": "pkgconf-pkg-config",
+    },
+    "pacman": {
+        "git": "git", "cmake": "cmake", "make": "make", "gmake": "make",
+        "gcc": "gcc", "g++": "gcc", "gfortran": "gcc-fortran",
+        "mpicc": "mpich", "mpicxx": "mpich", "mpif90": "mpich",
+        "nc-config": "netcdf", "nf-config": "netcdf-fortran",
+        "pkg-config": "pkgconf",
+    },
+    # Windows has no system package manager that carries a Fortran toolchain or
+    # NetCDF; MSYS2 is how these arrive in practice, and its packages are
+    # prefixed per target environment.
+    "msys2": {
+        "git": "git", "cmake": "mingw-w64-x86_64-cmake",
+        "make": "make", "gmake": "make",
+        "gcc": "mingw-w64-x86_64-gcc", "g++": "mingw-w64-x86_64-gcc",
+        "gfortran": "mingw-w64-x86_64-gcc-fortran",
+        "mpicc": "mingw-w64-x86_64-msmpi", "mpicxx": "mingw-w64-x86_64-msmpi",
+        "mpif90": "mingw-w64-x86_64-msmpi",
+        "nc-config": "mingw-w64-x86_64-netcdf",
+        "nf-config": "mingw-w64-x86_64-netcdf-fortran",
+        "pkg-config": "mingw-w64-x86_64-pkgconf",
+    },
+}
+
+#: How to invoke each manager. Kept next to the tables so a new manager is one
+#: entry in each, not a new branch in the message-building code.
+_INSTALLERS: dict[str, str] = {
+    "brew": "brew install",
+    "apt": "sudo apt install",
+    "dnf": "sudo dnf install",
+    "pacman": "sudo pacman -S",
+    "msys2": "pacman -S",
+}
+
+
+def _package_manager() -> str | None:
+    """The manager to advise on this machine, or None if we cannot tell.
+
+    Detected by what is actually on PATH rather than by distro name: a user on
+    a derivative still has the tool their base ships.
+    """
+    if sys.platform == "darwin":
+        return "brew" if shutil.which("brew") else None
+    if sys.platform == "win32":
+        # MSYS2's pacman is only ours to call if it is genuinely on PATH; the
+        # instructions are worth printing either way, so callers fall back to
+        # the generic message when this returns None.
+        return "msys2" if shutil.which("pacman") else None
+    for manager in ("apt", "dnf", "pacman"):
+        if shutil.which(manager):
+            return manager
+    return None
+
+
+def _shell_name() -> str:
+    """What the user calls the place they type commands."""
+    return "PowerShell" if sys.platform == "win32" else "Terminal"
+
+
+def _install_command(missing: list[str]) -> str:
+    """One copy-pasteable install line for the tools this machine lacks."""
+    manager = _package_manager()
+    if not manager:
+        return ""
+    table = _PACKAGES[manager]
+    packages = list(dict.fromkeys(table[x] for x in missing if x in table))
+    if not packages:
+        return ""
+    return f"{_INSTALLERS[manager]} " + " ".join(packages)
+
+
 def request_for_system_dependencies(root: Path, software: dict) -> dict | None:
     """Turn a failed machine-level dependency check into a visible handoff.
 
@@ -175,21 +275,12 @@ def request_for_system_dependencies(root: Path, software: dict) -> dict | None:
     missing = [item.strip() for item in match.group(1).split(",")] if match else []
     missing = [item for item in missing if item]
 
-    brew_packages = {
-        "git": "git", "cmake": "cmake", "make": "make", "gmake": "make",
-        "gcc": "gcc", "g++": "gcc", "gfortran": "gcc",
-        "mpicc": "mpich", "mpicxx": "mpich", "mpif90": "mpich",
-        "nc-config": "netcdf", "nf-config": "netcdf-fortran",
-        "pkg-config": "pkg-config",
-    }
-    packages = list(dict.fromkeys(brew_packages[x] for x in missing if x in brew_packages))
-    command = ("brew install " + " ".join(packages)
-               if sys.platform == "darwin" and shutil.which("brew") and packages else "")
+    command = _install_command(missing)
     names = ", ".join(missing) if missing else "required build libraries"
     message = (
-        f"The model build needs {names}. These are shared Mac tools, so the "
+        f"The model build needs {names}. These are shared system tools, so the "
         "setup agent will not install them across your system without you. "
-        + ("Run the command below in Terminal, then return here and continue."
+        + (f"Run the command below in {_shell_name()}, then return here and continue."
            if command else "Install them with your system package manager, then return here and continue.")
     )
     return request_user(root, {

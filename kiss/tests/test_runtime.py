@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import io
+import importlib
 import importlib.util
 import os
 import ssl
@@ -1967,6 +1968,91 @@ safety: {}
             self.assertEqual(captured["code"], 200)
             self.assertTrue(captured["obj"]["ready_to_import"])
             self.assertFalse((Path(td) / "Demo").exists())
+
+
+class PlatformParityTests(unittest.TestCase):
+    """The same feature has to exist on all three platforms, not just macOS.
+
+    Both gaps these cover shipped silently: Windows fell through the clipboard
+    branches and returned "" for every read and False for every write, and the
+    build-tools prompt only ever produced a real command for Homebrew.
+    """
+
+    def _capture(self, osname):
+        """Run a clipboard round-trip on a pretended OS, returning the argv."""
+        seen = {}
+
+        def fake_run(cmd, **kw):
+            seen["cmd"], seen["kw"] = cmd, kw
+            return SimpleNamespace(returncode=0, stdout="text")
+
+        with mock.patch.object(clipboard.subprocess, "run", fake_run), \
+             mock.patch.object(clipboard.platform, "system", lambda: osname), \
+             mock.patch.object(clipboard, "_mac_read", lambda: None), \
+             mock.patch.object(clipboard, "_mac_write", lambda _t: None):
+            read = clipboard.read_text()
+            read_cmd, read_kw = seen["cmd"], seen["kw"]
+            wrote = clipboard.write_text("hello")
+        return read, read_cmd, read_kw, wrote, seen["cmd"]
+
+    def test_windows_clipboard_is_wired_at_all(self):
+        read, read_cmd, _kw, wrote, write_cmd = self._capture("Windows")
+        self.assertEqual(read, "text")
+        self.assertTrue(wrote)
+        self.assertEqual(read_cmd[0], "powershell")
+        self.assertEqual(write_cmd[0], "powershell")
+        self.assertIn("Get-Clipboard", " ".join(read_cmd))
+        self.assertIn("Set-Clipboard", " ".join(write_cmd))
+
+    def test_clipboard_pins_utf8_on_every_platform(self):
+        # Locale-codepage decoding is what turned prompts into mojibake on a
+        # Chinese Windows install; the clipboard must not repeat it.
+        for osname in ("Windows", "Linux", "Darwin"):
+            with self.subTest(os=osname):
+                _r, _c, kw, _w, _wc = self._capture(osname)
+                self.assertEqual(kw.get("encoding"), "utf-8")
+
+    def test_windows_clipboard_does_not_flash_a_console(self):
+        # A windowed build owns no console, so a spawn without CREATE_NO_WINDOW
+        # pops a black window — here that would be on every copy and paste.
+        # _SPAWN is decided at import, so re-import under a pretended Windows.
+        with mock.patch.object(os, "name", "nt"):
+            windows = importlib.reload(clipboard)
+            flags = dict(windows._SPAWN)
+        importlib.reload(clipboard)          # restore for the rest of the suite
+        self.assertEqual(flags.get("creationflags"),
+                         getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000))
+        self.assertEqual(clipboard._SPAWN, {})   # and nothing extra elsewhere
+
+    def test_every_package_manager_names_the_same_tools(self):
+        # A tool missing from one table means that platform silently drops it
+        # from the install line and the user is told to find it themselves.
+        tools = set(setup._PACKAGES["brew"])
+        for manager, table in setup._PACKAGES.items():
+            with self.subTest(manager=manager):
+                self.assertEqual(set(table), tools)
+                self.assertIn(manager, setup._INSTALLERS)
+
+    def test_install_command_is_built_for_each_platform(self):
+        missing = ["gfortran", "nc-config"]
+        for manager, expected in (
+            ("brew", "brew install gcc netcdf"),
+            ("apt", "sudo apt install gfortran libnetcdf-dev"),
+            ("dnf", "sudo dnf install gcc-gfortran netcdf-devel"),
+            ("msys2", "pacman -S mingw-w64-x86_64-gcc-fortran mingw-w64-x86_64-netcdf"),
+        ):
+            with self.subTest(manager=manager), \
+                 mock.patch.object(setup, "_package_manager", lambda m=manager: m):
+                self.assertEqual(setup._install_command(missing), expected)
+
+    def test_install_command_is_empty_when_no_manager_is_found(self):
+        with mock.patch.object(setup, "_package_manager", lambda: None):
+            self.assertEqual(setup._install_command(["gfortran"]), "")
+
+    def test_prompt_does_not_call_them_mac_tools_on_other_platforms(self):
+        source = Path(setup.__file__).read_text()
+        self.assertNotIn("Mac tools", source)
+        self.assertIn("system tools", source)
 
 
 if __name__ == "__main__":
