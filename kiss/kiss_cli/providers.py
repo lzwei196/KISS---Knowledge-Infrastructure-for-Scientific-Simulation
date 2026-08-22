@@ -75,6 +75,10 @@ class Provider:
     #: screen where the user cannot do anything else.
     install: str = ""
     auth: str = ""
+    #: Windows override for ``install``, for CLIs whose published installer is
+    #: a POSIX shell script. Empty means ``install`` already works there — npm
+    #: does, so most providers need nothing here.
+    install_windows: str = ""
     #: Free, local-only authentication check. It must not call the model API.
     auth_probe: list[str] = field(default_factory=list)
     #: Old CLIs can be signed in but still reject the argv/model contract.
@@ -97,6 +101,22 @@ class Provider:
     #: from the diagnostics stream. Stream-json CLIs need no pattern — their
     #: id arrives as a JSON field.
     session_regex: str = ""
+
+    def __post_init__(self) -> None:
+        """Make the setup hints true on the machine reading them.
+
+        These two strings are shown verbatim on the one screen where a user has
+        nothing else to do — no provider is usable yet — so a command that
+        cannot run there is worse than no command. Resolved per-process rather
+        than baked in, because the module is imported on the user's machine.
+        """
+        if os.name != "nt":
+            return
+        if self.install_windows:
+            self.install = self.install_windows
+        # "Terminal" is a macOS application. Telling a Windows user to open it
+        # sends them looking for something that is not there.
+        self.auth = self.auth.replace("in Terminal", "in PowerShell")
 
     def available(self) -> bool:
         return self.health().usable
@@ -226,7 +246,12 @@ PROVIDERS: dict[str, Provider] = {
         notes="Reads ~/.gemini/GEMINI.md (global), not a project file.",
     ),
     "kimi": Provider(
-        name="kimi", models=["kimi-for-coding", "kimi-for-coding-highspeed", "k3", "k3-256k"], default_model="kimi-for-coding", install="curl -fsSL https://code.kimi.com/kimi-code/install.sh | bash", auth="run `kimi login` in Terminal", binary="kimi", label="Kimi Code",
+        name="kimi", models=["kimi-for-coding", "kimi-for-coding-highspeed", "k3", "k3-256k"], default_model="kimi-for-coding", install="curl -fsSL https://code.kimi.com/kimi-code/install.sh | bash",
+        # The published installer is a POSIX shell script: no curl, no bash, no
+        # sh on a stock Windows box. Pointing at the docs is honest; inventing a
+        # PowerShell one-liner we have never run would just fail further in.
+        install_windows="no Windows installer published — see https://code.kimi.com",
+        auth="run `kimi login` in Terminal", binary="kimi", label="Kimi Code",
         argv=["kimi", "-p", "{prompt}", "--output-format", "stream-json"],
         auth_probe=["kimi", "provider", "list", "--json"],
         output="stream-json",

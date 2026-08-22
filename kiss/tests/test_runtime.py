@@ -2054,6 +2054,35 @@ class PlatformParityTests(unittest.TestCase):
         self.assertNotIn("Mac tools", source)
         self.assertIn("system tools", source)
 
+    def _providers_on_windows(self):
+        """The provider table as a Windows machine builds it."""
+        with mock.patch.object(os, "name", "nt"):
+            win = importlib.reload(providers)
+            table = {n: (p.install, p.auth) for n, p in win.PROVIDERS.items()}
+        importlib.reload(providers)      # restore for the rest of the suite
+        return table
+
+    def test_no_setup_hint_tells_windows_to_open_terminal(self):
+        # "Terminal" is a macOS application; on Windows it sends the user
+        # looking for something that is not there. This is the setup screen,
+        # where no provider works yet and the hint is all they have.
+        for name, (_install, auth) in self._providers_on_windows().items():
+            with self.subTest(provider=name):
+                self.assertNotIn("in Terminal", auth)
+
+    def test_no_setup_hint_gives_windows_a_posix_only_command(self):
+        # A curl|bash installer cannot run on a stock Windows box: no curl, no
+        # bash, no sh. Naming a command that fails is worse than naming none.
+        for name, (install, _auth) in self._providers_on_windows().items():
+            with self.subTest(provider=name):
+                self.assertNotIn("| bash", install)
+                self.assertNotIn("curl -fsSL", install)
+
+    def test_posix_hints_are_left_alone(self):
+        # The Windows adaptation must not leak onto macOS or Linux.
+        self.assertIn("in Terminal", providers.PROVIDERS["claude"].auth)
+        self.assertIn("curl -fsSL", providers.PROVIDERS["kimi"].install)
+
     def test_windows_reveal_passes_select_and_path_as_one_argument(self):
         # explorer takes "/select,<path>" as a single token. Split in two it
         # drops the path and opens the default folder, so the file the user
