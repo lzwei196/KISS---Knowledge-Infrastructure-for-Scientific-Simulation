@@ -2054,6 +2054,29 @@ class PlatformParityTests(unittest.TestCase):
         self.assertNotIn("Mac tools", source)
         self.assertIn("system tools", source)
 
+    def test_windows_reveal_passes_select_and_path_as_one_argument(self):
+        # explorer takes "/select,<path>" as a single token. Split in two it
+        # drops the path and opens the default folder, so the file the user
+        # asked to see is the one thing they do not get.
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            target = root / "project" / "results" / "run.csv"
+            target.parent.mkdir(parents=True)
+            target.write_text("x")
+            seen = {}
+
+            with mock.patch.object(sessions.platform, "system", lambda: "Windows"), \
+                 mock.patch.object(sessions.subprocess, "Popen",
+                                   lambda argv, **kw: seen.setdefault("argv", argv)), \
+                 mock.patch.object(sessions, "project_path", lambda _w, _s: root / "project"):
+                sessions.open_in_file_manager(root, {}, "results/run.csv")
+
+        argv = seen["argv"]
+        self.assertEqual(argv[0], "explorer")
+        self.assertEqual(len(argv), 2, f"/select, must be one argument: {argv}")
+        self.assertTrue(argv[1].startswith("/select,"))
+        self.assertIn("run.csv", argv[1])
+
 
 if __name__ == "__main__":
     unittest.main()

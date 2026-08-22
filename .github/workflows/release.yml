@@ -521,6 +521,18 @@ jobs:
           test -f "dist/GeoForge Desktop/GeoForge Desktop.exe"
           test -f "dist/GeoForge Desktop/_internal/kiss_cli/web/library.html"
           test -d "dist/GeoForge Desktop/_internal/models"
+          # Windows builds the calibration framework in but was the only
+          # platform never checking that it survived freezing — the optimizers
+          # come in through --hidden-import, which fails at runtime, not build
+          # time. Asserted on the EXIT CODE rather than by grepping stdout:
+          # calibration-status already exits non-zero when the engine or any
+          # optimizer is missing, and that verdict survives even if a windowed
+          # .exe drops its stdout. The JSON is kept for the log either way.
+          "./dist/GeoForge Desktop/GeoForge Desktop.exe" calibration-status \
+            > "$RUNNER_TEMP/calibration-status.json" 2>&1 \
+            || { echo "::error::calibration framework did not survive the freeze"
+                 cat "$RUNNER_TEMP/calibration-status.json"; exit 1; }
+          cat "$RUNNER_TEMP/calibration-status.json"
           ACTUAL="$(powershell -NoProfile -Command \
             "(Get-Item 'dist/GeoForge Desktop/GeoForge Desktop.exe').VersionInfo.ProductVersion" \
             | tr -d '\r')"

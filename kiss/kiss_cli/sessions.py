@@ -435,7 +435,10 @@ def open_in_file_manager(workroot: Path, s: dict,
             "/usr/bin/open", str(target)]
         subprocess.Popen(argv)
     elif system == "Windows":
-        argv = ["explorer", "/select,", str(target)] if target.is_file() else [
+        # "/select," and the path are ONE argument to explorer, not two. Passed
+        # separately it drops the path and opens the default folder, so the
+        # file the user asked to see is the one thing they do not get.
+        argv = ["explorer", f"/select,{target}"] if target.is_file() else [
             "explorer", str(target)]
         subprocess.Popen(argv)
     else:
