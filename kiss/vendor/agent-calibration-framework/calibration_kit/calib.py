@@ -23,7 +23,7 @@ def _load_contract(ki_path):
     if not f.is_file():
         raise FileNotFoundError(f"no calibration.yaml at {f} — model has no calibration "
                                 f"contract yet (run the calibration-contract campaign)")
-    return yaml.safe_load(f.read_text())
+    return yaml.safe_load(f.read_text(encoding="utf-8"))
 
 
 def _validate_transforms(params):
@@ -146,7 +146,7 @@ def _load_reference_run(ki_path):
     if not f.is_file():
         return None
     try:
-        return json.loads(f.read_text())
+        return json.loads(f.read_text(encoding="utf-8"))
     except Exception:
         return None
 
@@ -514,7 +514,7 @@ def calibrate(ki_path: str, workdir: str, obs_shape_by_var: dict,
     import yaml as _yaml
 
     contract = _load_contract(ki_path)
-    dag = _yaml.safe_load((Path(ki_path) / "dag.yaml").read_text())
+    dag = _yaml.safe_load((Path(ki_path) / "dag.yaml").read_text(encoding="utf-8"))
     params = contract["parameters"]
     metric_overrides = _effective_metric_overrides(contract, determining_metric)
     _inj_mode = (contract.get("injection", {}) or {}).get("mode", "applicator")   # needed early (probe gate)
@@ -853,7 +853,7 @@ def calibrate_staged(ki_path, workdir, obs_shape_by_var, run_model=None,
     params = contract["parameters"]
     n = len(params)
     strat = contract.get("strategy", {}) or {}
-    dag = _yaml.safe_load((Path(ki_path) / "dag.yaml").read_text())
+    dag = _yaml.safe_load((Path(ki_path) / "dag.yaml").read_text(encoding="utf-8"))
     metric_overrides = _effective_metric_overrides(contract, determining_metric)
 
     if run_model is None:

@@ -35,7 +35,7 @@ def _resolve(addr, base):
 def _yaml_rw(addr, base, value=None):
     import yaml
     f = _resolve(addr, base)
-    doc = yaml.safe_load(f.read_text())
+    doc = yaml.safe_load(f.read_text(encoding="utf-8"))
     keys = re.split(r"\.|\[|\]", addr["path"])
     keys = [k for k in keys if k != ""]
     node = doc
@@ -53,7 +53,7 @@ def _yaml_rw(addr, base, value=None):
 # ---- json_path -------------------------------------------------------------
 def _json_rw(addr, base, value=None):
     f = _resolve(addr, base)
-    doc = json.loads(f.read_text())
+    doc = json.loads(f.read_text(encoding="utf-8"))
     keys = [k for k in re.split(r"\.|\[|\]", addr["path"]) if k != ""]
     node = doc
     for k in keys[:-1]:
@@ -83,7 +83,7 @@ def _ini_rw(addr, base, value=None):
 # ---- text_token (regex, one capture group) ---------------------------------
 def _text_rw(addr, base, value=None):
     f = _resolve(addr, base)
-    txt = f.read_text()
+    txt = f.read_text(encoding="utf-8")
     m = re.search(addr["pattern"], txt)
     if not m:
         raise KeyError(f"text_token pattern not found in {f}: {addr['pattern']}")
@@ -123,7 +123,7 @@ def _fixed_width_rw(addr, base, value=None):
     """Fixed-width field. address: {file, line, col_start, col_end} — 1-indexed line,
     1-indexed INCLUSIVE character columns. Right-justified into the field (Fortran-style)."""
     f = _resolve(addr, base)
-    lines = f.read_text().split("\n")
+    lines = f.read_text(encoding="utf-8").split("\n")
     ln = addr["line"] - 1
     c0, c1 = addr["col_start"] - 1, addr["col_end"]
     line = lines[ln]
@@ -146,7 +146,7 @@ def _table_cell_rw(addr, base, value=None):
     preserve exact layout)."""
     f = _resolve(addr, base)
     delim = addr.get("delimiter")
-    lines = f.read_text().split("\n")
+    lines = f.read_text(encoding="utf-8").split("\n")
     r, col = addr["row"], addr["col"]
     cells = lines[r].split(delim) if delim else lines[r].split()
     if value is None:

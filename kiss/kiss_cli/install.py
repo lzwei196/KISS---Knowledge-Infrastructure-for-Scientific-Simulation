@@ -477,7 +477,12 @@ def ensure_python_env(cfg, base_python: str | None = None) -> Step:
     import subprocess as _sp
 
     target = Path(cfg.roles["python_env"])
-    interpreter = target / "bin" / "python"
+    # ``venv`` follows the platform's native layout.  POSIX puts the
+    # interpreter in ``bin/python`` while Windows uses
+    # ``Scripts/python.exe``.  Looking only in ``bin`` made every successful
+    # Windows venv creation look like a failure and skipped model acquisition.
+    interpreter = (target / "Scripts" / "python.exe"
+                   if os.name == "nt" else target / "bin" / "python")
     if interpreter.exists():
         rc, _ = _run([str(interpreter), "-c", "import sys; print(sys.version)"])
         if rc == 0:

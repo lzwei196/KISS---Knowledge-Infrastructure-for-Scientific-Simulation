@@ -1442,6 +1442,29 @@ class ProjectPreparationTests(unittest.TestCase):
 
 
 class InstallStatusTests(unittest.TestCase):
+    def test_python_env_uses_windows_venv_layout(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            cfg = SimpleNamespace(
+                roles={"python_env": root / "venv"},
+                python="python",
+            )
+
+            def fake_run(argv, **_kwargs):
+                if argv[1:3] == ["-m", "venv"]:
+                    interpreter = root / "venv" / "Scripts" / "python.exe"
+                    interpreter.parent.mkdir(parents=True)
+                    interpreter.touch()
+                return 0, "ok"
+
+            with mock.patch.object(install.os, "name", "nt"), \
+                 mock.patch.object(install, "_run", side_effect=fake_run):
+                result = install.ensure_python_env(cfg, base_python="python")
+
+            self.assertTrue(result.ok)
+            self.assertEqual(cfg.python,
+                             str(root / "venv" / "Scripts" / "python.exe"))
+
     def test_primary_cause_is_saved_and_preflight_is_skipped(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)

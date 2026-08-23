@@ -134,7 +134,7 @@ class Evaluator:
             f"eval_metrics_cache_{_tag}_{_setup}.jsonl" if _tag else f"eval_metrics_cache_{_setup}.jsonl")
         try:
             if self._cache_file.is_file():
-                for line in self._cache_file.read_text().splitlines():
+                for line in self._cache_file.read_text(encoding="utf-8").splitlines():
                     try:
                         rec = _json.loads(line)
                         self._metrics_cache[rec["key"]] = rec["metrics"]

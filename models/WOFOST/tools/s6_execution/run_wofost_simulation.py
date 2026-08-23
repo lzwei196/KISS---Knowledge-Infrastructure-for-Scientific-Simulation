@@ -110,9 +110,22 @@ def process():
         with open(SOIL_PARAMS_JSON) as f:
             soildata = json.load(f)
 
+    # PCSE 6 owns these values in WOFOST72SiteDataProvider.  Legacy soil
+    # artifacts also contain them, which otherwise makes ParameterProvider
+    # abort with "Duplicate parameter found" (diagnostic dt_v003).
+    site_keys = ("IFUNRN", "NOTINF", "SSI", "SSMAX", "WAV", "SMLIM")
+    site_values = {key: soildata.pop(key) for key in site_keys if key in soildata}
+
     # PCSE 6.0+: CO2 no longer accepted by SiteDataProvider; handled internally
-    # via crop CO2 tables (dt_v002). Use WAV only.
-    sitedata = WOFOST72SiteDataProvider(WAV=WAV)
+    # via crop CO2 tables (dt_v002). Preserve site values from older soil files.
+    sitedata = WOFOST72SiteDataProvider(
+        WAV=site_values.get("WAV", WAV),
+        IFUNRN=site_values.get("IFUNRN", 0),
+        NOTINF=site_values.get("NOTINF", 0.0),
+        SSI=site_values.get("SSI", 0.0),
+        SSMAX=site_values.get("SSMAX", 0.0),
+        SMLIM=site_values.get("SMLIM", soildata.get("SMFCF", 0.3)),
+    )
     params = ParameterProvider(cropdata=cropdata, soildata=soildata, sitedata=sitedata)
 
     weather = CSVWeatherDataProvider(WEATHER_CSV)

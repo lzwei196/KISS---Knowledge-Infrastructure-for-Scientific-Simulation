@@ -87,7 +87,7 @@ def make_run_model(runner_spec: dict, ki_path: str, workdir: str):
             if r.returncode != 0:
                 return {}
             try:
-                return json.loads(Path(metrics_file).read_text())
+                return json.loads(Path(metrics_file).read_text(encoding="utf-8"))
             except Exception:
                 return {}
         return _run
