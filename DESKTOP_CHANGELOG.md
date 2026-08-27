@@ -6,6 +6,29 @@ Desktop update agents should read the JSON manifest first and use this file to e
 这是 `release-manifest.json` 的用户版说明。Windows、macOS 和 Linux 的更新 Agent
 应先读取 JSON，再用本文件向用户解释更新内容。
 
+## v0.6.47 — 2026-08-27
+
+### 中文
+
+- **所有桌面平台统一从 `main` 更新 KI**：Mac 和 Windows 的平台分支只承载各自的
+  App 代码与发布工作；共享的 `models/` KI 定义和安装清单始终从规范 `main` 分支读取。
+- 仍支持 `GEOFORGE_KI_UPDATE_BRANCH`，仅用于开发、暂存或故障恢复时明确覆盖来源。
+- 实际联网确认：更新器选择 `main`，固定到 commit
+  `2c11d79cff662b57a28e8aaec34896a24a8ae47f`；当前 KI tree 与已验证快照一致。
+
+验证结果：GeoForge 测试 **160/160 通过**。
+
+### English
+
+- **Every desktop platform now updates KIs from `main`:** Mac and Windows branches carry their
+  platform app code and releases only. Shared `models/` definitions and install manifests always
+  come from canonical `main`.
+- `GEOFORGE_KI_UPDATE_BRANCH` remains as an explicit development, staging, or recovery override.
+- A real routed check resolved `main` to commit
+  `2c11d79cff662b57a28e8aaec34896a24a8ae47f`; its KI trees match the validated snapshot.
+
+Validation: **160/160 GeoForge tests passed**.
+
 ## v0.6.46 — 2026-08-27
 
 ### 中文
