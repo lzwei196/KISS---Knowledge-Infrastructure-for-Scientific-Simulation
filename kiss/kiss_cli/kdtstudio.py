@@ -839,8 +839,20 @@ def run_probe(job_id: str, emit: Callable[[str], object] | None = None) -> dict:
             # every unknown domain. A user-defined domain must start without
             # that prior knowledge, so give s1 a small neutral scaffold. The
             # authoring agent must replace it with source-backed stages.
+            mapper = getattr(module, "s1_pipeline_map", None)
+            if (mapper is not None and hasattr(mapper, "load_domain_template") and
+                    bool(doc.get("domain_guided", doc["domain"] in DOMAINS))):
+                # KDT currently relies on the platform default encoding here.
+                # On Simplified-Chinese Windows that is GBK, while its YAML
+                # templates are UTF-8 and contain typographic punctuation.
+                def _load_utf8_domain_template(domain: str) -> dict:
+                    template_dir = Path(mapper.__file__).resolve().parent.parent / "domain_templates"
+                    template_file = template_dir / f"{domain}.yaml"
+                    if not template_file.is_file():
+                        template_file = template_dir / "hydrology.yaml"
+                    return mapper.yaml.safe_load(template_file.read_text(encoding="utf-8"))
+                mapper.load_domain_template = _load_utf8_domain_template
             if not bool(doc.get("domain_guided", doc["domain"] in DOMAINS)):
-                mapper = getattr(module, "s1_pipeline_map", None)
                 if mapper is not None and hasattr(mapper, "load_domain_template"):
                     mapper.load_domain_template = lambda _domain: {
                         "domain": doc["domain"],
@@ -1137,14 +1149,22 @@ def verify(job_id: str) -> dict:
         if preflight.is_file():
             original_has_contract = "PREFLIGHT_REPORT=" in preflight.read_text(
                 encoding="utf-8", errors="replace")
-            preflight.write_text(
-                "import json\n"
-                "report={'checks':[{'kind':'run','subject':'deferred',"
-                "'critical':True,'status':'fail','fix':'Run GeoForge software setup and verification'}]}\n"
-                "print('PREFLIGHT_REPORT='+json.dumps(report))\n"
-                "raise SystemExit(1)\n",
-                encoding="utf-8",
-            )
+            if os.name == "nt" and getattr(sys, "frozen", False):
+                # In a one-file Windows build sys.executable is GeoForge.exe,
+                # not Python. KDT would otherwise launch
+                # ``GeoForge.exe preflight_check.py`` and misreport a valid KI
+                # as broken. The untrusted preflight is deliberately deferred
+                # here, so omit it from the isolated structural-gate copy.
+                preflight.unlink()
+            else:
+                preflight.write_text(
+                    "import json\n"
+                    "report={'checks':[{'kind':'run','subject':'deferred',"
+                    "'critical':True,'status':'fail','fix':'Run GeoForge software setup and verification'}]}\n"
+                    "print('PREFLIGHT_REPORT='+json.dumps(report))\n"
+                    "raise SystemExit(1)\n",
+                    encoding="utf-8",
+                )
         with _engine_imports():
             gate = _load_engine_module("verify_ki_structure.py", "gate")
             result = gate.verify(safe, kind=str(doc.get("ki_kind") or "process_model"))

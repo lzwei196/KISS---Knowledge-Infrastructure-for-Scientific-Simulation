@@ -302,7 +302,10 @@ class UpdateManager:
         root = destination.resolve()
         for target, link in symlinks:
             link_path = Path(link)
-            if link_path.is_absolute():
+            # Zip link payloads use POSIX syntax even when extraction runs on
+            # Windows. pathlib.Path('/Users/...') is not absolute under
+            # WindowsPath, so check the archive spelling as well.
+            if link_path.is_absolute() or PurePosixPath(link).is_absolute():
                 raise RuntimeError(f"KI archive contains an absolute symbolic link: {link}")
             resolved = (target.parent / link_path).resolve()
             try:
