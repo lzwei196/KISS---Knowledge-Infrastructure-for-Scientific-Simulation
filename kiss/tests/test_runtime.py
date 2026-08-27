@@ -424,6 +424,29 @@ class ProviderHealthTests(unittest.TestCase):
         self.assertNotIn("GEOF_TOOL", output)
         self.assertIn("structured tools", output)
 
+    def test_direct_api_has_no_implicit_step_limit(self):
+        provider = api.ApiProvider(
+            name="demo", label="Demo API", wire="openai",
+            base_url="https://example.invalid", env_key="DEMO_API_KEY",
+            models={"demo": "demo"}, default_model="demo",
+        )
+        tool_turn = (
+            "", [("call-1", "list_ki_files", {})],
+            {"role": "assistant", "content": "", "tool_calls": []},
+        )
+        turns = [tool_turn for _ in range(45)] + [(
+            "Finished after the real workflow completed.", [],
+            {"role": "assistant", "content": "final"},
+        )]
+        with mock.patch.dict(api.os.environ, {"DEMO_API_KEY": "test"}), \
+             mock.patch.object(api, "_openai_turn", side_effect=turns) as turn, \
+             mock.patch.object(api, "execute_tool", return_value="files"):
+            output = "".join(api.run(
+                provider, SimpleNamespace(), SimpleNamespace(), "system", "task"))
+        self.assertEqual(turn.call_count, 46)
+        self.assertNotIn("stopped after", output)
+        self.assertIn("real workflow completed", output)
+
     def test_setup_launch_error_is_recoverable_tool_output(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
@@ -570,6 +593,39 @@ print(MARKER, len(text), implementation.__file__)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertIn("SOFTWARE PREFLIGHT PASSED", result.stdout)
         self.assertIn("Project data not installed globally", result.stdout)
+
+    def test_private_kdt_build_path_resolves_from_current_workspace(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            source = root / "source"
+            source.mkdir()
+            (source / "preflight_check.py").write_text(
+                'BINARY = "KISSPATH_INTERNAL_NOT_SHIPPED/auto_dissect/'
+                '_work/Alpine3D/source/repo/bin/alpine3d"\n',
+                encoding="utf-8",
+            )
+            cfg = paths.KissConfig.default(root / "chosen-install-folder")
+            live = root / "live"
+            report = port.materialise(source, live, cfg)
+            materialised = (live / "preflight_check.py").read_text(encoding="utf-8")
+        expected = (cfg.roles["binaries"] / "Alpine3D" / "source" /
+                    "repo" / "bin" / "alpine3d")
+        self.assertIn(str(expected), materialised)
+        self.assertNotIn("KISSPATH_INTERNAL_NOT_SHIPPED", materialised)
+        self.assertFalse(report.unresolved)
+
+    def test_every_preflight_uses_only_dynamic_desktop_paths(self):
+        models = Path(__file__).parents[2] / "models"
+        with tempfile.TemporaryDirectory() as td:
+            cfg = paths.KissConfig.default(Path(td) / "chosen-install-folder")
+            stale = []
+            for preflight in sorted(models.glob("*/preflight_check.py")):
+                rendered, _, _ = port.unsubstitute(
+                    preflight.read_text(encoding="utf-8"), cfg)
+                if ("KISSPATH_INTERNAL_NOT_SHIPPED/auto_dissect" in rendered or
+                        "/mnt/disk" in rendered or "/home/server" in rendered):
+                    stale.append(str(preflight.relative_to(models)))
+        self.assertEqual(stale, [], f"non-portable preflight paths: {stale}")
 
     def test_dssat_weather_fields_do_not_silently_drop_a_digit(self):
         script = (Path(__file__).parents[2] / "models" / "DSSAT" / "tools" /
