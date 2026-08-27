@@ -2031,7 +2031,17 @@ class Handler(BaseHTTPRequestHandler):
                 return
             instructions = (root / "CLAUDE.md").read_text(encoding="utf-8")
             system = (prompt.compose(live_ki, cfg, headless=True) +
-                      "\n\n[SOFTWARE SETUP CONTRACT]\n" + instructions)
+                      "\n\n[SOFTWARE SETUP CONTRACT]\n" + instructions +
+                      "\n\n[SETUP WRITE BOUNDARY]\n"
+                      f"Every file write, rename, patch, install, or deletion must stay "
+                      f"inside this setup workspace: {root}. System installations and "
+                      "toolchains outside it are read-only. This rule also applies to "
+                      "Python scripts, shell scripts, build tools, and every child "
+                      "process you launch. Never patch an external compiler, CMake "
+                      "package, registry entry, user profile, or another KI. If an "
+                      "external configuration needs relocation, copy the required "
+                      "files into this workspace and patch only that private copy. "
+                      "If that cannot work, create a structured setup request instead.")
             task = setup_flow.agent_task(
                 live_ki, cfg, root, resumed=resumed,
                 initial_failure=initial_check.detail,
