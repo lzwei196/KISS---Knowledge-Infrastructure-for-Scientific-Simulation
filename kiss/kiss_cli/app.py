@@ -197,8 +197,11 @@ def run_app(models_dir: Path | None, workroot: Path | None = None) -> int:
         # pythonnet and WebView2 runtime combinations.  Keep the Windows EXE
         # self-contained as the local backend, but render its identical web UI
         # in the user's default browser, as the Linux launcher already does.
+        port = _free_port()
+        from . import windows_tray
+        windows_tray.start(f"http://127.0.0.1:{port}/")
         return gui.serve(
-            models_dir=models_dir, port=_free_port(), open_browser=True,
+            models_dir=models_dir, port=port, open_browser=True,
             workroot=workroot, auto_update=True,
         )
 
