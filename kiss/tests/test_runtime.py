@@ -470,6 +470,20 @@ class ProviderHealthTests(unittest.TestCase):
 
 
 class FrozenRuntimeTests(unittest.TestCase):
+    def test_materialise_uses_configured_python_executable(self):
+        cfg = SimpleNamespace(
+            python=str(Path("C:/work/venv/Scripts/python.exe")),
+            roles={"python_env": Path("C:/work/venv")},
+        )
+        rendered, _count, unresolved = port.unsubstitute(
+            "KISSPATH_PYTHON_ENV/bin/python tool.py\n"
+            "KISSPATH_PYTHON_ENV/bin/python3 other.py\n",
+            cfg,
+        )
+        self.assertFalse(unresolved)
+        self.assertEqual(rendered.count("C:/work/venv/Scripts/python.exe"), 2)
+        self.assertNotIn("venv/bin/python", rendered)
+
     def test_harness_import_is_repo_local_and_dependency_light(self):
         """No user-site/editable copy may make this release test pass."""
         repo = Path(__file__).parents[2]

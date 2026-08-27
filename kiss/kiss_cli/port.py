@@ -63,6 +63,7 @@ TOKENS: dict[str, str] = {
 }
 
 TOKEN_RE = re.compile(r"KISSPATH_[A-Z_]+")
+PYTHON_TOKEN = "KISSPATH_PYTHON"
 
 TEXT_SUFFIXES = {".py", ".md", ".yaml", ".yml", ".sh", ".txt", ".cfg", ".ini",
                  ".json", ".toml", ".nml", ".inp"}
@@ -261,7 +262,19 @@ def unsubstitute(text: str, cfg) -> tuple[str, int, set[str]]:
     references to tooling that cannot exist here, and are reported by the caller
     rather than counted as failures.
     """
+    # Older KIs describe the interpreter as
+    # ``KISSPATH_PYTHON_ENV/bin/python``.  Substituting only the environment
+    # directory produces a path that can never exist in a Windows venv, whose
+    # interpreter lives below Scripts/python.exe.  Normalize that legacy
+    # compound placeholder to an executable token before the ordinary role
+    # expansion.  New KIs can use KISSPATH_PYTHON directly.
+    text, python_compat = re.subn(
+        r"KISSPATH_PYTHON_ENV[/\\]bin[/\\]python(?:3)?(?![\w.])",
+        PYTHON_TOKEN,
+        text,
+    )
     by_token = {tok: role for role, tok in TOKENS.items()}
+    by_token[PYTHON_TOKEN] = "__python_executable__"
     undeliverable = {tok for tok, role in by_token.items() if role in LEAK_ROLES}
     unresolved: set[str] = set()
     n = 0
@@ -274,7 +287,8 @@ def unsubstitute(text: str, cfg) -> tuple[str, int, set[str]]:
         tok = m.group(0)
         if tok in undeliverable:
             return tok
-        target = cfg.roles.get(by_token[tok])
+        role = by_token[tok]
+        target = getattr(cfg, "python", None) if role == "__python_executable__" else cfg.roles.get(role)
         if target is None:
             unresolved.add(tok)
             return tok
@@ -289,7 +303,7 @@ def unsubstitute(text: str, cfg) -> tuple[str, int, set[str]]:
         return _portable(target)
 
     text = pattern.sub(repl, text)
-    return text, n, unresolved
+    return text, n + python_compat, unresolved
 
 
 @dataclass
