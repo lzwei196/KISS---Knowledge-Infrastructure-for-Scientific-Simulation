@@ -2,6 +2,7 @@
 """Reproducible Windows GeoForge Desktop executable."""
 
 from pathlib import Path
+import sys
 import tomllib
 
 from PyInstaller.utils.hooks import collect_all, collect_dynamic_libs, copy_metadata
@@ -9,6 +10,11 @@ from PyInstaller.utils.hooks import collect_all, collect_dynamic_libs, copy_meta
 
 SOURCE = Path(SPECPATH).resolve()
 REPO = SOURCE.parent
+if sys.version_info >= (3, 13):
+    raise RuntimeError(
+        "Windows releases must be built with Python 3.11 or 3.12; "
+        "pythonnet/WinForms deadlocks under Python 3.13."
+    )
 with (SOURCE / "pyproject.toml").open("rb") as version_file:
     VERSION = tomllib.load(version_file)["project"]["version"]
 ICON = REPO / "assets" / "logo.ico"
