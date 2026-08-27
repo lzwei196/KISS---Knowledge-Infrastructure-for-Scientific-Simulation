@@ -57,8 +57,9 @@ def configured(workroot: Path, model: str) -> bool:
     return _key(model) in _read_index(workroot).get("models", {})
 
 
-def resolve(workroot: Path, model: str) -> Path:
-    entry = _read_index(workroot).get("models", {}).get(_key(model)) or {}
+def resolve(workroot: Path, model: str, *, index: dict | None = None) -> Path:
+    source = index if index is not None else _read_index(workroot)
+    entry = source.get("models", {}).get(_key(model)) or {}
     raw = entry.get("workspace") if isinstance(entry, dict) else None
     if not raw:
         return default_root(workroot, model)

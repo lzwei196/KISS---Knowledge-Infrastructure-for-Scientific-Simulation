@@ -263,7 +263,8 @@ def cmd_app(args) -> int:
 
 def cmd_gui(args) -> int:
     return gui.serve(args.models, port=args.port, open_browser=not args.no_browser,
-                     workroot=args.workroot, host=args.host)
+                     workroot=args.workroot, host=args.host,
+                     auto_update=args.desktop_server)
 
 
 def cmd_recipe(args) -> int:
@@ -415,6 +416,7 @@ def build_parser() -> argparse.ArgumentParser:
                    help="bind address; 0.0.0.0 to reach the GUI from another "
                         "machine (no auth — only on a network you trust)")
     q.add_argument("--no-browser", action="store_true")
+    q.add_argument("--desktop-server", action="store_true", help=argparse.SUPPRESS)
     q.add_argument("-w", "--workroot", type=Path, help="where installs live (default ~/kiss)")
     q.set_defaults(fn=cmd_gui)
 

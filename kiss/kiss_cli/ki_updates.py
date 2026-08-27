@@ -17,7 +17,6 @@ from __future__ import annotations
 import hashlib
 import json
 import os
-import platform
 import shutil
 import stat
 import tempfile
@@ -47,11 +46,10 @@ def branch_for_platform() -> str:
     override = os.environ.get("GEOFORGE_KI_UPDATE_BRANCH", "").strip()
     if override:
         return override
-    system = platform.system()
-    if system == "Darwin":
-        return "mac-version"
-    if system == "Windows":
-        return "windows-version"
+    # Application release branches contain platform packaging changes.  The
+    # KI library itself has one canonical source, recorded in the release
+    # manifest as main@ki_library.source_commit, so every desktop must fetch
+    # KIs from main rather than replacing them with a platform-branch snapshot.
     return "main"
 
 
@@ -174,9 +172,17 @@ class UpdateManager:
         self._lock = threading.RLock()
         self._thread: threading.Thread | None = None
         previous = _read_json(update_root() / "last-report.json")
-        self._report = previous or {
+        if previous.get("state") == "checking":
+            previous = {
+                **previous,
+                "state": "idle",
+                "summary": "The previous KI update check was interrupted. Choose Check to retry.",
+            }
+        self._report = {
+            **(previous or {
             "state": "idle",
             "summary": "KI updates have not been checked yet.",
+            }),
             "source_url": REPOSITORY_URL,
             "branch": self.branch,
         }

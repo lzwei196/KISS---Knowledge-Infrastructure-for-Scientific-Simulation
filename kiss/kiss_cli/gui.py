@@ -612,24 +612,84 @@ class Handler(BaseHTTPRequestHandler):
         local = self.workroot / "_manifests" / f"{ki.name}.yaml"
         return Manifest.load(local) if local.exists() else Manifest.stub_for(ki)
 
+    def _manifest_verified(self, ki) -> str:
+        """Read the small library-card field without parsing 127 YAML files.
+
+        Full manifests are loaded for setup and verification.  The library
+        index only needs the top-level ``verified`` scalar; constructing every
+        manifest here made the frozen Windows app spend many seconds in YAML
+        parsing while its initial page appeared frozen.
+        """
+        path = ki.manifest or self._shipped_manifest(ki.name)
+        if path and Path(path).is_file():
+            try:
+                with Path(path).open("r", encoding="utf-8") as handle:
+                    for line_number, line in enumerate(handle):
+                        if line_number >= 200:
+                            break
+                        if line.startswith("verified:"):
+                            value = line.partition(":")[2].strip().strip("'\"")
+                            if value in {"observed", "partial", "unverified", "manual"}:
+                                return value
+            except OSError:
+                pass
+        return "unverified"
+
+    def _manifest_setup_kind(self, ki) -> str:
+        """Return the library status category without a full YAML parse."""
+        verified = self._manifest_verified(ki)
+        if verified == "observed":
+            return "one-click"
+        if verified == "manual":
+            return "manual"
+        # A generated stub is manual only when it has neither a Python package
+        # route nor a source repository to build.
+        meta = ki.meta or {}
+        if not meta.get("repo_url") and str(meta.get("language") or "").lower() != "python":
+            return "manual"
+        return "guided"
+
     def _ki(self, name: str):
         return self.catalog.get(unquote(name))
 
     def _workdir(self, ki) -> Path:
-        return install_locations.resolve(self.workroot, ki.name)
+        index = getattr(self, "_install_location_index", None)
+        if index is None:
+            index = install_locations._read_index(self.workroot)
+            self._install_location_index = index
+        entry = index.get("models", {}).get(ki.name.casefold()) or {}
+        raw = entry.get("workspace") if isinstance(entry, dict) else None
+        if raw:
+            candidate = Path(str(raw)).expanduser()
+            if candidate.is_absolute():
+                return candidate.resolve(strict=False)
+        base = getattr(self, "_resolved_workroot", None)
+        if base is None:
+            base = Path(self.workroot).expanduser().resolve()
+            self._resolved_workroot = base
+        return base / ki.name.lower()
 
     def _status_for(self, ki) -> dict:
         """User-facing software state for one KI on this machine."""
         wd = self._workdir(ki)
-        sj = wd / "status.json"
-        man = self._manifest(ki)
-        if man.verified == "observed":
-            setup_kind = "one-click"
-        elif man.verified == "manual" or (man.acquire and man.acquire.strategy == "manual"):
-            setup_kind = "manual"
-        else:
-            setup_kind = "guided"
-        if sj.exists():
+        status_files = getattr(self, "_default_status_files", None)
+        if status_files is None:
+            status_files = {}
+            base = getattr(self, "_resolved_workroot", Path(self.workroot).expanduser())
+            try:
+                for child in base.iterdir():
+                    candidate = child / "status.json"
+                    if child.is_dir() and candidate.is_file():
+                        status_files[child.name.casefold()] = candidate
+            except OSError:
+                pass
+            self._default_status_files = status_files
+        configured = (getattr(self, "_install_location_index", {})
+                      .get("models", {}).get(ki.name.casefold()))
+        sj = ((wd / "status.json") if configured else
+              status_files.get(ki.name.casefold()))
+        setup_kind = self._manifest_setup_kind(ki)
+        if sj is not None and sj.exists():
             try:
                 st = json.loads(sj.read_text())
                 ok = bool(st.get("ok"))
@@ -1282,7 +1342,6 @@ class Handler(BaseHTTPRequestHandler):
         if route == "/api/models":
             out = []
             for ki in self.catalog:
-                man = self._manifest(ki)
                 shipped = self._shipped_manifest(ki.name).exists()
                 imported = bool(self.catalog.user_dir and ki.root.parent == self.catalog.user_dir)
                 checked_import = (ki.root / ".geoforge-import.json").is_file()
@@ -1291,7 +1350,7 @@ class Handler(BaseHTTPRequestHandler):
                     "package_origin": "imported" if imported else "bundled",
                     "package_status": ("valid" if checked_import else "unchecked") if imported else "curated",
                     "package_valid": not imported or checked_import,
-                    "verified": man.verified,
+                    "verified": self._manifest_verified(ki),
                     "has_manifest": bool(ki.manifest) or shipped,
                     "paths": ki.portability.total,
                 })
@@ -3240,7 +3299,13 @@ def serve(models_dir: Path | None, port: int = 8765, open_browser: bool = True,
 
         manager = ki_updates.UpdateManager(library_root, activate)
         Handler.ki_update_manager = manager
-        manager.start()
+        # A first Windows check downloads, extracts, and validates roughly
+        # 88 MB across all 127 KIs.  Starting that work during WebView startup
+        # starves the local API and makes the native window appear frozen.
+        # Keep the updater available from KI Library > Check, where the user
+        # explicitly starts it and receives progress/reporting.
+        if sys.platform != "win32":
+            manager.start()
     else:
         Handler.ki_update_manager = None
 
@@ -3253,8 +3318,12 @@ def serve(models_dir: Path | None, port: int = 8765, open_browser: bool = True,
         print(f"WARNING: listening on {host}:{port} with NO authentication — "
               f"anyone who can reach this address controls the agent. "
               f"Prefer an SSH tunnel: ssh -L {port}:127.0.0.1:{port} <this-host>")
-    agents = ", ".join(p.label for p in providers.available()) or "none ready"
-    print(f"GeoForge Desktop — {len(cat)} KISS KI packages · agents ready: {agents}")
+    # Do not synchronously probe every agent CLI before serve_forever().  Some
+    # CLIs perform an auth/network check (Kimi can take the full eight-second
+    # timeout), leaving the native window pointed at a listening socket that
+    # cannot answer yet and making Windows look frozen.  The UI health routes
+    # perform these checks on demand after the server is ready.
+    print(f"GeoForge Desktop — {len(cat)} KISS KI packages")
     print(f"  {url}\n  workdir root: {Handler.workroot}\nCtrl-C to stop.")
     if open_browser:
         threading.Timer(0.6, lambda: webbrowser.open(url)).start()

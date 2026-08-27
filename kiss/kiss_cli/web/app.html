@@ -542,15 +542,12 @@ async function refreshMachineStatus(redraw=true,force=false){
 
 async function loadAll(){
   try{
-    [SESSIONS,MODELS,SKILLS,MCP,STATUS,PROV,PROJECT_LOCATION]=await Promise.all([
+    [SESSIONS,MODELS,SKILLS,MCP,PROJECT_LOCATION]=await Promise.all([
       fetch("/api/sessions").then(r=>r.json()),
       fetch("/api/models").then(r=>r.json()),
       fetch("/api/skills").then(r=>r.json()),
       fetch("/api/mcp").then(r=>r.json()),
-      fetch("/api/status").then(r=>r.json()),
-      fetch("/api/providers").then(r=>r.json()),
       fetch("/api/project-location").then(r=>r.json())]);
-    LAST_STATUS_CHECK=Date.now();
     drawSessions(); drawProviders();
     const requested=new URLSearchParams(location.search).get("session");
     if(requested&&SESSIONS.some(s=>s.id===requested)){
@@ -562,6 +559,18 @@ async function loadAll(){
     else if(!CUR && SESSIONS.length) await openSession(SESSIONS[0].id);
     else if(!CUR) drawEmpty();
     setControls(true);
+    // Model verification and CLI authentication can touch many files or wait
+    // on an external command.  Populate those badges after the usable shell is
+    // visible so a slow Windows disk or CLI cannot look like an app freeze.
+    setTimeout(async()=>{
+      try{
+        [STATUS,PROV]=await Promise.all([
+          fetch("/api/status").then(r=>r.json()),
+          fetch("/api/providers").then(r=>r.json())]);
+        LAST_STATUS_CHECK=Date.now();
+        drawProviders();if(CUR)drawModelLabel();
+      }catch(_error){}
+    },750);
   }catch(e){
     $("#chat").innerHTML=`<div class="banner"><b>GeoForge could not start.</b> ${esc(e)}<br>Reload the app; if it repeats, open the KI Library and AI Settings.</div>`;
   }

@@ -1,13 +1,16 @@
 # -*- mode: python ; coding: utf-8 -*-
-"""Reproducible Windows GeoForge Desktop 0.6.43 executable."""
+"""Reproducible Windows GeoForge Desktop executable."""
 
 from pathlib import Path
+import tomllib
 
 from PyInstaller.utils.hooks import collect_all, collect_dynamic_libs, copy_metadata
 
 
 SOURCE = Path(SPECPATH).resolve()
 REPO = SOURCE.parent
+with (SOURCE / "pyproject.toml").open("rb") as version_file:
+    VERSION = tomllib.load(version_file)["project"]["version"]
 ICON = REPO / "assets" / "logo.ico"
 KI_TOOLS_SOURCE = REPO / "ki_tools_common"
 
@@ -53,6 +56,8 @@ a = Analysis(
         (str(SOURCE / "vendor" / "agent-calibration-framework"),
          "agent-calibration-framework"),
         (str(SOURCE / "manifests"), "kiss/manifests"),
+        (str(REPO / "release-manifest.json"), "."),
+        (str(REPO / "DESKTOP_CHANGELOG.md"), "."),
         *trust_datas,
         *calibration_datas,
     ],
@@ -96,5 +101,5 @@ coll = COLLECT(
     a.datas,
     strip=False,
     upx=False,
-    name="GeoForge Desktop 0.6.43 Windows",
+    name=f"GeoForge Desktop {VERSION} Windows",
 )

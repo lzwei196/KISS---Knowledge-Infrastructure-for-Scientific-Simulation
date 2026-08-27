@@ -19,6 +19,8 @@ browser, saying which and why. The GUI itself is identical in all three cases.
 from __future__ import annotations
 
 import socket
+import subprocess
+import sys
 import threading
 import time
 import urllib.request
@@ -192,14 +194,35 @@ def run_app(models_dir: Path | None, workroot: Path | None = None) -> int:
     port = _free_port()
     url = f"http://127.0.0.1:{port}/"
 
-    server = threading.Thread(
-        target=gui.serve,
-        kwargs=dict(models_dir=models_dir, port=port, open_browser=False,
-                    workroot=workroot, auto_update=True),
-        daemon=True,           # window closing ends the process, server included
-    )
-    server.start()
+    server_process = None
+    if sys.platform == "win32" and getattr(sys, "frozen", False):
+        # pythonnet's WinForms message loop can hold the frozen interpreter's
+        # GIL, leaving an in-process HTTP thread able to accept sockets but
+        # unable to run a handler.  Re-enter this same self-contained EXE as a
+        # hidden server process so WebView2 and the backend cannot deadlock.
+        argv = [sys.executable]
+        if models_dir is not None:
+            argv.extend(["--models", str(models_dir)])
+        argv.extend(["gui", "--no-browser", "--desktop-server", "--port", str(port)])
+        if workroot is not None:
+            argv.extend(["--workroot", str(workroot)])
+        server_process = subprocess.Popen(
+            argv, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000),
+        )
+        server = server_process
+    else:
+        server = threading.Thread(
+            target=gui.serve,
+            kwargs=dict(models_dir=models_dir, port=port, open_browser=False,
+                        workroot=workroot, auto_update=True),
+            daemon=True,       # window closing ends the process, server included
+        )
+        server.start()
     if not _wait_up(url):
+        if server_process is not None:
+            server_process.terminate()
         print("kiss: the local server did not come up; run `kiss gui` for details")
         return 1
 
@@ -207,7 +230,10 @@ def run_app(models_dir: Path | None, workroot: Path | None = None) -> int:
         import webbrowser
         print("kiss: pywebview not bundled — opening in your browser instead")
         webbrowser.open(url)
-        server.join()
+        if server_process is not None:
+            server_process.wait()
+        else:
+            server.join()
         return 0
 
     # Keep pywebview's native Edit menu and also serve the JS/native clipboard
@@ -220,5 +246,13 @@ def run_app(models_dir: Path | None, workroot: Path | None = None) -> int:
         js_api=desktop_api,
     )
     desktop_api.window = window
-    webview.start()   # blocks until the window is closed
+    try:
+        webview.start()   # blocks until the window is closed
+    finally:
+        if server_process is not None:
+            server_process.terminate()
+            try:
+                server_process.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                server_process.kill()
     return 0

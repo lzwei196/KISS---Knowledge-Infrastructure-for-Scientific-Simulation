@@ -190,6 +190,25 @@ class KiUpdateTests(unittest.TestCase):
         self.assertEqual(proxy_handler.proxies["https"], "http://127.0.0.1:7897")
         opener.open.assert_called_once_with(request, timeout=12)
 
+    def test_ki_updates_use_canonical_main_unless_explicitly_overridden(self):
+        with mock.patch.dict(
+                ki_updates.os.environ,
+                {"GEOFORGE_KI_UPDATE_BRANCH": ""}, clear=False):
+            self.assertEqual(ki_updates.branch_for_platform(), "main")
+        with mock.patch.dict(
+                ki_updates.os.environ,
+                {"GEOFORGE_KI_UPDATE_BRANCH": "staging-kis"}, clear=False):
+            self.assertEqual(ki_updates.branch_for_platform(), "staging-kis")
+
+    def test_saved_platform_report_is_normalized_to_canonical_main(self):
+        self.home.mkdir(parents=True, exist_ok=True)
+        (self.home / "last-report.json").write_text(json.dumps({
+            "state": "checking", "branch": "windows-version",
+        }), encoding="utf-8")
+        manager = ki_updates.UpdateManager(self.base, lambda _path: None)
+        self.assertEqual(manager.status()["branch"], "main")
+        self.assertEqual(manager.status()["state"], "idle")
+
     def test_frontend_explains_scope_and_desktop_starts_updates(self):
         package = Path(__file__).parents[1] / "kiss_cli"
         app = (package / "app.py").read_text(encoding="utf-8")
