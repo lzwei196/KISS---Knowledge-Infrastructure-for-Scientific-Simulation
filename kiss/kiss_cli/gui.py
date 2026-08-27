@@ -2032,7 +2032,10 @@ class Handler(BaseHTTPRequestHandler):
             instructions = (root / "CLAUDE.md").read_text(encoding="utf-8")
             system = (prompt.compose(live_ki, cfg, headless=True) +
                       "\n\n[SOFTWARE SETUP CONTRACT]\n" + instructions)
-            task = setup_flow.agent_task(live_ki, cfg, root, resumed=resumed)
+            task = setup_flow.agent_task(
+                live_ki, cfg, root, resumed=resumed,
+                initial_failure=initial_check.detail,
+            )
             kind, _, pname = want.partition(":")
             if not pname:
                 kind, pname = "cli", kind
@@ -2053,7 +2056,7 @@ class Handler(BaseHTTPRequestHandler):
             if kind == "api":
                 prov = api.PROVIDERS[pname]
                 stream = api.run(
-                    prov, live_ki, cfg, system, task, model=llm, max_steps=40,
+                    prov, live_ki, cfg, system, task, model=llm, max_steps=80,
                     setup_mode=True, setup_context={"run_builtin": run_builtin},
                     presentation="log",
                 )

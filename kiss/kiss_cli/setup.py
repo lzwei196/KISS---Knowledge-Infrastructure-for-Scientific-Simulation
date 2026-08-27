@@ -497,7 +497,8 @@ def prepare(ki, man, root: Path, repo_root: Path, models_dir: Path):
     return live_ki, cfg
 
 
-def agent_task(ki, cfg, root: Path, *, resumed: dict | None = None) -> str:
+def agent_task(ki, cfg, root: Path, *, resumed: dict | None = None,
+               initial_failure: str = "") -> str:
     """Short task layered over the provider's auto-loaded setup instructions."""
     prior = ""
     if resumed:
@@ -506,6 +507,13 @@ def agent_task(ki, cfg, root: Path, *, resumed: dict | None = None) -> str:
             f"User note: {resumed.get('user_note') or '(none)'}\n"
             f"Files supplied: {json.dumps(uploads(root), ensure_ascii=False)}\n"
             f"Resume hint: {resumed.get('resume_hint') or '(inspect the workspace)'}\n"
+        )
+    known_failure = ""
+    if initial_failure.strip():
+        known_failure = (
+            "\nGeoForge already ran the deterministic preflight. Start from this "
+            "failure instead of spending turns rediscovering it:\n"
+            f"{initial_failure.strip()[:12000]}\n"
         )
     return f"""Finish setting up {ki.name} on this machine now.
 
@@ -517,6 +525,7 @@ The only successful outcome is a passing preflight.
 If a licence, login, protected download, system privilege, or user choice makes
 progress impossible, create one structured setup request exactly as described
 in the project instructions, then stop. Do not pretend that blocked work passed.
+{known_failure}
 {prior}"""
 
 
