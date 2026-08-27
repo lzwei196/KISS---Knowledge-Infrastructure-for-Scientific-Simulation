@@ -17,7 +17,6 @@ from __future__ import annotations
 import hashlib
 import json
 import os
-import platform
 import shutil
 import stat
 import tempfile
@@ -44,14 +43,15 @@ MAX_ARCHIVE_FILES = 50_000
 
 
 def branch_for_platform() -> str:
+    """Return the canonical KI source branch for every desktop platform.
+
+    mac-version and windows-version contain platform application code. KI
+    definitions are shared scientific contracts and are maintained on main.
+    The environment override remains available for development and recovery.
+    """
     override = os.environ.get("GEOFORGE_KI_UPDATE_BRANCH", "").strip()
     if override:
         return override
-    system = platform.system()
-    if system == "Darwin":
-        return "mac-version"
-    if system == "Windows":
-        return "windows-version"
     return "main"
 
 

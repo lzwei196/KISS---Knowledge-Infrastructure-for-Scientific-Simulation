@@ -28,6 +28,16 @@ class KiUpdateTests(unittest.TestCase):
         self.env.stop()
         self.temp.cleanup()
 
+    def test_every_desktop_uses_main_as_the_canonical_ki_source(self):
+        with mock.patch.dict(
+                ki_updates.os.environ,
+                {"GEOFORGE_KI_UPDATE_BRANCH": ""}, clear=False):
+            self.assertEqual(ki_updates.branch_for_platform(), "main")
+        with mock.patch.dict(
+                ki_updates.os.environ,
+                {"GEOFORGE_KI_UPDATE_BRANCH": "staging-kis"}, clear=False):
+            self.assertEqual(ki_updates.branch_for_platform(), "staging-kis")
+
     @staticmethod
     def _dag(name: str) -> str:
         return (
