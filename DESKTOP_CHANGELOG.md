@@ -6,6 +6,20 @@ Desktop update agents should read the JSON manifest first and use this file to e
 这是 `release-manifest.json` 的用户版说明。Windows、macOS 和 Linux 的更新 Agent
 应先读取 JSON，再用本文件向用户解释更新内容。
 
+## v0.6.47 — 2026-08-27
+
+### 中文
+
+- **Windows 可以在 App 内启用 Kimi Code**：AI 设置会明确显示“禁用 Kimi（安全）”和
+  “允许完整电脑访问并启用 Kimi”。选择完整访问时必须确认风险；Windows 不再把尚未
+  支持的项目范围 Kimi 沙箱标为可用的推荐项。
+
+### English
+
+- **Kimi Code can be enabled from the Windows app:** AI Settings clearly offers either keeping
+  Kimi disabled or enabling it with full-computer access. Enabling requires an explicit risk
+  confirmation; Windows no longer presents the unavailable project-scoped sandbox as usable.
+
 ## v0.6.46 — 2026-08-27
 
 ### 中文

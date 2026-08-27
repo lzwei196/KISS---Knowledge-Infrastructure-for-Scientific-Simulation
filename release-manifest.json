@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "product": "GeoForge Desktop",
-  "version": "0.6.46",
+  "version": "0.6.47",
   "release_date": "2026-08-27",
   "source": {
     "branch": "mac-version",
@@ -21,6 +21,12 @@
     ]
   },
   "changes": [
+    {
+      "id": "windows-kimi-access-choice",
+      "area": "security",
+      "summary": "Windows AI Settings now clearly offers either disabling Kimi Code or explicitly enabling it with full-computer access after a risk confirmation.",
+      "user_action": "To use Kimi Code on Windows, open AI Settings, choose Enable Kimi with full computer access, confirm the warning, and save."
+    },
     {
       "id": "ki-updater-network-route",
       "area": "connectivity",
