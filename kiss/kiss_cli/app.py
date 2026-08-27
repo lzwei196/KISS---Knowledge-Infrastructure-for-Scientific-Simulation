@@ -169,7 +169,8 @@ def run_app(models_dir: Path | None, workroot: Path | None = None) -> int:
 
             import threading as _th
             _th.Thread(target=_bootstrap, daemon=True).start()
-            webview.start()          # returns when the setup window closes
+            webview.start()
+            # returns when the setup window closes
 
     resolved, err = _ensure_models(models_dir)
     if err:
@@ -190,6 +191,16 @@ def run_app(models_dir: Path | None, workroot: Path | None = None) -> int:
         return 1
     if resolved is not None:
         models_dir = resolved
+
+    if sys.platform == "win32" and getattr(sys, "frozen", False):
+        # The WinForms/WebView2 host has proved unstable across current
+        # pythonnet and WebView2 runtime combinations.  Keep the Windows EXE
+        # self-contained as the local backend, but render its identical web UI
+        # in the user's default browser, as the Linux launcher already does.
+        return gui.serve(
+            models_dir=models_dir, port=_free_port(), open_browser=True,
+            workroot=workroot, auto_update=True,
+        )
 
     port = _free_port()
     url = f"http://127.0.0.1:{port}/"
@@ -239,7 +250,11 @@ def run_app(models_dir: Path | None, workroot: Path | None = None) -> int:
     # Keep pywebview's native Edit menu and also serve the JS/native clipboard
     # bridge. The old callback edited AppKit from pywebview's worker thread;
     # depending on timing, Cocoa discarded the menu and Cmd+V still did nothing.
-    webview.settings['SHOW_DEFAULT_MENUS'] = True
+    # This setting exists for Cocoa's native Edit menu.  Enabling it on the
+    # pythonnet WinForms backend can deadlock the visible Windows message loop;
+    # Windows clipboard actions use the JS/native clipboard bridge below.
+    if sys.platform == "darwin":
+        webview.settings['SHOW_DEFAULT_MENUS'] = True
     desktop_api = _DesktopApi(webview)
     window = webview.create_window(
         "GeoForge Desktop", url, width=1200, height=800, min_size=(800, 560),
@@ -247,7 +262,8 @@ def run_app(models_dir: Path | None, workroot: Path | None = None) -> int:
     )
     desktop_api.window = window
     try:
-        webview.start()   # blocks until the window is closed
+        webview.start()
+        # blocks until the window is closed
     finally:
         if server_process is not None:
             server_process.terminate()

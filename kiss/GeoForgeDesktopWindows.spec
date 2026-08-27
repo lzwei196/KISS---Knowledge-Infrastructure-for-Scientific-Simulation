@@ -21,11 +21,7 @@ ICON = REPO / "assets" / "logo.ico"
 KI_TOOLS_SOURCE = REPO / "ki_tools_common"
 
 trust_datas, trust_binaries, trust_hidden = collect_all("truststore")
-webview_hidden = [
-    "webview",
-    "webview.platforms.winforms",
-    "webview.platforms.edgechromium",
-]
+webview_hidden = []
 calibration_datas = []
 for distribution in ("numpy", "PyYAML", "spotpy", "pymoo", "moocore"):
     calibration_datas.extend(copy_metadata(distribution))
@@ -77,6 +73,7 @@ a = Analysis(
         "torch", "torchvision", "torchaudio", "pandas", "matplotlib",
         "PIL", "pyarrow", "IPython", "jedi", "botocore", "boto3",
         "fsspec", "lxml", "dask", "numba", "mpi4py", "pathos",
+        "webview", "pythonnet", "clr", "clr_loader", "PySide6", "qtpy",
     ],
     noarchive=False,
     optimize=0,
