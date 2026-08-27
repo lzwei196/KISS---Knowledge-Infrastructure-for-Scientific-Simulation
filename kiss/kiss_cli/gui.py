@@ -2056,7 +2056,7 @@ class Handler(BaseHTTPRequestHandler):
             if kind == "api":
                 prov = api.PROVIDERS[pname]
                 stream = api.run(
-                    prov, live_ki, cfg, system, task, model=llm, max_steps=80,
+                    prov, live_ki, cfg, system, task, model=llm, max_steps=None,
                     setup_mode=True, setup_context={"run_builtin": run_builtin},
                     presentation="log",
                 )
@@ -2975,7 +2975,7 @@ class Handler(BaseHTTPRequestHandler):
                 api.run(
                     prov, run_ki, cfg, system, bare_task or task,
                     model=llm, history=prior,
-                    max_steps=40 if needs_setup else 30,
+                    max_steps=None if needs_setup else 30,
                     setup_mode=needs_setup,
                     setup_context={"run_builtin": run_builtin,
                                    "project_root": project} if needs_setup else None,

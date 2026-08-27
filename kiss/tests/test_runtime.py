@@ -425,6 +425,26 @@ class ProviderHealthTests(unittest.TestCase):
         self.assertNotIn("GEOF_TOOL", output)
         self.assertIn("structured tools", output)
 
+    def test_direct_api_can_run_without_a_step_limit(self):
+        provider = api.ApiProvider(
+            name="demo", label="Demo API", wire="openai",
+            base_url="https://example.invalid", env_key="DEMO_API_KEY",
+            models={"demo": "demo"}, default_model="demo",
+        )
+        tool_turn = ("", [("call", "list_ki_files", {})],
+                     {"role": "assistant", "content": "", "tool_calls": []})
+        turns = [tool_turn] * 15 + [
+            ("preflight passed", [], {"role": "assistant", "content": "final"})]
+        with mock.patch.dict(api.os.environ, {"DEMO_API_KEY": "test"}), \
+             mock.patch.object(api, "_openai_turn", side_effect=turns) as turn, \
+             mock.patch.object(api, "execute_tool", return_value="files"):
+            output = "".join(api.run(
+                provider, SimpleNamespace(), SimpleNamespace(), "system", "task",
+                max_steps=None))
+        self.assertEqual(turn.call_count, 16)
+        self.assertIn("preflight passed", output)
+        self.assertNotIn("stopped after", output)
+
     def test_setup_launch_error_is_recoverable_tool_output(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)

@@ -22,6 +22,7 @@ a tool meant to install cleanly anywhere.
 from __future__ import annotations
 
 import csv
+import itertools
 import json
 import os
 import re
@@ -1119,7 +1120,7 @@ def _looks_like_text_tool_request(text: str) -> bool:
 
 
 def run(prov: ApiProvider, ki, cfg, system: str, task: str,
-        *, model: str | None = None, max_steps: int = 12,
+        *, model: str | None = None, max_steps: int | None = 12,
         history: list[dict] | None = None,
         approve: Callable[[str, dict], bool] | None = None,
         setup_mode: bool = False,
@@ -1159,7 +1160,8 @@ def run(prov: ApiProvider, ki, cfg, system: str, task: str,
     messages.append({"role": "user", "content": task})
     text_tool_retries = 0
 
-    for step in range(max_steps):
+    steps = range(max_steps) if max_steps is not None else itertools.count()
+    for step in steps:
         try:
             if prov.wire == "anthropic":
                 text, calls, raw = _anthropic_turn(prov, model_id, system, messages, tools, key)
@@ -1228,4 +1230,5 @@ def run(prov: ApiProvider, ki, cfg, system: str, task: str,
             for cid, out in results:
                 messages.append({"role": "tool", "tool_call_id": cid, "content": out})
 
-    yield f"\n[stopped after {max_steps} steps without finishing]"
+    if max_steps is not None:
+        yield f"\n[stopped after {max_steps} steps without finishing]"
