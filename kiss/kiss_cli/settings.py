@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import json
 import os
+import sys
 import urllib.request
 from pathlib import Path
 from urllib.parse import urlsplit
@@ -189,6 +190,8 @@ def masked() -> dict:
     """Settings for the UI: keys reduced to a recognisable tail."""
     s = load()
     out = {"default_provider": s.get("default_provider", ""),
+           "platform": "windows" if sys.platform == "win32" else
+                       "macos" if sys.platform == "darwin" else "linux",
            "kimi_security_mode": kimi_security_mode(s),
            "api_keys": {}, **proxy_details(s)}
     for k in KEY_NAMES:

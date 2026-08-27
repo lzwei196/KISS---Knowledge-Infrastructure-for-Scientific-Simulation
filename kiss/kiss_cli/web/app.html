@@ -1586,6 +1586,7 @@ function drawLocalSettings(){
 let LAST_PROVIDER_CHECK=0;
 let SETTINGS_PROXY_EFFECTIVE="";
 let SETTINGS_PROXY_PROVIDERS=new Set(["network:github","cli:claude","cli:codex"]);
+let SETTINGS_PLATFORM="";
 async function refreshProviders(showStatus=false){
   const note=$("#s-local-msg");if(showStatus&&note)note.textContent="checking…";
   try{
@@ -1630,6 +1631,7 @@ async function openSettings(){
   $("#s-proxy-mode").value=s.proxy_mode||"auto";
   $("#s-proxy-url").value=s.proxy_url||"";
   SETTINGS_PROXY_EFFECTIVE=s.proxy_effective||"";
+  SETTINGS_PLATFORM=s.platform||"";
   SETTINGS_PROXY_PROVIDERS=new Set(s.proxy_providers||["network:github","cli:claude","cli:codex"]);
   drawProxyProviderSettings();
   drawProxySettingsNote();
@@ -1643,11 +1645,30 @@ $("#s-recheck").onclick=()=>refreshProviders(true);
 $("#s-proxy-mode").onchange=drawProxySettingsNote;
 function drawKimiSecurityNote(){
   const full=$("#s-kimi-security").value==="full";
+  const select=$("#s-kimi-security"),zh=chineseUI(),windows=SETTINGS_PLATFORM==="windows";
+  if(windows){
+    select.options[0].textContent=zh?"不启用 Kimi Code（安全）":"Kimi Code disabled (safe)";
+    select.options[1].textContent=zh?"允许完整电脑访问并启用 Kimi":"Enable Kimi with full computer access";
+    $("#s-kimi-security-note").textContent=full
+      ?(zh?"Kimi Code 将能读取和修改当前 Windows 账户可以访问的所有文件。仅在你接受此风险时启用。":"Kimi Code can read and change every file accessible to this Windows account. Enable only if you accept this risk.")
+      :(zh?"Windows 尚不支持项目范围 Kimi 沙箱，因此 Kimi Code 当前不会启动。选择完整电脑访问可启用。":"Project-scoped Kimi security is not available on Windows, so Kimi Code will not start. Choose full computer access to enable it.");
+    return;
+  }
+  select.options[0].textContent=zh?"项目范围（推荐）":"Project scoped (recommended)";
+  select.options[1].textContent=zh?"完整电脑访问权限":"Full computer access";
   $("#s-kimi-security-note").textContent=full
     ?"Kimi can read and change any file your macOS account can access. Use this only for a task that cannot run in project-scoped mode."
     :"Project scoped lets Kimi use this project, its KI, approved data, and its own login state. Other personal files are blocked by macOS.";
 }
-$("#s-kimi-security").onchange=drawKimiSecurityNote;
+$("#s-kimi-security").onchange=()=>{
+  if(SETTINGS_PLATFORM==="windows"&&$("#s-kimi-security").value==="full"){
+    const zh=chineseUI(),accepted=confirm(zh
+      ?"启用后，Kimi Code 可以读取和修改此 Windows 账户可访问的所有文件。确定接受此风险并启用吗？"
+      :"Kimi Code will be able to read and change every file accessible to this Windows account. Accept this risk and enable it?");
+    if(!accepted)$("#s-kimi-security").value="scoped";
+  }
+  drawKimiSecurityNote();
+};
 $("#help").onclick=()=>$("#guide").classList.add("open");
 $("#guide-close").onclick=()=>$("#guide").classList.remove("open");
 $("#s-close").onclick=()=>$("#modal").classList.remove("open");

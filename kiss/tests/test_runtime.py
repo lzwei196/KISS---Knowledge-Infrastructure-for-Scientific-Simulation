@@ -867,6 +867,7 @@ class KimiSecurityTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td, \
              mock.patch.object(settings, "_path", return_value=Path(td) / "settings.json"):
             self.assertEqual(settings.masked()["kimi_security_mode"], "scoped")
+            self.assertIn(settings.masked()["platform"], {"windows", "macos", "linux"})
             settings.update({"kimi_security_mode": "full"})
             self.assertEqual(settings.masked()["kimi_security_mode"], "full")
             with self.assertRaisesRegex(ValueError, "unknown Kimi security mode"):
