@@ -1120,7 +1120,7 @@ def _looks_like_text_tool_request(text: str) -> bool:
 
 
 def run(prov: ApiProvider, ki, cfg, system: str, task: str,
-        *, model: str | None = None, max_steps: int | None = 12,
+        *, model: str | None = None, max_steps: int | None = None,
         history: list[dict] | None = None,
         approve: Callable[[str, dict], bool] | None = None,
         setup_mode: bool = False,

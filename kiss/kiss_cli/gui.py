@@ -2176,7 +2176,7 @@ class Handler(BaseHTTPRequestHandler):
                 prov = api.PROVIDERS[pname]
                 cfg = self._config(ki)
                 for piece in api.run(
-                    prov, ki, cfg, system, task, model=llm, max_steps=4,
+                    prov, ki, cfg, system, task, model=llm,
                     approve=lambda _name, _args: False,
                 ):
                     if not self._chunk(piece):
@@ -2300,7 +2300,7 @@ class Handler(BaseHTTPRequestHandler):
                 engine_ki = KI(name="KDT-single", root=kdtstudio.engine_root())
                 stream = api.run(
                     prov, engine_ki, cfg, system, task, model=llm,
-                    max_steps=80, setup_mode=True,
+                    setup_mode=True,
                     setup_context={"project_root": root}, presentation="log",
                 )
             else:
@@ -2854,7 +2854,7 @@ class Handler(BaseHTTPRequestHandler):
             # and connection probes retain their smaller bounds.
             _forward_chat_stream(
                 api.run(prov, ki, cfg, system, bare_task or task,
-                        model=llm, history=prior, max_steps=60,
+                        model=llm, history=prior,
                         project_mode=True),
                 out,
             )
@@ -2985,7 +2985,6 @@ class Handler(BaseHTTPRequestHandler):
                 api.run(
                     prov, run_ki, cfg, system, bare_task or task,
                     model=llm, history=prior,
-                    max_steps=None if needs_setup else 30,
                     setup_mode=needs_setup,
                     setup_context={"run_builtin": run_builtin,
                                    "project_root": project} if needs_setup else None,

@@ -65,6 +65,38 @@ TOKENS: dict[str, str] = {
 TOKEN_RE = re.compile(r"KISSPATH_[A-Z_]+")
 PYTHON_TOKEN = "KISSPATH_PYTHON"
 
+# Older generated KIs can still contain paths into the private KDT build
+# scratch tree.  The private prefix is unavailable on every desktop, but the
+# model-relative suffix is portable and belongs below the configured binaries
+# root.  Keep this deliberately limited to known _work layouts; unrelated
+# private caches must remain unresolved instead of being guessed.
+_INTERNAL_WORK_PATH = re.compile(
+    r"KISSPATH_INTERNAL_NOT_SHIPPED/"
+    r"auto_dissect(?:_multi_agent)?/_work(?:_v2)?/"
+    r"(?P<model>[^/\s\"'<>`]+)"
+    r"(?:/(?P<rest>[^\s\"'<>`\]\[),;]*))?"
+)
+_INTERNAL_SPLIT_LITERAL = re.compile(
+    r'(?P<q>["\'])(?P<a>[^"\']*KISSPATH_INTERNAL_NOT_SHIPPED[^"\']*)'
+    r'(?P=q)\s*(?P=q)(?P<b>[^"\']*)(?P=q)',
+    re.S,
+)
+_INTERNAL_VENV_PYTHON = re.compile(
+    r"KISSPATH_INTERNAL_NOT_SHIPPED/"
+    r"auto_dissect(?:_multi_agent)?/_work(?:_v2)?/"
+    r"[^/\s\"'<>`]+/venv/bin/python(?:\d+(?:\.\d+)*)?"
+)
+_INTERNAL_VENV_SITE = re.compile(
+    r"KISSPATH_INTERNAL_NOT_SHIPPED/"
+    r"auto_dissect(?:_multi_agent)?/_work(?:_v2)?/"
+    r"[^/\s\"'<>`]+/venv/lib/python[^/\s\"'<>`]+/site-packages"
+)
+_INTERNAL_SHARED_ROOT = re.compile(
+    r"KISSPATH_INTERNAL_NOT_SHIPPED/"
+    r"auto_dissect(?:_multi_agent)?"
+    r"(?:/ki_tools_common)?"
+)
+
 TEXT_SUFFIXES = {".py", ".md", ".yaml", ".yml", ".sh", ".txt", ".cfg", ".ini",
                  ".json", ".toml", ".nml", ".inp"}
 
@@ -262,6 +294,38 @@ def unsubstitute(text: str, cfg) -> tuple[str, int, set[str]]:
     references to tooling that cannot exist here, and are reported by the caller
     rather than counted as failures.
     """
+    # Adjacent Python literals form one path at runtime. Join only literals
+    # carrying the private marker so the migration rules see the full suffix.
+    joined = 0
+    for _ in range(8):
+        text, changed = _INTERNAL_SPLIT_LITERAL.subn(
+            lambda match: (
+                f"{match.group('q')}{match.group('a')}"
+                f"{match.group('b')}{match.group('q')}"
+            ),
+            text,
+        )
+        joined += changed
+        if not changed:
+            break
+
+    # A private model venv maps to the configured desktop Python environment,
+    # not to the model's binary checkout. Recognise it before the broader
+    # per-model _work migration.
+    text, migrated_python = _INTERNAL_VENV_PYTHON.subn(
+        "KISSPATH_PYTHON_ENV/bin/python", text)
+    text, migrated_sites = _INTERNAL_VENV_SITE.subn(
+        "KISSPATH_PYTHON_ENV", text)
+
+    def migrate_work_path(match: "re.Match") -> str:
+        suffix = "/".join(filter(None, (
+            match.group("model"), match.group("rest") or "")))
+        return f"KISSPATH_BINARIES/{suffix}"
+
+    text, migrated_work = _INTERNAL_WORK_PATH.subn(migrate_work_path, text)
+    text, migrated_shared = _INTERNAL_SHARED_ROOT.subn(
+        "KISSPATH_KI_TOOLS_COMMON", text)
+
     # Older KIs describe the interpreter as
     # ``KISSPATH_PYTHON_ENV/bin/python``.  Substituting only the environment
     # directory produces a path that can never exist in a Windows venv, whose
@@ -277,7 +341,8 @@ def unsubstitute(text: str, cfg) -> tuple[str, int, set[str]]:
     by_token[PYTHON_TOKEN] = "__python_executable__"
     undeliverable = {tok for tok, role in by_token.items() if role in LEAK_ROLES}
     unresolved: set[str] = set()
-    n = 0
+    n = (joined + migrated_python + migrated_sites + migrated_work +
+         migrated_shared)
 
     ordered = sorted(by_token, key=len, reverse=True)
     pattern = re.compile("|".join(re.escape(tok) for tok in ordered))
