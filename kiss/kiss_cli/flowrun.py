@@ -416,19 +416,29 @@ def _launcher_path() -> Path | None:
     import sys as _sys
     exe = Path(_sys.executable)
     home = Path.home()
-    candidates = [home / ".kiss" / "bin", Path(_os.environ.get("TMPDIR", "/tmp")) / "geoforge-bin"]
+    # user-owned locations only (kimi desktop R2 #3: never a world-writable temp dir). When
+    # every candidate has a space in it the caller quotes the binary path instead.
+    candidates = [home / ".kiss" / "bin", home / ".config" / "geoforge" / "bin"]
     for d in candidates:
         if " " in str(d):
             continue
         try:
             d.mkdir(parents=True, exist_ok=True)
+            try:
+                _os.chmod(d, 0o755)
+            except OSError:
+                pass
             if _os.name == "nt":
                 p = d / "geoforge-flow.cmd"
-                p.write_text(f'@echo off\r\n"{exe}" %*\r\n', encoding="utf-8")
+                body = f'@echo off\r\n"{exe}" %*\r\n'
             else:
                 p = d / "geoforge-flow"
-                p.write_text(f'#!/bin/sh\nexec "{exe}" "$@"\n', encoding="utf-8")
-                p.chmod(p.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
+                body = f'#!/bin/sh\nexec "{exe}" "$@"\n'
+            # always point at the CURRENT executable (an old launcher must not exec a stale app)
+            if not p.is_file() or p.read_text(encoding="utf-8", errors="replace") != body:
+                p.write_text(body, encoding="utf-8")
+            if _os.name != "nt":
+                p.chmod(0o755)
             return p
         except OSError:
             continue
@@ -479,6 +489,10 @@ def policy_for_cli(t: Turn, provider_name: str, pol) -> object:
     their path-scoped READ grants are reused; see flow.policy._claude_executing_tools)."""
     flow = t.session.flow
     S = flow.states.State
+    if t.kind == "setup" or t.session.state in (S.SETUP_REQUIRED, S.SETUP_RUNNING, S.SETUP_VERIFIED):
+        # kimi desktop R2 #1: the setup sub-flow is driven by the desktop's own setup grants
+        # (_grant_setup_execution); a flow policy here would replace them with read-only argv
+        return None
     base: list[str] | None = None
     if provider_name == "claude" and pol is not None:
         from . import policy as _pol

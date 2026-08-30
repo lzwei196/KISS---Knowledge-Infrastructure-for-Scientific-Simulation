@@ -292,3 +292,22 @@ def test_run_ki_tool_checks_step_ki_and_tool_before_running(tmp_path):
     assert not (project / "outputs").exists()                              # nothing ran
     names = {t["name"]: t for t in api.tool_schemas(a, project_mode=True, flow=t2.session)}
     assert "stage" not in names["report_project_progress"]["input_schema"]["properties"]
+
+
+def test_setup_turn_keeps_the_desktop_setup_grants_on_cli(tmp_path):
+    project = _project(tmp_path); ki = _ki(tmp_path, "M")
+    flowrun.pre(project, "run M for 2003", ["M"], [ki], None, None)
+    t = _drive_planning(tmp_path, ki, project)
+    flowrun.after(project, t, "planned", setup_ok=False)                  # SETUP_REQUIRED
+    st = flowrun.setup_turn(project, [ki], _cfg(project), "cli", "claude")
+    assert st.kind == "setup" and flowrun.policy_for_cli(st, "claude", None) is None
+
+
+def test_launcher_is_rewritten_when_the_executable_changes(monkeypatch, tmp_path):
+    monkeypatch.setattr(sys, "frozen", True, raising=False)
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    monkeypatch.setattr(sys, "executable", str(tmp_path / "GeoForge Desktop v1"))
+    w1 = flowrun.wrapper_commands()["run_tool"].rsplit(" run-tool", 1)[0]
+    monkeypatch.setattr(sys, "executable", str(tmp_path / "GeoForge Desktop v2"))
+    w2 = flowrun.wrapper_commands()["run_tool"].rsplit(" run-tool", 1)[0]
+    assert w1 == w2 and "v2" in Path(w2).read_text() and "/tmp/" not in w2
