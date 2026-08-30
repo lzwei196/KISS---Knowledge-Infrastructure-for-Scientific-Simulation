@@ -184,3 +184,25 @@ def test_cli_policy_and_worktree_for_codex(tmp_path):
     tc = flowrun.turn(project, [ki], _cfg(project), "cli", "claude", None, "run M for 2003")
     assert tc.planning_worktree is None and tc.policy.argv_delta[0] == "--allowedTools"
     assert "--dangerously-skip-permissions" in tc.policy.drop_flags
+
+
+def test_project_view_labels_unvalidated_artifacts_under_the_flow(tmp_path):
+    from kiss_cli import projectview
+    project = _project(tmp_path); ki = _ki(tmp_path, "M")
+    (project / "artifacts").mkdir()
+    (project / "artifacts" / "handmade.svg").write_text("<svg/>")
+    # no flow yet: no labels
+    assert "evidence" not in projectview._automatic(project)["panels"][0]
+    flowrun.pre(project, "run M for 2003", ["M"], [ki], None, None)
+    view = projectview._automatic(project)
+    assert view["panels"][0]["evidence"] == "unvalidated" and "unvalidated" in view["panels"][0]["title"]
+    # a verified run output is labelled verified
+    t = _drive_planning(tmp_path, ki, project)
+    flowrun.after(project, t, "planned", setup_ok=True)
+    t2 = flowrun.turn(project, [ki], _cfg(project), "api", "deepseek", None, "go")
+    step = t2.session.plan["steps"][0]["id"]
+    api.execute_tool("run_ki_tool", {"tool_path": "tools/run.py", "arguments": ["artifacts/q.csv"],
+                                     "plan_step_id": step}, ki, _cfg(project), project_mode=True, flow=t2.session)
+    view = projectview._automatic(project)
+    by = {p["path"]: p["evidence"] for p in view["panels"]}
+    assert by["artifacts/q.csv"] == "verified" and by["artifacts/handmade.svg"] == "unvalidated"

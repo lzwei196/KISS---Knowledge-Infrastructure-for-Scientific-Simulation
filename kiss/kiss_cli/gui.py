@@ -2992,7 +2992,8 @@ class Handler(BaseHTTPRequestHandler):
                 return flow_turn
             run_ki = resolved[0]
             # every selected KI's contract, in this state's wording (no more resolved[0] only)
-            system = prompt.compose_multi(resolved, cfg, headless=False, execute=execute_contract)
+            system = prompt.compose_multi(resolved, cfg, headless=False, execute=execute_contract,
+                                          strict=flow_turn is not None)
             system += "\n\n" + session_rules + task_extra
             if setup_contract:
                 system += ("\n\n[IF THIS TASK NEEDS THE SOFTWARE]\n"
@@ -3044,7 +3045,7 @@ class Handler(BaseHTTPRequestHandler):
         if not (wd / paths.CONFIG_NAME).exists():
             (wd / paths.CONFIG_NAME).write_text(cfg.dumps(), encoding="utf-8")
         full = prompt.compose_multi(
-            resolved, cfg, execute=execute_contract,
+            resolved, cfg, execute=execute_contract, strict=flow_turn is not None,
             task=session_rules + task_extra + "\n\n" + task)
         if setup_contract:
             full += ("\n\n[IF THIS TASK NEEDS THE SOFTWARE]\n"
