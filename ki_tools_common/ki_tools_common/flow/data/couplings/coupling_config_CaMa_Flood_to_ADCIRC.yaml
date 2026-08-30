@@ -1,0 +1,132 @@
+# Coupling Config v2: CaMa_Flood -> ADCIRC
+
+coupling_config_version: '2.0'
+generated: '2026-04-27'
+generator: ata_pipeline2_coupling_gen.py v2
+metadata:
+  edge_id: CaMa_Flood_to_ADCIRC
+  source_model: CaMa_Flood
+  target_model: ADCIRC
+  source_domain: routing
+  target_domain: ocean
+  edge_type: type5_cross_scale_cross_domain
+  n_forward_variables: 1
+  n_combine_variables: 0
+  n_plausible_feedback: 0
+  n_review_feedback: 0
+  is_feedback: false
+forward_edges:
+- canonical_id: discharge
+  source_canonical_id: discharge
+  target_canonical_id: discharge
+  match_type: exact_canonical
+  source_local_name: discharge
+  source_unit: m3/s
+  target_local_name: river_discharge
+  target_unit: m3/s
+combine_edges: []
+plausible_feedback: []
+review_feedback: []
+compatibility:
+- canonical_id: discharge
+  source_canonical_id: discharge
+  target_canonical_id: discharge
+  match_type: exact_canonical
+  primitives_needed:
+  - map_space
+  - align_time
+  - validate_boundary
+  details:
+    convert_units:
+      status: not_needed
+      units_match: true
+    exchange_data: &id001
+      status: format_unspecified
+      variable_mapping:
+        source_name: discharge
+        target_name: river_discharge
+      canonical_id: discharge
+    map_space: &id002
+      from_type: regular_grid
+      to_type: unstructured_mesh
+      method: unknown
+      canonical_id: discharge
+    align_time: &id003
+      from_resolution: daily
+      to_resolution: sub-hourly
+      direction: disaggregate
+      aggregation_method: distribute_uniform
+      semantic_type: volumetric_flow
+      canonical_id: discharge
+    validate_boundary: &id004
+      checks:
+      - no_nan
+      - 'range: [0, 100000]'
+      canonical_id: discharge
+primitives_needed:
+- align_time
+- map_space
+- validate_boundary
+execution_order:
+- align_time
+- map_space
+- validate_boundary
+primitive_configs:
+  convert_units: []
+  exchange_data:
+  - *id001
+  map_space:
+  - *id002
+  align_time:
+  - *id003
+  validate_boundary:
+  - *id004
+risks:
+  total_traps: 4
+  automatable: 2
+  judgment_required: 2
+  traps:
+  - canonical_var: discharge
+    model: ADCIRC
+    trap_id: dt_006
+    description: '{''description'': ''Growing oscillations in water level. Model may crash with NaN after many timesteps.
+      Elevation values grow exponentially.'', ''error_pattern'': ''NaN|Inf|overflow'', ''detection_method'': ''ru'
+    detection: '{''root_cause'': ''Timestep DTDP violates CFL stability condition'', ''explanation'': ''The CFL condition
+      requires DTDP < dx_min / sqrt(g * h_max), where dx_min is the smallest element size and h_max is the '
+    fix: '{''action'': ''Reduce DTDP to satisfy CFL: DTDP < dx_min / sqrt(g * h_max)'', ''tool_to_run'': None, ''manual_steps'':
+      [''Identify smallest element size (from mesh generation tool)'', ''Identify maximum depth (f'
+    is_unit_trap: false
+    automatable: false
+  - canonical_var: discharge
+    model: ADCIRC
+    trap_id: dt_018
+    description: '{''description'': ''Boundary conditions applied incorrectly — flow direction wrong at some boundaries. No
+      error message.'', ''error_pattern'': '''', ''detection_method'': ''visual_inspection''}'
+    detection: '{''root_cause'': ''Boundary nodes not ordered counter-clockwise around the domain'', ''explanation'': ''ADCIRC
+      requires boundary nodes to be listed counter-clockwise (CCW) when viewed from above. Land bounda'
+    fix: '{''action'': ''Reorder boundary nodes to counter-clockwise'', ''tool_to_run'': None, ''manual_steps'': [''Visualize
+      boundary nodes and verify CCW ordering'', ''Land boundaries: domain interior on left side'', ''Op'
+    is_unit_trap: false
+    automatable: true
+  - canonical_var: discharge
+    model: CaMa_Flood
+    trap_id: dt_cama_003
+    description: '{''description'': ''CaMa-Flood runs but river channel widths are unrealistically wide or narrow, causing
+      wrong water depths and discharge timing'', ''error_pattern'': '''', ''detection_method'': ''value_comparis'
+    detection: '{''root_cause'': ''calc_rivwth was run using the global diminfo file instead of the regional diminfo file'',
+      ''explanation'': ''The calc_rivwth tool reads the diminfo file to determine grid dimensions (nrows'
+    fix: '{''action'': ''Re-run calc_rivwth with the regional diminfo file'', ''tool_to_run'': '''', ''manual_steps'': [''cd
+      map/{basin}_15min'', ''Verify regional diminfo exists: cat diminfo_{basin}_025deg.txt'', ''Run: ./sr'
+    is_unit_trap: true
+    automatable: true
+  - canonical_var: discharge
+    model: CaMa_Flood
+    trap_id: dt_cama_005
+    description: '{''description'': ''CaMa-Flood produces discharge at completely wrong locations -- river network does not
+      match the basin'', ''error_pattern'': '''', ''detection_method'': ''value_comparison''}'
+    detection: '{''root_cause'': ''CaMa map files from a previous basin were reused instead of regenerating for the new basin'',
+      ''explanation'': "Each basin requires its own set of CaMa-Flood map files because the river n'
+    fix: '{''action'': ''Regenerate all CaMa map files for the new basin'', ''tool_to_run'': ''tools/configure_simulation.py'',
+      ''manual_steps'': [''Create new map dir: mkdir map/{new_basin}_15min'', ''Run configure_simulat'
+    is_unit_trap: true
+    automatable: false

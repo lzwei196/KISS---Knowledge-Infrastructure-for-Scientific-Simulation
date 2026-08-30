@@ -1,0 +1,488 @@
+ata_card_version: '1.0'
+generated: '2026-04-17'
+generator: ata_pipeline1_card_gen.py
+identity:
+  model_id: LPJmL
+  model_name: LPJmL
+  domain: crop
+  secondary_domains: []
+  language: C (with optional MPI parallelization)
+  binary_path: /home/server/knowledge-dissection-toolkit/auto_dissect/_work/LPJmL/source/repo/bin/lpjml
+inputs:
+- canonical_id: air_temperature
+  local_name: temp
+  unit: deg C
+  valid_range:
+  - -60.0
+  - 60.0
+  format: unspecified
+  semantic_type: temperature
+  unit_confidence: documented
+  mapping_confidence: exact_alias
+  input_category: forcing
+- canonical_id: precipitation_rate
+  local_name: prec
+  unit: mm/day
+  valid_range:
+  - 0.0
+  - 500.0
+  format: unspecified
+  semantic_type: flux_density
+  unit_confidence: documented
+  mapping_confidence: exact_alias
+  input_category: forcing
+- canonical_id: shortwave_radiation
+  local_name: swdown
+  unit: W/m2
+  valid_range:
+  - 0.0
+  - 500.0
+  format: unspecified
+  semantic_type: energy_flux
+  unit_confidence: documented
+  mapping_confidence: exact_alias
+  input_category: forcing
+- canonical_id: null
+  local_name: lwnet
+  unit: W/m2
+  valid_range:
+  - -200.0
+  - 200.0
+  format: unspecified
+  semantic_type: unknown
+  unit_confidence: documented
+  mapping_confidence: unmapped
+  input_category: forcing
+- canonical_id: air_temperature_min
+  local_name: tmin
+  unit: deg C
+  valid_range:
+  - -60.0
+  - 50.0
+  format: unspecified
+  semantic_type: temperature
+  unit_confidence: documented
+  mapping_confidence: exact_alias
+  input_category: forcing
+- canonical_id: air_temperature_max
+  local_name: tmax
+  unit: deg C
+  valid_range:
+  - -50.0
+  - 60.0
+  format: unspecified
+  semantic_type: temperature
+  unit_confidence: documented
+  mapping_confidence: exact_alias
+  input_category: forcing
+- canonical_id: null
+  local_name: humid
+  unit: kg/kg
+  valid_range:
+  - 0.0
+  - 0.04
+  format: unspecified
+  semantic_type: unknown
+  unit_confidence: documented
+  mapping_confidence: unmapped
+  input_category: forcing
+- canonical_id: wind_speed
+  local_name: wind
+  unit: m/s
+  valid_range:
+  - 0.0
+  - 50.0
+  format: unspecified
+  semantic_type: unknown
+  unit_confidence: documented
+  mapping_confidence: exact_alias
+  input_category: forcing
+- canonical_id: co2_flux
+  local_name: co2
+  unit: ppm
+  valid_range:
+  - 250.0
+  - 1000.0
+  format: unspecified
+  semantic_type: flux_density
+  unit_confidence: documented
+  mapping_confidence: exact_alias
+  input_category: forcing
+- canonical_id: null
+  local_name: soil
+  unit: code (1-13)
+  valid_range:
+  - 1
+  - 13
+  format: unspecified
+  semantic_type: unknown
+  unit_confidence: documented
+  mapping_confidence: unmapped
+  input_category: static
+- canonical_id: null
+  local_name: coord
+  unit: degrees
+  valid_range: null
+  format: unspecified
+  semantic_type: unknown
+  unit_confidence: documented
+  mapping_confidence: unmapped
+  input_category: static
+- canonical_id: null
+  local_name: countrycode
+  unit: code
+  valid_range: null
+  format: unspecified
+  semantic_type: unknown
+  unit_confidence: documented
+  mapping_confidence: unmapped
+  input_category: static
+- canonical_id: elevation
+  local_name: elevation
+  unit: m
+  valid_range:
+  - -500.0
+  - 9000.0
+  format: unspecified
+  semantic_type: state
+  unit_confidence: documented
+  mapping_confidence: exact_alias
+  input_category: static
+- canonical_id: baseflow
+  local_name: drainage
+  unit: index
+  valid_range: null
+  format: unspecified
+  semantic_type: flux_density
+  unit_confidence: documented
+  mapping_confidence: exact_alias
+  input_category: static
+- canonical_id: null
+  local_name: lakes
+  unit: fraction
+  valid_range:
+  - 0.0
+  - 1.0
+  format: unspecified
+  semantic_type: unknown
+  unit_confidence: documented
+  mapping_confidence: unmapped
+  input_category: static
+- canonical_id: soil_organic_carbon
+  local_name: soilc
+  unit: gC/m2
+  semantic_type: mass_per_area
+  mapping_confidence: inferred
+  origin: coupled_model
+  origin_confidence: high
+  format: unspecified
+outputs:
+- canonical_id: null
+  local_name: harvestc
+  unit: gC/m2/yr
+  valid_range:
+  - 0.0
+  - 2000.0
+  format: unspecified
+  semantic_type: unknown
+  unit_confidence: documented
+  mapping_confidence: unmapped
+  output_section: primary
+  origin: unknown
+  origin_confidence: low
+- canonical_id: null
+  local_name: pft_harvestc
+  unit: gC/m2/yr
+  valid_range:
+  - 0.0
+  - 2000.0
+  format: unspecified
+  semantic_type: unknown
+  unit_confidence: documented
+  mapping_confidence: unmapped
+  output_section: primary
+  origin: unknown
+  origin_confidence: low
+- canonical_id: npp
+  local_name: npp
+  unit: gC/m2/month
+  valid_range:
+  - -50.0
+  - 500.0
+  format: unspecified
+  semantic_type: flux_density
+  unit_confidence: documented
+  mapping_confidence: exact_alias
+  output_section: primary
+  origin: simulated
+  origin_confidence: high
+- canonical_id: gross_primary_production
+  local_name: gpp
+  unit: gC/m2/month
+  valid_range:
+  - 0.0
+  - 1000.0
+  format: unspecified
+  semantic_type: unknown
+  unit_confidence: documented
+  mapping_confidence: exact_alias
+  output_section: primary
+  origin: simulated
+  origin_confidence: high
+- canonical_id: surface_runoff
+  local_name: runoff
+  unit: mm/month
+  valid_range:
+  - 0.0
+  - 1000.0
+  format: unspecified
+  semantic_type: flux_density
+  unit_confidence: documented
+  mapping_confidence: exact_alias
+  output_section: primary
+  origin: simulated
+  origin_confidence: high
+- canonical_id: discharge
+  local_name: discharge
+  unit: hm3/day
+  valid_range:
+  - 0.0
+  - 100000.0
+  format: unspecified
+  semantic_type: volumetric_flow
+  unit_confidence: documented
+  mapping_confidence: exact_alias
+  output_section: primary
+  origin: simulated
+  origin_confidence: high
+- canonical_id: null
+  local_name: transp
+  unit: mm/month
+  valid_range:
+  - 0.0
+  - 300.0
+  format: unspecified
+  semantic_type: unknown
+  unit_confidence: documented
+  mapping_confidence: unmapped
+  output_section: primary
+  origin: unknown
+  origin_confidence: low
+- canonical_id: null
+  local_name: evap
+  unit: mm/month
+  valid_range:
+  - 0.0
+  - 300.0
+  format: unspecified
+  semantic_type: unknown
+  unit_confidence: documented
+  mapping_confidence: unmapped
+  output_section: primary
+  origin: unknown
+  origin_confidence: low
+- canonical_id: null
+  local_name: vegc
+  unit: gC/m2
+  valid_range:
+  - 0.0
+  - 30000.0
+  format: unspecified
+  semantic_type: unknown
+  unit_confidence: documented
+  mapping_confidence: unmapped
+  output_section: primary
+  origin: unknown
+  origin_confidence: low
+- canonical_id: null
+  local_name: soilc
+  unit: gC/m2
+  valid_range:
+  - 0.0
+  - 50000.0
+  format: unspecified
+  semantic_type: unknown
+  unit_confidence: documented
+  mapping_confidence: unmapped
+  output_section: primary
+  origin: unknown
+  origin_confidence: low
+- canonical_id: soil_organic_carbon
+  local_name: soilc_out
+  unit: gC/m2
+  semantic_type: mass_per_area
+  mapping_confidence: inferred
+  origin: simulated
+  origin_confidence: high
+  output_section: primary
+  format: unspecified
+  valid_range:
+  - 0
+  - null
+spatial:
+  type: regular_grid
+  resolution: 0.5deg
+  crs: EPSG:4326
+  source: skill_md
+temporal:
+  resolution: daily
+  calendar: standard
+  source: format_spec
+risks:
+  known_traps:
+  - canonical_var: shortwave_radiation
+    trap_id: dt_004
+    description: '{''description'': ''GPP unrealistically high (>5000 gC/m2/month).
+      Vegetation carbon explodes.'', ''error_pattern'': '''', ''detection_method'':
+      ''value_comparison''}'
+    detection: '{''root_cause'': ''Shortwave radiation in J/m2/day instead of W/m2
+      — values 86400x too large'', ''explanation'': ''LPJmL expects shortwave downward
+      radiation in W/m2. Some datasets provide energy flux as J/m'
+    fix: '{''action'': ''Divide shortwave radiation by 86400'', ''tool_to_run'': ''convert_climate_to_clm'',
+      ''manual_steps'': [''Check max shortwave radiation — should be 0-450 W/m2'',
+      ''If max SW > 1000, values likely in '
+    is_unit_trap: true
+    automatable: true
+    severity: high
+  - canonical_var: precipitation_rate
+    trap_id: dt_002
+    description: '{''description'': ''Extreme drought everywhere. NPP near zero. No
+      crop growth. All vegetation dies.'', ''error_pattern'': '''', ''detection_method'':
+      ''value_comparison''}'
+    detection: '{''root_cause'': ''Precipitation in kg/m2/s instead of mm/day — values
+      86400x too small'', ''explanation'': ''ISIMIP/GSWP3 often provide precipitation
+      as kg/m2/s (= mm/s). LPJmL expects mm/day. A value of 0.'
+    fix: '{''action'': ''Multiply precipitation by 86400 to convert kg/m2/s to mm/day'',
+      ''tool_to_run'': ''convert_climate_to_clm'', ''manual_steps'': [''Check max
+      precipitation — daily values should range 0-200 mm/day'','
+    is_unit_trap: true
+    automatable: true
+    severity: high
+  - canonical_var: precipitation_rate
+    trap_id: dt_003
+    description: '{''description'': ''Massive flooding, runoff 30x too high, water
+      balance errors (ERROR005).'', ''error_pattern'': ''ERROR005'', ''detection_method'':
+      ''error_code''}'
+    detection: '{''root_cause'': ''Precipitation in mm/month provided to daily timestep
+      configuration'', ''explanation'': ''If monthly precipitation totals (e.g., 150
+      mm/month) are provided but LPJmL expects daily values, e'
+    fix: '{''action'': ''Divide monthly totals by number of days in each month, or
+      set nstep=12'', ''tool_to_run'': ''convert_climate_to_clm'', ''manual_steps'':
+      [''Check if precip values > 50 and nstep=365 — likely month'
+    is_unit_trap: true
+    automatable: true
+    severity: high
+  - canonical_var: precipitation_rate
+    trap_id: dt_006
+    description: '{''description'': ''All cells classified as sand (type 12). Extremely
+      fast drainage, low water retention.'', ''error_pattern'': '''', ''detection_method'':
+      ''value_comparison''}'
+    detection: '{''root_cause'': ''Soil fractions in 0-1 range instead of 0-100 percentage'',
+      ''explanation'': ''LPJmL soil classification expects sand/silt/clay as percentages
+      (0-100). If fractions (0-1) are provided witho'
+    fix: '{''action'': ''Multiply soil fractions by 100 to convert to percentages'',
+      ''tool_to_run'': ''convert_soil_to_lpjml'', ''manual_steps'': [''Check if max
+      sand value < 1.0 — fractions need multiplication by 100''],'
+    is_unit_trap: true
+    automatable: true
+    severity: high
+  - canonical_var: precipitation_rate
+    trap_id: dt_013
+    description: '{''description'': ''ERROR005: Invalid water balance. Negative soil
+      moisture or runoff.'', ''error_pattern'': ''ERROR005'', ''detection_method'':
+      ''error_code''}'
+    detection: '{''root_cause'': ''Water inputs exceed physical capacity — typically
+      wrong precipitation units'', ''explanation'': ''Water balance errors almost
+      always trace back to precipitation unit mismatches. Too much r'
+    fix: '{''action'': ''Check precipitation units and values — most common cause'',
+      ''tool_to_run'': ''convert_climate_to_clm'', ''manual_steps'': [''Verify precipitation
+      is in mm/day (daily) or mm/month (monthly)'', ''Che'
+    is_unit_trap: true
+    automatable: true
+    severity: high
+  - canonical_var: precipitation_rate
+    trap_id: dt_015
+    description: '{''description'': ''Yield output is zero for all crops despite land
+      use being active.'', ''error_pattern'': '''', ''detection_method'': ''value_comparison''}'
+    detection: '{''root_cause'': ''Reading wrong bands from PFT output — band order
+      follows landusemap'', ''explanation'': ''PFT-specific outputs like pft_harvestc
+      have 32 bands (16 rainfed + 16 irrigated). The band order f'
+    fix: '{''action'': ''Check landusemap in config for correct band ordering'', ''tool_to_run'':
+      ''parse_lpjml_output'', ''manual_steps'': [''Band 0 = temperate cereals (rainfed)'',
+      ''Band 1 = rice (rainfed)'', ''Band 2 = ma'
+    is_unit_trap: false
+    automatable: false
+    severity: medium
+  - canonical_var: air_temperature
+    trap_id: dt_001
+    description: '{''description'': ''All temperatures unrealistically high (~300
+      degC). Photosynthesis inactive, no vegetation growth.'', ''error_pattern'':
+      '''', ''detection_method'': ''value_comparison''}'
+    detection: '{''root_cause'': ''Temperature input in Kelvin instead of degrees
+      Celsius'', ''explanation'': ''LPJmL expects temperature in degrees Celsius.
+      If Kelvin values are provided (e.g., 293 K = 20 degC), the model '
+    fix: '{''action'': ''Subtract 273.15 from temperature values'', ''tool_to_run'':
+      ''convert_climate_to_clm'', ''manual_steps'': [''Check mean temperature in CLM
+      file with printclm — should be -20 to +30 degC'', ''If mean'
+    is_unit_trap: true
+    automatable: true
+    severity: high
+  unit_conversions: []
+coupling:
+  chain_position: upstream_producer
+  native_formats:
+  - unspecified
+  exchange_format: unspecified
+  coupling_role: earth_system
+quality:
+  has_format_spec: true
+  has_skill_md: true
+  has_triplets: true
+  n_inputs: 15
+  n_outputs: 10
+  n_inputs_canonical: 9
+  n_outputs_canonical: 4
+  n_unmapped: 12
+  n_traps: 7
+  n_conversions: 0
+  spatial_complete: true
+  temporal_complete: true
+  unmapped_variables:
+  - name: lwnet
+    direction: input
+    reason: unmapped
+  - name: humid
+    direction: input
+    reason: unmapped
+  - name: soil
+    direction: input
+    reason: unmapped
+  - name: coord
+    direction: input
+    reason: unmapped
+  - name: countrycode
+    direction: input
+    reason: unmapped
+  - name: lakes
+    direction: input
+    reason: unmapped
+  - name: harvestc
+    direction: output
+    reason: unmapped
+  - name: pft_harvestc
+    direction: output
+    reason: unmapped
+  - name: transp
+    direction: output
+    reason: unmapped
+  - name: evap
+    direction: output
+    reason: unmapped
+  - name: vegc
+    direction: output
+    reason: unmapped
+  - name: soilc
+    direction: output
+    reason: unmapped
+  validation_issues: []
+  card_status: complete

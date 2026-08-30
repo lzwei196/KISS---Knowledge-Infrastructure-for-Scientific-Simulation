@@ -294,8 +294,12 @@ def _load_series(path: Path, prefer_vars: tuple[str, ...] = ()) -> tuple[list[fl
                 names = [v for v in ds.data_vars]
                 lower = {v.lower(): v for v in names}
                 picked = [lower[p.lower()] for p in prefer_vars if p.lower() in lower]
+                # codex R2 #1: when the KI names a rank-1 variable and this file does not carry
+                # it, say so explicitly — validate_outputs() then FAILS the physical check instead
+                # of letting another variable's positive values satisfy it.
                 note = "netcdf rank-1 var(s) " + ",".join(picked) if picked else \
-                       "netcdf ALL vars (rank-1 var not found in file)"
+                       ("NETCDF_RANK1_ABSENT: " + ",".join(prefer_vars) if prefer_vars
+                        else "netcdf ALL vars (KI declares no rank-1 variable)")
                 vals: list[float] = []
                 n = None
                 for v in (picked or names):
@@ -342,11 +346,14 @@ def _load_series(path: Path, prefer_vars: tuple[str, ...] = ()) -> tuple[list[fl
 
 
 def validate_outputs(ki_root: Path, outputs: list, *, expected_steps: int | None = None,
-                     run_facts: dict | None = None) -> dict:
+                     run_facts: dict | None = None, physical: bool = True) -> dict:
     """Return {"status": passed|failed|warning, "checks": [...]}.
 
-    run_facts (optional, validation_ladder.run_validity L149-177 contract):
+    run_facts (REQUIRED in practice, validation_ladder.run_validity L149-177 contract):
       {"errored": bool, "continuity_pct": float|None, "output_nonempty": bool}
+    physical=False: skip the rank-1 "physically required positive values" rule — for
+    preparation-step outputs (forcing files, parameter decks) that are not the model's
+    headline output. Model-run / routing / calibration steps keep physical=True.
     """
     checks: list[dict] = []
 
@@ -369,7 +376,7 @@ def validate_outputs(ki_root: Path, outputs: list, *, expected_steps: int | None
 
     rank1 = _dag_rank1(Path(ki_root))
     rank1_vars = tuple(str(o.get("var") or o.get("name") or "") for o in rank1)
-    positive_needed = _positive_required(rank1)
+    positive_needed = physical and _positive_required(rank1)
 
     any_numeric = False
     for out in outputs:
@@ -395,7 +402,11 @@ def validate_outputs(ki_root: Path, outputs: list, *, expected_steps: int | None
             add(f"time_axis_complete:{p.name}", n >= expected_steps,
                 f"{n} rows/steps vs expected {expected_steps}")
         finite = [v for v in vals if not (math.isnan(v) or math.isinf(v))]
-        if positive_needed and finite:
+        if positive_needed and note.startswith("NETCDF_RANK1_ABSENT"):
+            add(f"physically_required_positive:{p.name}", False,
+                f"the model's rank-1 output ({', '.join(rank1_vars)}) is not in this file; other "
+                f"variables cannot stand in for it")
+        elif positive_needed and finite:
             pos = sum(1 for v in finite if v > 0)
             add(f"physically_required_positive:{p.name}", pos > 0,
                 f"{pos} positive of {len(finite)} values; rank-1 output "
@@ -433,7 +444,7 @@ EXECUTABLE_STEP_KINDS = ("process", "run", "calibrate", "route", "couple", "prep
 
 
 def evidence(project: Path, plan: dict | None, approval: dict | None,
-             output_dirs: tuple[str, ...] = ("outputs",),
+             output_dirs: tuple[str, ...] = ("outputs", "artifacts", "inputs", "calibration"),
              artifact_suffixes: tuple[str, ...] = (".nc", ".csv", ".txt", ".out", ".dat", ".tif",
                                                    ".png", ".json", ".bin"),
              enforcement: str = "none") -> dict:
@@ -461,16 +472,33 @@ def evidence(project: Path, plan: dict | None, approval: dict | None,
     dl = _read_all(project, DATA_SUB)
     rejected: list[dict] = []
     bound_runs: list[dict] = []
+
+    def _same_file(a: str | None, b: str | None) -> bool:
+        if not a or not b:
+            return False
+        try:
+            return Path(a).resolve() == Path(b).resolve()
+        except OSError:
+            return str(a) == str(b)
+
     for p, d, ok in runs:
         why = None
+        sid = str(d.get("plan_step_id"))
         if not ok:
             why = "signature"
         elif not cur or d.get("approval_sha256") != cur:
             why = "not bound to the current approval"
         elif d.get("ki") not in selected:
             why = f"KI {d.get('ki')!r} not selected"
-        elif str(d.get("plan_step_id")) not in steps:
+        elif sid not in steps:
             why = f"plan step {d.get('plan_step_id')!r} not in the approved plan"
+        else:
+            # codex R2 #4: the receipt must show the APPROVED step's tool actually ran —
+            # the executable or one of the command tokens must be that tool
+            tool = (steps[sid] or {}).get("tool")
+            if tool and not (_same_file(d.get("executable"), tool)
+                             or any(_same_file(c, tool) for c in (d.get("command") or []))):
+                why = f"ran {d.get('command')!r}, not the approved tool {tool!r} for step {sid}"
         if why:
             rejected.append({"path": str(p), "why": why})
         else:
@@ -503,6 +531,13 @@ def evidence(project: Path, plan: dict | None, approval: dict | None,
 
     passed_steps = {str(d.get("plan_step_id")) for d in bound_runs
                     if (d.get("validation") or {}).get("status") == "passed"}
+    # codex R2 #2: a planned 'download' step is satisfied by a bound download receipt that
+    # names it and whose raw files all exist (no missing entries)
+    for d in bound_dl:
+        sid = str(d.get("plan_step_id"))
+        if sid in steps and (steps[sid] or {}).get("kind") == "download" and \
+                (d.get("raw_files") or []) and not any(f.get("missing") for f in d.get("raw_files") or []):
+            passed_steps.add(sid)
     failed_any = any((d.get("validation") or {}).get("status") == "failed" for d in bound_runs)
     missing_steps = sorted(exec_steps - passed_steps)
     complete = bool(bound_runs) and not missing_steps and not unreceipted and not failed_any

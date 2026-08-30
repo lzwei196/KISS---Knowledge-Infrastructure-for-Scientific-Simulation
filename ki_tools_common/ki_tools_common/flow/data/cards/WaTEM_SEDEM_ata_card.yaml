@@ -1,0 +1,195 @@
+# ATA Card: WaTEM_SEDEM
+# Hand-authored 2026-05-22 for Huaihe 30-model system
+
+ata_card_version: '1.0'
+generated: '2026-05-22'
+generator: hand_authored
+identity:
+  model_id: WaTEM_SEDEM
+  model_name: WaTEM-SEDEM (Water and Tillage Erosion Model + Sediment Delivery Model) via pywatemsedem 1.1.0
+  domain: geomorphology
+  secondary_domains:
+  - water_quality
+  - hydrology
+  - land_surface
+  language: Python 3.12
+  binary_path: /usr/bin/python3
+inputs:
+- canonical_id: precipitation_erosivity
+  local_name: r_factor
+  unit: MJ*mm/(ha*h*yr)
+  valid_range:
+  - 0.0
+  - 20000.0
+  format: geotiff
+  semantic_type: flux_density
+  unit_confidence: documented
+  mapping_confidence: exact_alias
+  input_category: parameters
+  conversion_notes:
+    from_cmfd: 'Compute R-factor from CMFD 30-min rainfall using EI30 method: R = Σ(EI30) = Σ(E × I30)
+      where E = kinetic energy = 0.29(1 - 0.72exp(-0.05i)) MJ/ha/mm, I30 = max 30-min intensity mm/h'
+    typical_huaihe: Huaihe basin R-factor typically 2000-6000 MJ*mm/(ha*h*yr)
+  silent_error: R-factor in N/h instead of MJ*mm/(ha*h*yr) (a common RUSLE variant) produces
+    erosion estimates off by 10-100×. Always verify units match the K-factor source.
+- canonical_id: soil_erodibility
+  local_name: k_factor
+  unit: t*h/(MJ*mm)
+  valid_range:
+  - 0.001
+  - 0.1
+  format: geotiff
+  semantic_type: state
+  unit_confidence: documented
+  mapping_confidence: exact_alias
+  input_category: parameters
+  conversion_notes:
+    from_hwsd: 'HWSD clay/silt/sand/OC → K-factor via RUSLE2 nomograph or Renard 1997 equation'
+- canonical_id: land_cover_type
+  local_name: c_factor
+  unit: dimensionless (0-1)
+  valid_range:
+  - 0.0
+  - 1.0
+  format: geotiff
+  semantic_type: fraction
+  unit_confidence: documented
+  mapping_confidence: exact_alias
+  input_category: parameters
+  conversion_notes:
+    from_esacci: 'ESA CCI land cover → C-factor lookup: cropland=0.2-0.5, forest=0.001-0.01, grass=0.01-0.05'
+- canonical_id: terrain_elevation
+  local_name: dem
+  unit: m
+  valid_range:
+  - -500.0
+  - 9000.0
+  format: geotiff
+  semantic_type: state
+  unit_confidence: documented
+  mapping_confidence: exact_alias
+  input_category: static_data
+  silent_error: DEM in geographic coordinates (degrees) rather than projected (metres) gives
+    wrong slope calculations and nonsensical LS-factor. DEM must be in a metric projection.
+- canonical_id: discharge
+  local_name: connectivity
+  unit: fraction (0-1)
+  valid_range:
+  - 0.0
+  - 1.0
+  format: geotiff
+  semantic_type: fraction
+  unit_confidence: documented
+  mapping_confidence: substring
+  input_category: parameters
+outputs:
+- canonical_id: erosion_rate
+  local_name: erosion_gross
+  unit: t/ha/yr
+  valid_range:
+  - 0.0
+  - 500.0
+  format: geotiff
+  semantic_type: flux_density
+  unit_confidence: documented
+  mapping_confidence: exact_alias
+  output_section: primary
+  origin: simulated
+  origin_confidence: high
+- canonical_id: sediment_delivery_ratio
+  local_name: sdr
+  unit: fraction (0-1)
+  valid_range:
+  - 0.0
+  - 1.0
+  format: geotiff
+  semantic_type: fraction
+  unit_confidence: documented
+  mapping_confidence: exact_alias
+  output_section: primary
+  origin: simulated
+  origin_confidence: high
+- canonical_id: sediment_export
+  local_name: total_sediment_export
+  unit: t/yr
+  valid_range:
+  - 0.0
+  - 1.0e8
+  format: csv
+  semantic_type: flux_density
+  unit_confidence: documented
+  mapping_confidence: exact_alias
+  output_section: primary
+  origin: simulated
+  origin_confidence: high
+  conversion_notes:
+    to_ce_qual_w2: 'Sediment export (t/yr) / 365 = t/day → convert to mg/L using discharge (SS_mg_L = t/day × 1e6 / Q_m3s / 86400)'
+    to_swat_plus: 'WaTEM-SEDEM catchment export can replace SWAT+ MUSLE sediment yield for validation'
+spatial:
+  type: raster_2d
+  resolution: 10_to_100m
+  crs: projected_metric
+  source: format_spec
+temporal:
+  resolution: annual
+  calendar: standard
+  source: format_spec
+risks:
+  known_traps:
+  - canonical_var: precipitation_erosivity
+    trap_id: r_k_unit_mismatch
+    description: R-factor and K-factor must use matched unit systems (SI or US customary).
+      Mixing R in MJ*mm/(ha*h*yr) with K in tons*acre*h/(hundreds*foot-tonf*inch) gives
+      erosion off by 1000×. WaTEM-SEDEM does not check for consistency.
+    detection: Gross erosion > 1000 t/ha/yr for agricultural land (unrealistic)
+    fix: Use SI units throughout — R [MJ*mm/(ha*h*yr)], K [t*h/(MJ*mm)]
+    is_unit_trap: true
+    automatable: false
+    severity: high
+  - canonical_var: terrain_elevation
+    trap_id: dem_geographic_coordinates
+    description: DEM must be in a projected coordinate system (metres). A DEM in WGS84 lat/lon
+      degrees produces slope in degrees/degree (dimensionless) → LS-factor wildly wrong.
+    detection: Slope values > 200% or < 0.001% across entire domain
+    fix: Reproject DEM to local UTM (e.g. UTM zone 50N for Huaihe) before running WaTEM-SEDEM
+    is_unit_trap: true
+    automatable: true
+    severity: high
+  - canonical_var: land_cover_type
+    trap_id: c_factor_wrong_crop_season
+    description: WaTEM-SEDEM uses a single annual C-factor raster. For winter wheat-summer
+      maize double-cropping (Huaihe dominant), using summer NDVI overestimates erosion
+      during winter wheat cover (lower C) by 2-5×.
+    detection: Erosion peaks in winter instead of summer for cropland cells
+    fix: "Use area-weighted annual-average C-factor (0.4*wheat_C + 0.6*maize_C) for double-crop"
+    is_unit_trap: false
+    automatable: true
+    severity: medium
+  unit_conversions:
+  - from_unit: t/yr
+    to_unit: t/day
+    factor: 0.002740
+    applies_to: [sediment_export]
+coupling:
+  chain_position: consumer_producer
+  native_formats:
+  - geotiff
+  - csv
+  exchange_format: csv
+  coupling_role: earth_system
+quality:
+  has_format_spec: true
+  has_skill_md: false
+  has_triplets: false
+  n_inputs: 5
+  n_outputs: 3
+  n_inputs_canonical: 5
+  n_outputs_canonical: 3
+  n_unmapped: 0
+  n_traps: 3
+  n_conversions: 1
+  spatial_complete: true
+  temporal_complete: true
+  unmapped_variables: []
+  validation_issues: []
+  card_status: complete

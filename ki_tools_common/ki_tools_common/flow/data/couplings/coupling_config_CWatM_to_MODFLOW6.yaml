@@ -1,0 +1,297 @@
+# Coupling Config v2: CWatM -> MODFLOW6
+# MANUAL — 2026-05-21 (pipeline2 cannot auto-generate this edge)
+#
+# Pipeline2 failure reason: CWatM's ATA card exposes storGroundwater [m] as
+# canonical_id: null (unmapped). MODFLOW6 expects recharge [m/day] and
+# well_pumping [m3/day]. The variables are conceptually related but require
+# semantic transforms that pipeline2's exact/family matching cannot handle.
+#
+# Architecture role of this edge in the Huaihe system:
+#   CWatM runs at 0.5° and computes:
+#     (a) Diffuse groundwater recharge = d(storGroundwater)/dt [m/day]
+#     (b) Groundwater abstraction for irrigation + domestic use [m3/day per cell]
+#   MODFLOW6 runs at ~1-5 km grid and needs:
+#     (a) RCH package: spatially distributed recharge [m/day] per stress period
+#     (b) WEL package: pumping wells [m3/day] at known locations
+#   This coupling downscales CWatM's coarse-grid GW state to MODFLOW6's fine grid.
+#
+# TWO EDGES:
+#   Edge 1: CWatM storGroundwater → MODFLOW6 recharge (RCH package)
+#   Edge 2: CWatM gwAbstraction (unmapped) → MODFLOW6 well_pumping (WEL package)
+#
+# Edge 2 STATUS: CWatM gwAbstraction is NOT in the ATA card. This edge requires
+# reading CWatM's output files directly. Documented here as design spec.
+
+coupling_config_version: '2.0'
+generated: '2026-05-21'
+generator: manual_v1
+metadata:
+  edge_id: CWatM_to_MODFLOW6
+  source_model: CWatM
+  target_model: MODFLOW6
+  source_domain: water_allocation
+  target_domain: groundwater
+  edge_type: type5_cross_scale_cross_domain
+  n_forward_variables: 2
+  n_combine_variables: 0
+  n_plausible_feedback: 1
+  n_review_feedback: 0
+  is_feedback: false
+  pipeline2_status: failed_no_canonical_overlap
+  execution_status:
+    edge1_recharge: design_spec_executable  # CAN be computed from available storGroundwater output
+    edge2_pumping: design_spec_only         # Requires unmapped CWatM gwAbstraction variable
+
+forward_edges:
+  - canonical_id: recharge
+    source_canonical_id: null             # CWatM storGroundwater is unmapped in card
+    target_canonical_id: recharge
+    match_type: semantic_transform_required
+    source_local_name: storGroundwater    # CWatM output: groundwater storage [m]
+    source_unit: m
+    target_local_name: recharge           # MODFLOW6 RCH package [m/day]
+    target_unit: m/day
+    primitives_needed:
+      - convert_units
+      - transform_semantic
+      - map_space
+      - align_time
+      - validate_boundary
+    transform_semantic:
+      description: >
+        CWatM storGroundwater is a storage STATE [m]. MODFLOW6 RCH package needs a FLUX
+        [m/day]. The recharge flux is the time derivative of storage (change per day),
+        clamped to non-negative (only positive storage changes represent net recharge;
+        negative changes represent net discharge/ET from GW, not RCH package input).
+        Use CWatM's capRiseFromGW and percolation variables if available; fall back to
+        d(storGroundwater)/dt as the best available approximation.
+      formula: |
+        # Preferred (if CWatM percolation output available):
+        recharge_m_day = CWatM_percolation_m_day  # direct flux output
+        # Fallback (from storage state):
+        delta_GW_m = storGroundwater[t] - storGroundwater[t-1]
+        recharge_m_day = max(0.0, delta_GW_m / 1.0)  # 1-day timestep
+        # Clamp: if delta < 0, this is baseflow/ET from GW, not infiltration recharge
+        # — set to 0 in RCH package (MODFLOW handles GW→surface via DRN/SFR packages)
+      injection_point: >
+        MODFLOW6 RCH package (flopy: ModflowGwfrch). Write as a stress-period array
+        matching MODFLOW6 grid dimensions. Use bilinear disaggregation from CWatM 0.5°
+        to MODFLOW fine grid.
+
+  - canonical_id: null                  # no canonical_id — gwAbstraction is unmapped in CWatM card
+    source_canonical_id: null
+    target_canonical_id: null
+    match_type: semantic_transform_required
+    source_local_name: gwAbstraction    # CWatM output: GW abstraction for all sectors [m3/s per cell]
+    source_unit: m3/s
+    target_local_name: well_pumping     # MODFLOW6 WEL package [m3/day per well]
+    target_unit: m3/day
+    primitives_needed:
+      - convert_units
+      - transform_semantic
+      - map_space
+      - align_time
+      - validate_boundary
+    transform_semantic:
+      description: >
+        CWatM computes gwAbstraction at 0.5° grid cells (all sectors combined). MODFLOW6
+        WEL package needs pumping rates at specific well locations within each grid cell.
+        Spatial disaggregation uses well location databases (China MWR groundwater
+        monitoring well network) to distribute CWatM's cell-total to individual wells.
+        If no well locations are available, use a single representative well per
+        CWatM cell placed at the cell centroid at mid-aquifer depth.
+      formula: |
+        # Unit conversion: CWatM m3/s → MODFLOW6 m3/day
+        Q_well_m3_day = CWatM_gwAbstraction_m3_s * 86400.0
+        # Spatial disaggregation (if n_wells_per_cell > 1):
+        Q_well_i = Q_cell_total * (well_i_rated_capacity / sum_rated_capacities_in_cell)
+        # If no well database: single well per 0.5° cell at cell centroid
+        Q_single_well = Q_cell_total  # all pumping in one representative well
+      injection_point: >
+        MODFLOW6 WEL package (flopy: ModflowGwfwel). List format: [(layer, row, col, Q), ...]
+        per stress period. Negative Q = extraction (pumping). Use absolute coordinates of
+        well locations mapped to MODFLOW6 row/col indices.
+    data_dependency: >
+      CWatM gwAbstraction output file. This variable is NOT in the ATA card.
+      Read directly from CWatM output: typically 'gwAbstraction.nc' in CWatM output
+      directory. If absent, check 'totalGrossAbstraction.nc' and subtract
+      surface-water abstraction ('swAbstraction.nc').
+    execution_status: design_spec_only
+
+combine_edges: []
+
+plausible_feedback:
+  - note: >
+      MODFLOW6 hydraulic_head → CWatM groundwater storage initialization. MODFLOW6
+      simulates 3-D head distribution; the basin-average head can inform CWatM's
+      initial storGroundwater state, improving allocation accuracy in the first
+      stress period. Requires feedback coupling YAML. Not implemented.
+      See BIDIRECTIONAL_COUPLING_STATUS.md — MODFLOW6↔CWatM not in validated list.
+
+review_feedback: []
+
+compatibility:
+  - canonical_id: recharge
+    primitives_needed:
+      - convert_units
+      - transform_semantic
+      - map_space
+      - align_time
+      - validate_boundary
+    details:
+      convert_units:
+        from_unit: m (storage state)
+        to_unit: m/day (flux)
+        method: temporal_differencing
+        note: storage-state-to-flux conversion via d/dt — see transform_semantic formula
+      transform_semantic:
+        description: >
+          storage→flux via temporal derivative; clamp to non-negative for RCH package
+        semantic_type: state_to_flux_transform
+      map_space:
+        from_type: regular_grid_0.5deg
+        to_type: regular_grid_modflow
+        method: bilinear_regrid
+        note: CWatM 0.5° (≈55 km) → MODFLOW 1-5 km; bilinear + area-weight normalization
+      align_time:
+        from_resolution: daily
+        to_resolution: stress_period
+        direction: aggregate
+        aggregation_method: mean
+        note: MODFLOW stress periods can be weekly/monthly; average daily CWatM values
+      validate_boundary:
+        checks:
+          - non_negative
+          - no_nan
+          - "range: [0.0, 0.050]"  # max realistic recharge [m/day], Huaihe plain ~0-5mm/day
+
+  - canonical_id: null
+    local_name: well_pumping
+    primitives_needed:
+      - convert_units
+      - transform_semantic
+      - map_space
+      - align_time
+      - validate_boundary
+    details:
+      convert_units:
+        from_unit: m3/s
+        to_unit: m3/day
+        factor: 86400
+        known: true
+      map_space:
+        from_type: regular_grid_0.5deg
+        to_type: well_point_locations
+        method: cell_total_disaggregated_to_wells
+        note: requires well location database or centroid-well fallback
+      align_time:
+        from_resolution: daily
+        to_resolution: stress_period
+        direction: aggregate
+        aggregation_method: mean
+      validate_boundary:
+        checks:
+          - negative_for_extraction
+          - no_nan
+          - "range: [-1e7, 0.0]"   # negative = extraction in MODFLOW convention
+
+primitives_needed:
+  - convert_units
+  - transform_semantic
+  - map_space
+  - align_time
+  - validate_boundary
+
+execution_order:
+  - align_time
+  - map_space
+  - convert_units
+  - transform_semantic
+  - validate_boundary
+
+risks:
+  total_traps: 5
+  automatable: 3
+  judgment_required: 2
+  traps:
+    - canonical_var: recharge
+      model: CWatM->MODFLOW6
+      trap_id: cwatm_mf_001
+      description: >
+        Temporal derivative of storGroundwater includes both recharge signal AND
+        numerical noise from CWatM's bucket-model solver. In very dry timesteps,
+        storGroundwater may go to near-zero and bounce, creating spurious large
+        recharge spikes that destabilize MODFLOW6.
+      detection: >
+        Recharge time series shows spikes > 0.01 m/day (10× normal) concentrated
+        in a few cells during dry-season months. MODFLOW6 may show head rise > 5 m
+        in one stress period.
+      fix: >
+        Apply 7-day moving average smoothing to the d(storGW)/dt time series before
+        writing to MODFLOW6 RCH. Cap individual spike values at 95th percentile of
+        the historical distribution. Flag cells where smoothed recharge > 0.005 m/day
+        for manual inspection.
+      is_unit_trap: false
+      automatable: true
+    - canonical_var: recharge
+      model: MODFLOW6
+      trap_id: cwatm_mf_002
+      description: >
+        CWatM 0.5° recharge bilinearly interpolated to fine MODFLOW grid may produce
+        negative recharge values at grid edges if storGW decreases in adjacent cells.
+        MODFLOW6 RCH package does not accept negative recharge (it ignores negatives,
+        silently suppressing the GW→surface flux).
+      detection: >
+        MODFLOW6 water balance shows recharge >> expected; check if negative
+        interpolated values are being silently zeroed. Run np.sum(recharge < 0) on
+        the RCH array.
+      fix: >
+        Hard-clamp all recharge values to [0, +∞] after bilinear interpolation.
+        Use MODFLOW6 EVT (evapotranspiration) or DRN package to handle the
+        groundwater→surface flux when head rises above land surface.
+      is_unit_trap: false
+      automatable: true
+    - canonical_var: null
+      model: CWatM
+      trap_id: cwatm_mf_003
+      description: >
+        CWatM gwAbstraction variable may not be written to output unless the user
+        enabled it in CWatM settings.ini. Default CWatM output is discharge, ET, runoff only.
+      detection: >
+        CWatM output directory has no 'gwAbstraction.nc'. Check settings.ini
+        [OUTPUT] section for 'gwAbstraction' flag.
+      fix: >
+        Add 'gwAbstraction = 1' to CWatM settings.ini [OUTPUT] section and re-run.
+        If CWatM was already run without this flag, fallback: use
+        'totalGrossAbstraction.nc' minus 'swAbstraction.nc'.
+      is_unit_trap: false
+      automatable: true
+    - canonical_var: null
+      model: MODFLOW6
+      trap_id: cwatm_mf_004
+      description: >
+        MODFLOW6 uses precision='double' for binary output files (from MODFLOW6 KI SKILL.md).
+        The RCH and WEL packages themselves are ASCII stress-period data — no precision
+        issue there. But if the MODFLOW6 head output is later read back for CWatM
+        initialization (feedback direction), use flopy with precision='double'.
+      detection: OSError when reading .hds file with default flopy settings.
+      fix: flopy.utils.binaryfile.HeadFile(fname, precision='double')
+      is_unit_trap: false
+      automatable: true
+    - canonical_var: null
+      model: CWatM->MODFLOW6
+      trap_id: cwatm_mf_005
+      description: >
+        Scale mismatch: CWatM storGroundwater is a single-layer bucket (no vertical
+        discretization). MODFLOW6 may have 5-20 vertical layers. The CWatM-derived
+        recharge should enter MODFLOW6 only at the TOPMOST active layer (layer 1),
+        not distributed across all layers.
+      detection: >
+        MODFLOW6 head response in deep layers (layers 5+) appears immediately after
+        recharge injection, suggesting recharge was assigned to wrong layer indices.
+      fix: >
+        In flopy ModflowGwfrch: use laynum=0 (first layer) for all recharge cells.
+        Let MODFLOW6 propagate head changes downward through its own vertical
+        discretization and inter-layer conductance.
+      is_unit_trap: false
+      automatable: false

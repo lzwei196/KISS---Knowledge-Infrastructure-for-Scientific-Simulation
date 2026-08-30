@@ -1,0 +1,152 @@
+# Coupling Config v2: DSSAT -> DayCent
+# Hand-authored 2026-05-22 — crop residue C/N → DayCent carbon + nitrogen inputs
+
+coupling_config_version: '2.0'
+generated: '2026-05-22'
+generator: hand_authored
+metadata:
+  edge_id: DSSAT_to_DayCent
+  source_model: DSSAT
+  target_model: DayCent
+  source_domain: crop
+  target_domain: biogeochemistry
+  edge_type: type3b_cross_domain
+  n_forward_variables: 2
+  n_combine_variables: 1
+  n_plausible_feedback: 0
+  n_review_feedback: 0
+  is_feedback: false
+forward_edges:
+- canonical_id: litter_carbon
+  source_canonical_id: biomass
+  target_canonical_id: litter_carbon
+  match_type: transform_semantic
+  source_local_name: total_biomass
+  source_unit: kg/ha
+  target_local_name: above_ground_litter_C
+  target_unit: gC/m2/yr
+- canonical_id: n2o_emission
+  source_canonical_id: n2o_emission
+  target_canonical_id: n2o_emission
+  match_type: exact_canonical
+  source_local_name: n2o_emission
+  source_unit: kgN/ha/day
+  target_local_name: nit_flow
+  target_unit: gN/m2/yr
+combine_edges:
+- canonical_id: litter_carbon
+  description: Crop residue = (biomass - grain_yield) * 0.45 (carbon fraction 45%)
+  formula: litter_C_kgCha = (biomass_kgha - grain_yield_kgha) * 0.45
+  inputs:
+  - biomass
+  - grain_yield
+compatibility:
+- canonical_id: litter_carbon
+  source_canonical_id: biomass
+  target_canonical_id: litter_carbon
+  match_type: transform_semantic
+  primitives_needed:
+  - transform_semantic
+  - convert_units
+  - exchange_data
+  - validate_boundary
+  details:
+    transform_semantic: &t1
+      type: crop_residue_derivation
+      transform: litter_C_kgCha = (biomass_kgha - grain_yield_kgha) * 0.45
+      requires:
+      - biomass
+      - grain_yield
+      source_canonical: biomass
+      target_canonical: litter_carbon
+      note: 'Physical derivation: DSSAT biomass is total aboveground dry matter (kg/ha).
+        Subtract grain_yield to get residue. Apply C fraction 0.45 (Penman-Monteith
+        standard for cereal residue). This litter enters DayCent SURFACE STRUCT +
+        METABOLIC pools (DPM/RPM split 59/41 for cereals).'
+      canonical_id: litter_carbon
+    convert_units: &c1
+      status: explicit
+      from_unit: kgC/ha
+      to_unit: gC/m2
+      factor: 0.1
+      canonical_id: litter_carbon
+    exchange_data: &e1
+      status: annual_event
+      variable_mapping:
+        source_name: total_biomass
+        target_name: above_ground_litter_C
+      note: DSSAT provides annual crop residue at harvest. Write DayCent SCHEDULE.100
+        harvest event with CREM (crop residue) = litter_C_gCm2. Trigger at DSSAT
+        maturity_date (YYDDD format).
+      canonical_id: litter_carbon
+    validate_boundary: &v1
+      checks:
+      - no_nan
+      - 'range: [0.0, 1000.0]'
+      canonical_id: litter_carbon
+- canonical_id: n2o_emission
+  source_canonical_id: n2o_emission
+  target_canonical_id: n2o_emission
+  match_type: exact_canonical
+  primitives_needed:
+  - convert_units
+  - exchange_data
+  details:
+    convert_units: &c2
+      status: explicit
+      from_unit: kgN/ha/day
+      to_unit: gN/m2/yr
+      factor: 36.524
+      note: '× 10 (kg→g per ha→m2) × 365.24 (day→yr); or treat as cross-check comparison
+        between DSSAT and DayCent N2O estimates'
+      canonical_id: n2o_emission
+    exchange_data: &e2
+      status: comparison_check
+      note: DSSAT and DayCent both simulate N2O. The coupling here is comparison,
+        not sequential feeding. Run both independently; compare N2O outputs.
+      canonical_id: n2o_emission
+primitives_needed:
+- transform_semantic
+- convert_units
+- exchange_data
+- validate_boundary
+execution_order:
+- transform_semantic
+- convert_units
+- exchange_data
+- validate_boundary
+primitive_configs:
+  transform_semantic:
+  - *t1
+  convert_units:
+  - *c1
+  - *c2
+  exchange_data:
+  - *e1
+  - *e2
+  validate_boundary:
+  - *v1
+risks:
+  total_traps: 2
+  automatable: 2
+  judgment_required: 0
+  traps:
+  - canonical_var: litter_carbon
+    model: DSSAT->DayCent
+    trap_id: biomass_includes_grain_in_residue
+    description: DSSAT total_biomass includes grain. If grain_yield is not subtracted
+      before computing residue, DayCent receives 2-3× too much litter carbon, causing
+      SOC divergence.
+    detection: DayCent SOC increases > 2 t C/ha in first simulation year
+    fix: litter_C = (biomass - grain_yield) * 0.45; never use raw biomass as litter input
+    is_unit_trap: false
+    automatable: true
+  - canonical_var: litter_carbon
+    model: DSSAT->DayCent
+    trap_id: litter_unit_kgha_to_gcm2
+    description: DSSAT reports in kg/ha; DayCent expects gC/m2. Off by 10× if not
+      converted (gC/m2 = kgC/ha × 0.1).
+    detection: DayCent SOC one order of magnitude higher or lower than expected
+    fix: Multiply litter_C_kgCha by 0.1 to get gC/m2
+    is_unit_trap: true
+    automatable: true

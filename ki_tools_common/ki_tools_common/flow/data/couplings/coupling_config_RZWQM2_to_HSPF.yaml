@@ -1,0 +1,88 @@
+# Coupling Config v2: RZWQM2 -> HSPF
+
+coupling_config_version: '2.0'
+generated: '2026-05-23'
+generator: ata_pipeline2_coupling_gen.py v2
+metadata:
+  edge_id: RZWQM2_to_HSPF
+  source_model: RZWQM2
+  target_model: HSPF
+  source_domain: crop
+  target_domain:
+  - hydrology
+  - water_quality
+  edge_type: type3b_cross_domain
+  n_forward_variables: 1
+  n_combine_variables: 0
+  n_plausible_feedback: 0
+  n_review_feedback: 1
+  is_feedback: false
+forward_edges:
+- canonical_id: evapotranspiration
+  source_canonical_id: evapotranspiration
+  target_canonical_id: evapotranspiration
+  match_type: exact_canonical
+  source_local_name: evapotranspiration
+  source_unit: mm/day
+  target_local_name: PETINP
+  target_unit: mm/hr
+combine_edges: []
+plausible_feedback: []
+review_feedback:
+- canonical_id: evapotranspiration
+  source_local_name: TAET
+  target_local_name: pan_evaporation
+  note: Flagged for review — physical plausibility uncertain
+compatibility:
+- canonical_id: evapotranspiration
+  source_canonical_id: evapotranspiration
+  target_canonical_id: evapotranspiration
+  match_type: exact_canonical
+  primitives_needed:
+  - convert_units
+  - validate_boundary
+  details:
+    convert_units: &id001
+      from_unit: mm/day
+      to_unit: mm/hr
+      known: true
+      factor: 0.041666666666666664
+      lookup_cid: evapotranspiration
+      canonical_id: evapotranspiration
+    exchange_data: &id002
+      status: format_unspecified
+      variable_mapping:
+        source_name: evapotranspiration
+        target_name: PETINP
+      canonical_id: evapotranspiration
+    validate_boundary: &id003
+      checks:
+      - non_negative
+      - no_nan
+      canonical_id: evapotranspiration
+primitives_needed:
+- convert_units
+- validate_boundary
+execution_order:
+- convert_units
+- validate_boundary
+primitive_configs:
+  convert_units:
+  - *id001
+  exchange_data:
+  - *id002
+  validate_boundary:
+  - *id003
+risks:
+  total_traps: 1
+  automatable: 1
+  judgment_required: 0
+  traps:
+  - canonical_var: evapotranspiration
+    model: RZWQM2->HSPF
+    trap_id: unit_mismatch_evapotranspiration
+    description: 'Unit mismatch: source [mm/day] vs target [mm/hr]'
+    detection: Check evapotranspiration units at coupling boundary
+    fix: Convert mm/day -> mm/hr
+    is_unit_trap: true
+    automatable: true

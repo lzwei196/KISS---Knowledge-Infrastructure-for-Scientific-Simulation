@@ -149,6 +149,20 @@ _CLAUDE_DROP = ("--dangerously-skip-permissions", "--permission-mode")
 _TOOL_RE = re.compile(r"^(?P<name>[A-Za-z]+)\((?P<arg>.*)\)$")
 
 
+def _assert_key_dir_unreadable(tools: list[str]) -> None:
+    """The receipt-signing key dir must not fall under any granted read path (kimi R2 #1)."""
+    from .receipts import keys_dir
+    kd = keys_dir()
+    for t in tools:
+        m = _TOOL_RE.match(t)
+        if not m or m.group("name") not in ("Read", "Glob", "Grep"):
+            continue
+        target = Path(m.group("arg").replace("/**", ""))
+        if _under(kd, target):
+            raise ValueError(f"the receipt key dir {kd} is readable through grant {t!r}; move "
+                             f"GEOFORGE_FLOW_KEYS outside every granted tree")
+
+
 def _read_grants(paths: list[Path]) -> list[str]:
     out = []
     for p in paths:
@@ -176,15 +190,20 @@ def _claude_executing_tools(project: Path, ki_roots: dict[str, Path],
     base's non-path command grants such as `Bash(git:*)` are dropped too — the wrappers are
     the execution surface)."""
     project = Path(project)
-    kept: list[str] = ["Read", "Glob", "Grep", "TodoWrite"]     # bare = anywhere-readable tools
+    # kimi R2 #1: NEVER a bare Read/Glob/Grep — that reads the whole filesystem, including the
+    # receipt-signing key. Reads are path-scoped: the project, the selected KIs, and the base
+    # policy's own path-scoped read grants (binaries, data roles, interpreter env).
+    kept: list[str] = ["TodoWrite"]
+    kept += _read_grants([project] + list(ki_roots.values()))
     for t in base_allowed_tools or []:
         m = _TOOL_RE.match(t.strip())
         if not m:
             continue
         name, arg = m.group("name"), m.group("arg")
-        if name in ("Read", "Glob", "Grep"):
+        if name in ("Read", "Glob", "Grep") and arg.strip():
             kept.append(t.strip())
         # Write/Edit/Bash/NotebookEdit/Agent from the base are NOT carried over
+    _assert_key_dir_unreadable(kept)
     for rel in EXEC_WRITABLE:
         kept += [f"Write({project / rel}/**)", f"Edit({project / rel}/**)"]
     for cmd in (wrappers or {}).values():
@@ -227,6 +246,7 @@ def for_state(state: State, provider: str, project: Path, ki_roots: dict[str, Pa
     if provider == "claude":
         if planning:
             tools = _claude_planning_tools(project, ki_roots, python)
+            _assert_key_dir_unreadable(tools)
             return ProviderPolicy(provider, state, ["--allowedTools", ",".join(tools)], _CLAUDE_DROP,
                                   Enforcement.EXACT, False,
                                   "read-only tool wall + the two plan files (CPM L237-259 pattern)")

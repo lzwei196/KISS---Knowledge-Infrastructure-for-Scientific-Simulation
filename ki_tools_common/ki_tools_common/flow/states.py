@@ -15,6 +15,7 @@ Rules that matter:
 from __future__ import annotations
 
 import json
+import os
 import time
 from dataclasses import dataclass, field, asdict
 from enum import Enum
@@ -230,7 +231,11 @@ class FlowContext:
         d["enforcement"] = self.enforcement.value
         d["display_stage"] = DISPLAY_STAGE[self.state]
         d["updated_at"] = time.time()
-        tmp = p.with_suffix(".json.tmp")
+        # kimi R2 #3: the temp file lives under the protected .geoforge/ tree, never beside the
+        # final file where a sibling name could be agent-writable
+        tmpdir = Path(self.project) / ".geoforge" / "tmp"
+        tmpdir.mkdir(parents=True, exist_ok=True)
+        tmp = tmpdir / f"flow-state.{os.getpid()}.json"
         tmp.write_text(json.dumps(d, indent=2, ensure_ascii=False), encoding="utf-8")
         tmp.replace(p)
         return p

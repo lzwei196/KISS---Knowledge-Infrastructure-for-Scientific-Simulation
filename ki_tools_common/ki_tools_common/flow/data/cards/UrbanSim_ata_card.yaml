@@ -1,0 +1,194 @@
+# ATA Card: UrbanSim
+# Hand-authored 2026-05-22 for Huaihe 30-model system
+
+ata_card_version: '1.0'
+generated: '2026-05-22'
+generator: hand_authored
+identity:
+  model_id: UrbanSim
+  model_name: UrbanSim v3.2 (Urban Land Use and Economic Micro-Simulation)
+  domain: urban
+  secondary_domains:
+  - land_surface
+  - socioeconomic
+  language: Python 3.x
+  binary_path: /mnt/disk1/Hydrocraft_server/models/UrbanSim/venv/bin/python
+inputs:
+- canonical_id: population_count
+  local_name: households
+  unit: households (integer count)
+  valid_range:
+  - 0
+  - 1.0e8
+  format: hdf5
+  semantic_type: state
+  unit_confidence: documented
+  mapping_confidence: exact_alias
+  input_category: initial_conditions
+  conversion_notes:
+    from_census: 'China 7th Census township-level pop / avg_household_size = households'
+    from_worldpop: 'WorldPop 100m pop raster aggregated to TAZ / avg_household_size'
+- canonical_id: land_use_fraction
+  local_name: parcels_land_use_type_id
+  unit: categorical (integer code)
+  valid_range:
+  - 1
+  - 99
+  format: hdf5
+  semantic_type: fraction
+  unit_confidence: documented
+  mapping_confidence: exact_alias
+  input_category: static_data
+  conversion_notes:
+    from_esacci: 'ESA CCI LC class → UrbanSim land_use_type_id lookup (residential=1, commercial=2, industrial=3, ag=4, open=5)'
+    from_clcd: 'CLCD 30m land cover 2020 aggregated to parcel level → land_use_type_id'
+- canonical_id: discharge
+  local_name: flood_depth_at_parcels
+  unit: m
+  valid_range:
+  - 0.0
+  - 20.0
+  format: csv
+  semantic_type: state
+  unit_confidence: documented
+  mapping_confidence: substring
+  input_category: scenario
+  conversion_notes:
+    from_sfincs: 'SFINCS zs (m) at parcel centroid − DEM elevation = flood depth at parcel'
+    from_cama: 'CaMa flddph (m) resampled to parcel resolution'
+- canonical_id: employment_count
+  local_name: jobs
+  unit: jobs (integer count)
+  valid_range:
+  - 0
+  - 1.0e8
+  format: hdf5
+  semantic_type: state
+  unit_confidence: documented
+  mapping_confidence: exact_alias
+  input_category: initial_conditions
+  conversion_notes:
+    from_census: China county-level employment statistics by sector → UrbanSim job_category table
+outputs:
+- canonical_id: land_use_fraction
+  local_name: parcels_land_use_type_id_out
+  unit: categorical (integer code)
+  valid_range:
+  - 1
+  - 99
+  format: hdf5
+  semantic_type: fraction
+  unit_confidence: documented
+  mapping_confidence: exact_alias
+  output_section: primary
+  origin: simulated
+  origin_confidence: high
+- canonical_id: population_count
+  local_name: households_zone
+  unit: households/km2
+  valid_range:
+  - 0.0
+  - 50000.0
+  format: csv
+  semantic_type: state
+  unit_confidence: documented
+  mapping_confidence: exact_alias
+  output_section: primary
+  origin: simulated
+  origin_confidence: high
+- canonical_id: impervious_fraction
+  local_name: impervious_area_km2
+  unit: km2
+  valid_range:
+  - 0.0
+  - 100.0
+  format: csv
+  semantic_type: state
+  unit_confidence: documented
+  mapping_confidence: exact_alias
+  output_section: primary
+  origin: simulated
+  origin_confidence: high
+  conversion_notes:
+    to_swmm: 'Impervious fraction × subcatchment area → SWMM %IMPERV per subcatchment'
+    to_vic: 'Updated impervious fraction → VIC Cveg[urban] parameter for next climate period'
+- canonical_id: employment_count
+  local_name: employment_density
+  unit: jobs/km2
+  valid_range:
+  - 0.0
+  - 50000.0
+  format: csv
+  semantic_type: state
+  unit_confidence: documented
+  mapping_confidence: exact_alias
+  output_section: primary
+  origin: simulated
+  origin_confidence: high
+spatial:
+  type: parcel_level
+  resolution: 100m_to_500m
+  crs: EPSG:4326
+  source: skill_md
+temporal:
+  resolution: annual
+  calendar: standard
+  source: format_spec
+risks:
+  known_traps:
+  - canonical_var: population_count
+    trap_id: model_estimation_required
+    description: UrbanSim models (hedonic regression, PLCM, REPM) must be estimated from
+      historical data before running forward simulation. Running simulation without estimation
+      produces identical output to input (no change).
+    detection: Land use map identical after 5-year forward simulation
+    fix: Run ORCA estimation pipeline first using historical parcel + household data.
+      UrbanSim KI has s1_estimate_models.py for this step.
+    is_unit_trap: false
+    automatable: true
+    severity: high
+  - canonical_var: land_use_fraction
+    trap_id: chinese_land_use_code_mapping
+    description: Chinese land use classification (国家标准GB/T 21010-2017) uses different
+      numeric codes than UrbanSim's default US-centric scheme. Direct code assignment
+      without remapping produces wrong zoning constraints.
+    detection: All parcels assigned to residential (code 1) regardless of actual land use
+    fix: Apply GB/T 21010 → UrbanSim LUT ID mapping table (see UrbanSim KI docs)
+    is_unit_trap: false
+    automatable: true
+    severity: high
+  - canonical_var: discharge
+    trap_id: flood_scenario_static_not_dynamic
+    description: UrbanSim accepts flood depth as a static scenario parameter per parcel,
+      not as a dynamic coupled state. Changes in land use do NOT feed back to flood model
+      in the same time step. Coupling is explicit (annual snapshots), not inline.
+    detection: n/a — design limitation
+    fix: Alternate UrbanSim → SWMM (impervious change) → CaMa (flow change) → UrbanSim
+      (flood depth update) at annual intervals in the coupling_orchestrator.
+    is_unit_trap: false
+    automatable: false
+    severity: medium
+  unit_conversions: []
+coupling:
+  chain_position: consumer_producer
+  native_formats:
+  - hdf5
+  - csv
+  exchange_format: csv
+  coupling_role: earth_system
+quality:
+  has_format_spec: true
+  has_skill_md: true
+  has_triplets: false
+  n_inputs: 4
+  n_outputs: 4
+  n_inputs_canonical: 4
+  n_outputs_canonical: 4
+  n_unmapped: 0
+  n_traps: 3
+  n_conversions: 0
+  spatial_complete: true
+  temporal_complete: true
+  unmapped_variables: []
+  validation_issues: []
+  card_status: complete

@@ -37,5 +37,8 @@ dev = [
 [tool.setuptools.packages.find]
 include = ["ki_tools_common*"]
 
+[tool.setuptools.package-data]
+"ki_tools_common.flow" = ["data/**", "data/README.md"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]

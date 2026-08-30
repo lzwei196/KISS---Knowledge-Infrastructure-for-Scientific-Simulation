@@ -295,7 +295,8 @@ def test_execution_block_refuses_ki_without_protocol(tmp_path):
 
 # ---------------------------------------------------------------- receipts
 def _run(tmp_path, out, a, step="M:run", ki="M", exit_code=0, approval_sha=None):
-    return receipts.record_run(tmp_path, ki=ki, executable="/bin/true", command=["/bin/true"],
+    tool = str(tmp_path / ki / "tools" / "run.py")      # the approved step's tool (evidence binds to it)
+    return receipts.record_run(tmp_path, ki=ki, executable="/usr/bin/python3", command=["/usr/bin/python3", tool],
                                cwd=str(tmp_path), started_at=1.0, finished_at=2.5, exit_code=exit_code,
                                inputs=[], outputs=[out], plan_step_id=step,
                                approval_sha256=approval_sha or approval.approval_id(a))
@@ -574,3 +575,83 @@ def test_failed_can_replan_and_coupling_graph_keeps_agent_todo(tmp_path):
     plan.emit_coupling_graph({"models": ["A"], "plans": []}, tmp_path / "g.yaml")
     g = yaml.safe_load((tmp_path / "g.yaml").read_text())
     assert "_TODO_for_agent" in g and "_TODO_for_execution" in g
+
+
+# ---------------------------------------------------------------- codex R2 additions
+def test_evidence_binds_receipt_to_the_approved_tool_and_download_steps(tmp_path):
+    ki = _fake_ki(tmp_path); pj, inv = _write_plan(tmp_path, ki)
+    pj["steps"].append({"id": "M:get_forcing", "ki": "M", "tool": None, "kind": "download",
+                        "inputs": [], "outputs": ["forcing"], "status": "planned"})
+    plan.write_artifacts(tmp_path, pj, inv); a = approval.approve(tmp_path, by="auto")
+    out = tmp_path / "outputs" / "q.csv"; out.parent.mkdir(); out.write_text("t,q\n1,0.4\n2,1.1\n3,0.7\n")
+    # a receipt whose command does NOT contain the approved tool is rejected
+    wrong = receipts.record_run(tmp_path, ki="M", executable="/bin/true", command=["/bin/true", "/tmp/other.py"],
+                                cwd=str(tmp_path), started_at=1.0, finished_at=2.0, exit_code=0, inputs=[],
+                                outputs=[out], plan_step_id="M:run", approval_sha256=approval.approval_id(a))
+    ev = receipts.evidence(tmp_path, pj, a)
+    assert any("not the approved tool" in r["why"] for r in ev["rejected_receipts"]) and ev["runs_bound"] == 0
+    wrong.unlink()
+    right = receipts.record_run(tmp_path, ki="M", executable="/usr/bin/python3",
+                                command=["/usr/bin/python3", str(ki / "tools" / "run.py")],
+                                cwd=str(tmp_path), started_at=1.0, finished_at=2.0, exit_code=0, inputs=[],
+                                outputs=[out], plan_step_id="M:run", approval_sha256=approval.approval_id(a))
+    receipts.update_validation(tmp_path, right, receipts.validate_outputs(
+        ki, [out], run_facts={"errored": False, "output_nonempty": True}))
+    ev = receipts.evidence(tmp_path, pj, a)
+    assert ev["runs_bound"] == 1 and ev["steps_missing"] == ["M:get_forcing"] and not ev["receipts_verified"]
+    # the download step is satisfied only by a bound download receipt naming it
+    raw = tmp_path / "inputs" / "raw" / "forcing" / "f.csv"; raw.parent.mkdir(parents=True); raw.write_text("1\n")
+    receipts.record_download(tmp_path, item_id="forcing", source="x", request_url="https://x/f.csv",
+                             http_status=200, raw_files=[raw], approval_sha256=approval.approval_id(a),
+                             plan_step_id="M:get_forcing")
+    ev = receipts.evidence(tmp_path, pj, a)
+    assert ev["steps_missing"] == [] and ev["receipts_verified"] is True and ev["validation"] == "passed"
+
+
+def test_netcdf_missing_rank1_variable_fails_physical_check(tmp_path):
+    xr = pytest.importorskip("xarray"); np = pytest.importorskip("numpy")
+    cama = tmp_path / "C"; (cama / "tools").mkdir(parents=True)
+    (cama / "dag.yaml").write_text("outputs:\n- var: outflw\n  validation_rank: 1\n  unit: m3/s\n")
+    ds = xr.Dataset({"rivsto": ("time", np.ones(4))}, coords={"time": np.arange(4)})
+    f = tmp_path / "o.nc"; ds.to_netcdf(f, engine="scipy")
+    v = receipts.validate_outputs(cama, [f], run_facts={"errored": False, "output_nonempty": True})
+    assert v["status"] == "failed"
+    assert any(c["check"].startswith("physically_required_positive") and "not in this file" in c["detail"] for c in v["checks"])
+    # a preparation step (physical=False) with the same file passes the physical rule
+    v = receipts.validate_outputs(cama, [f], run_facts={"errored": False, "output_nonempty": True}, physical=False)
+    assert v["status"] == "passed"
+
+
+# ---------------------------------------------------------------- kimi R2 additions
+def test_executing_policy_has_no_bare_reads_and_key_dir_stays_unreadable(tmp_path, monkeypatch):
+    ki = _fake_ki(tmp_path)
+    pp = policy.for_state(State.EXECUTING, "claude", tmp_path, {"M": ki}, "/py", [f"Read({tmp_path}/**)"],
+                          {"run_tool": "kiss run-tool", "fetch": "kiss fetch"})
+    tools = pp.argv_delta[1].split(",")
+    assert "Read" not in tools and "Glob" not in tools and "Grep" not in tools
+    assert all(t.startswith(("Read(", "Glob(", "Grep(", "Write(", "Edit(", "Bash(", "TodoWrite")) for t in tools)
+    # a key dir inside a granted read tree is refused loudly
+    monkeypatch.setenv("GEOFORGE_FLOW_KEYS", str(tmp_path / "keys"))
+    with pytest.raises(ValueError, match="receipt key dir"):
+        policy.for_state(State.EXECUTING, "claude", tmp_path, {"M": ki}, "/py", [],
+                         {"run_tool": "kiss run-tool", "fetch": "kiss fetch"})
+    with pytest.raises(ValueError, match="receipt key dir"):
+        policy.for_state(State.PLANNING, "claude", tmp_path, {"M": ki}, "/py")
+
+
+def test_temp_files_live_under_protected_tree_and_evidence_scans_all_writable_trees(tmp_path):
+    ki = _fake_ki(tmp_path); pj, inv = _write_plan(tmp_path, ki)
+    ctx = FlowContext(project=tmp_path); ctx.move("task_received")
+    a = approval.approve(tmp_path, by="auto")
+    assert not list((tmp_path / "runs").glob("*.tmp")) and (tmp_path / ".geoforge" / "tmp").is_dir()
+    stray = tmp_path / "artifacts" / "handmade.png"; stray.parent.mkdir(); stray.write_bytes(b"x")
+    assert "artifacts/handmade.png" in receipts.evidence(tmp_path, pj, a)["unreceipted_artifacts"]
+
+
+def test_validate_accepts_extensionless_executable_tool(tmp_path):
+    ki = _fake_ki(tmp_path)
+    exe = ki / "tools" / "run_model"; exe.write_text("#!/bin/sh\necho hi\n"); os.chmod(exe, 0o755)
+    pj = _good_plan(ki); pj["steps"][0]["tool"] = str(exe)
+    assert plan.validate(pj, _INV, ["M"], {"M": ki}) == []
+    os.chmod(exe, 0o644)
+    assert any("not a runnable" in e for e in plan.validate(pj, _INV, ["M"], {"M": ki}))

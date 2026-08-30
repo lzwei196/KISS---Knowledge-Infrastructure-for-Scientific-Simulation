@@ -1,0 +1,147 @@
+# Coupling Config v2: CWatM -> Pywr
+
+coupling_config_version: '2.0'
+generated: '2026-05-16'
+generator: ata_pipeline2_coupling_gen.py v2
+metadata:
+  edge_id: CWatM_to_Pywr
+  source_model: CWatM
+  target_model: Pywr
+  source_domain: hydrology
+  target_domain: water_resources
+  edge_type: type5_cross_scale_cross_domain
+  n_forward_variables: 1
+  n_combine_variables: 0
+  n_plausible_feedback: 0
+  n_review_feedback: 0
+  is_feedback: false
+forward_edges:
+- canonical_id: discharge
+  source_canonical_id: discharge
+  target_canonical_id: discharge
+  match_type: exact_canonical
+  source_local_name: discharge
+  source_unit: m3/s
+  target_local_name: reservoir_inflow
+  target_unit: m3/s
+combine_edges: []
+plausible_feedback: []
+review_feedback: []
+compatibility:
+- canonical_id: discharge
+  source_canonical_id: discharge
+  target_canonical_id: discharge
+  match_type: exact_canonical
+  primitives_needed:
+  - map_space
+  - validate_boundary
+  details:
+    convert_units:
+      status: not_needed
+      units_match: true
+    exchange_data: &id001
+      status: format_unspecified
+      variable_mapping:
+        source_name: discharge
+        target_name: reservoir_inflow
+      canonical_id: discharge
+    map_space: &id002
+      from_type: regular_grid
+      to_type: network
+      method: grid_to_network_extraction
+      canonical_id: discharge
+    validate_boundary: &id003
+      checks:
+      - no_nan
+      - 'range: [0.0, ''1e5'']'
+      canonical_id: discharge
+primitives_needed:
+- map_space
+- validate_boundary
+execution_order:
+- map_space
+- validate_boundary
+primitive_configs:
+  convert_units: []
+  exchange_data:
+  - *id001
+  map_space:
+  - *id002
+  validate_boundary:
+  - *id003
+risks:
+  total_traps: 7
+  automatable: 6
+  judgment_required: 1
+  traps:
+  - canonical_var: discharge
+    model: CWatM
+    trap_id: dt_016
+    description: '{''description'': ''Discharge unrealistically high for first few years, then stabilizes.'', ''error_pattern'':
+      '''', ''detection_method'': ''value_comparison''}'
+    detection: '{''root_cause'': ''Insufficient spinup period. Initial conditions not equilibrated.'', ''explanation'': ''CWatM
+      starts with default initial conditions (all storage = 0 or default values). The model needs 3-5'
+    fix: '{''action'': ''Increase spinup period to 3-5 years'', ''manual_steps'': [''Set SpinUp date at least 3 years after
+      StepStart'', ''Or use saved initial conditions from a previous long run'', ''Exclude spinup perio'
+    is_unit_trap: false
+    automatable: false
+  - canonical_var: discharge
+    model: Pywr
+    trap_id: inflow_all_zeros
+    description: VIC inflow conversion produces all zeros
+    detection: Inflow CSV values all 0.0
+    fix: Check VIC flux file format, upstream cell selection, unit conversion
+    is_unit_trap: false
+    automatable: true
+  - canonical_var: discharge
+    model: Pywr
+    trap_id: vic_conversion_error
+    description: VIC mm/day to m3/s missing /1000 or /86400
+    detection: Inflow magnitude unrealistic for basin size
+    fix: Q (m3/s) = runoff (mm/day) * area (m2) / (1000 * 86400)
+    is_unit_trap: true
+    automatable: true
+  - canonical_var: discharge
+    model: Pywr
+    trap_id: dt_pywr_005
+    description: '{''description'': ''Pywr model runs but reservoir never fills. Storage stays at initial or decreases monotonically.
+      Inflow CSV has all zeros or near-zero values.'', ''error_pattern'': '''', ''detection_method'''
+    detection: '{''root_cause'': ''Wrong upstream cells selected in convert_vic_to_inflow.py. Either (a) VIC flux files not
+      found for the coordinates, (b) wrong coordinate format in filenames, or (c) all cells are downs'
+    fix: '{''action'': ''Check VIC flux filename format and upstream cell count.'', ''tool_to_run'': ''convert_vic_to_inflow'',
+      ''manual_steps'': [''ls VIC result directory to see actual filename format'', ''Check cells_fou'
+    is_unit_trap: true
+    automatable: true
+  - canonical_var: discharge
+    model: Pywr
+    trap_id: dt_pywr_008
+    description: '{''description'': ''Release timeseries contains negative values. This is physically impossible (water cannot
+      flow upstream into a reservoir through the release works).'', ''error_pattern'': '''', ''detection_m'
+    detection: '{''root_cause'': ''Sign convention error in Pywr results extraction. Pywr itself cannot produce negative flows,
+      but the recording or extraction code may negate values incorrectly.'', ''explanation'': "Pywr'''
+    fix: '{''action'': ''Verify recorder setup and extraction logic.'', ''tool_to_run'': ''run_pywr'', ''manual_steps'': ["Check
+      that recorders are type ''numpyarraynode'' (not ''numpyarraylink'')", ''Verify flow = recorder.d'
+    is_unit_trap: false
+    automatable: true
+  - canonical_var: discharge
+    model: Pywr
+    trap_id: dt_pywr_013
+    description: '{''description'': ''Pywr model runs but produces truncated results or errors about missing data at certain
+      dates. The inflow CSV does not cover the full simulation period.'', ''error_pattern'': ''index.*out '
+    detection: '{''root_cause'': ''The timestepper start/end dates in the model JSON do not match the date range in the inflow
+      CSV. Pywr requests data for dates that are outside the CSV range.'', ''explanation'': "Pywr''s t'
+    fix: '{''action'': ''Align model dates with inflow CSV date range.'', ''tool_to_run'': ''assemble_pywr_model'', ''manual_steps'':
+      [''Check inflow CSV: head -1 and tail -1 to see date range'', ''Set --start_date to match'
+    is_unit_trap: false
+    automatable: true
+  - canonical_var: discharge
+    model: Pywr
+    trap_id: dt_pywr_014
+    description: '{''description'': ''Reservoir fills instantly and spills every day, or never fills despite large inflow.
+      Storage volume scale is wrong by factor of 1e6.'', ''error_pattern'': '''', ''detection_method'': ''value_'
+    detection: '{''root_cause'': ''GRanD CAP_MCM is in million cubic meters (MCM). If used directly as max_volume in Pywr
+      (which expects m3), the capacity is 1e6 too small. Example: Meishan 2275 MCM -> should be 2.275e9'
+    fix: '{''action'': ''Ensure max_volume = CAP_MCM * 1e6.'', ''tool_to_run'': ''build_reservoir_properties'', ''manual_steps'':
+      [''Verify: max_volume_m3 = capacity_mcm * 1e6'', ''Sanity check: max_volume_m3 for a major da'
+    is_unit_trap: true
+    automatable: true

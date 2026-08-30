@@ -1,0 +1,130 @@
+# Coupling Config v2: MODFLOW6 -> WNTR
+# Hand-authored 2026-05-22 — groundwater head at wellfield -> urban water supply head boundary
+
+coupling_config_version: '2.0'
+generated: '2026-05-22'
+generator: hand_authored
+metadata:
+  edge_id: MODFLOW6_to_WNTR
+  source_model: MODFLOW6
+  target_model: WNTR
+  source_domain: groundwater
+  target_domain: urban
+  edge_type: type3b_cross_domain
+  n_forward_variables: 1
+  n_combine_variables: 0
+  n_plausible_feedback: 0
+  n_review_feedback: 0
+  is_feedback: false
+  coupling_frequency: daily
+  note: >
+    MODFLOW6 simulates the transient groundwater head at supply wellfield cells.
+    WNTR uses this head as the reservoir head boundary condition for the urban
+    water distribution network. During drought or over-extraction, declining
+    MODFLOW6 head reduces the available driving head in WNTR, reducing network
+    pressure and resilience index. This is a one-directional daily feed.
+forward_edges:
+- canonical_id: hydraulic_head
+  source_canonical_id: hydraulic_head
+  target_canonical_id: groundwater_head
+  match_type: family_match
+  source_local_name: hydraulic_head
+  source_unit: m
+  target_local_name: reservoir_head
+  target_unit: m
+combine_edges: []
+plausible_feedback: []
+compatibility:
+- canonical_id: hydraulic_head
+  source_canonical_id: hydraulic_head
+  target_canonical_id: groundwater_head
+  match_type: family_match
+  primitives_needed:
+  - map_space
+  - exchange_data
+  - validate_boundary
+  details:
+    map_space: &ms1
+      status: point_extraction
+      note: >
+        MODFLOW6 outputs head on a regular 3D grid (rows × cols × layers).
+        WNTR needs a single scalar head per water supply source node.
+        Extract the mean head of the uppermost active layer across all wellfield
+        cells (typically 2-6 cells at the production aquifer depth).
+        MODFLOW6 wellfield cells are defined in the WEL package; their row/col
+        indices should be stored in the WNTR coupling config file under
+        coupling/wellfield_cells.
+        If multiple independent supply sources exist (e.g. Bengbu city + Huainan),
+        extract separate head scalars for each WNTR reservoir node.
+      canonical_id: hydraulic_head
+    exchange_data: &e1
+      status: daily_scalar
+      variable_mapping:
+        source_name: hydraulic_head
+        target_name: reservoir_head
+      note: >
+        Write daily head values to WNTR's boundary CSV:
+        date, source_id, head_m
+        WNTR reservoir nodes use this as their total head (elevation + pressure head).
+        Units are identical (m above datum); no conversion needed.
+        Write to models/WNTR/<basin>/inputs/groundwater_head_daily.csv.
+      canonical_id: hydraulic_head
+    validate_boundary: &v1
+      checks:
+      - no_nan
+      - 'range: [0.0, 200.0]'
+      note: >
+        For Huaihe alluvial aquifer: typical phreatic head 20-50 m above sea level.
+        Head < 5 m triggers urban water supply stress scenario in WNTR.
+        Head > 200 m is impossible for Huaihe plain (terrain < 100 m).
+      canonical_id: hydraulic_head
+primitives_needed:
+- map_space
+- exchange_data
+- validate_boundary
+execution_order:
+- map_space
+- exchange_data
+- validate_boundary
+primitive_configs:
+  map_space:
+  - *ms1
+  exchange_data:
+  - *e1
+  validate_boundary:
+  - *v1
+risks:
+  total_traps: 2
+  automatable: 1
+  judgment_required: 1
+  traps:
+  - canonical_var: hydraulic_head
+    model: MODFLOW6->WNTR
+    trap_id: datum_reference_mismatch
+    description: >
+      MODFLOW6 head is in metres above the model datum (usually mean sea level or
+      a local benchmark). WNTR reservoir head must be in metres above the same datum
+      as the node elevation in the EPANET INP file. If WNTR was built with node
+      elevations in metres above local datum (not sea level), the head values will
+      be offset by the benchmark difference — commonly 10-30 m for Huaihe cities.
+    detection: WNTR pressures uniformly high or uniformly negative (all nodes fail pressure check)
+    fix: >
+      Confirm WNTR node elevations use the same vertical datum as MODFLOW6.
+      If not, apply a fixed offset: reservoir_head_WNTR = head_MODFLOW6 - datum_offset_m.
+      Datum offset for Bengbu: 0 m (both reference Huanghai 1985 datum).
+    is_unit_trap: false
+    automatable: false
+  - canonical_var: hydraulic_head
+    model: MODFLOW6->WNTR
+    trap_id: layer_selection_for_supply
+    description: >
+      MODFLOW6 outputs head per layer. Supply wells typically draw from layer 2-3
+      (confined aquifer, 30-80 m depth). Using layer-1 (phreatic, ~10 m) overestimates
+      supply head in drought conditions when the deep confined aquifer is under-pressure.
+    detection: WNTR supply never drops below 15 m even during severe MODFLOW6 drawdown
+    fix: >
+      Extract head from the same layer as the WEL package perforation interval.
+      For Huaihe deep wells: use layers 2-3 (30-80 m Quaternary confined aquifer).
+      Average heads across perforated layers weighted by well screen length.
+    is_unit_trap: false
+    automatable: true

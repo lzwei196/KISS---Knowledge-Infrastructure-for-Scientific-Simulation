@@ -1,0 +1,231 @@
+# Coupling Config v2: VIC -> mizuRoute
+
+coupling_config_version: '2.0'
+generated: '2026-04-17'
+generator: ata_pipeline2_coupling_gen.py v2
+metadata:
+  edge_id: VIC_to_mizuRoute
+  source_model: VIC
+  target_model: mizuRoute
+  source_domain: hydrology
+  target_domain: routing
+  edge_type: type3b_cross_domain
+  n_forward_variables: 2
+  n_combine_variables: 1
+  n_plausible_feedback: 0
+  n_review_feedback: 0
+  is_feedback: false
+forward_edges:
+- canonical_id: surface_runoff
+  source_canonical_id: surface_runoff
+  target_canonical_id: surface_runoff
+  match_type: exact_canonical
+  source_local_name: runoff
+  source_unit: mm/timestep
+  target_local_name: surface_runoff
+  target_unit: mm/s
+- canonical_id: baseflow
+  source_canonical_id: baseflow
+  target_canonical_id: baseflow
+  match_type: exact_canonical
+  source_local_name: baseflow
+  source_unit: mm/timestep
+  target_local_name: baseflow
+  target_unit: mm/s
+combine_edges:
+- target_canonical_id: surface_runoff
+  target_local_name: surface_runoff
+  target_unit: mm/s
+  sources: &id001
+  - canonical_id: surface_runoff
+    local_name: runoff
+    unit: mm/timestep
+  - canonical_id: surface_runoff
+    local_name: total_runoff
+    unit: mm/day
+  - canonical_id: baseflow
+    local_name: baseflow
+    unit: mm/timestep
+  combine_method: sum
+  note: total_runoff = surface_runoff + baseflow
+  match_type: combine_rule
+plausible_feedback: []
+review_feedback: []
+compatibility:
+- canonical_id: surface_runoff
+  source_canonical_id: surface_runoff
+  target_canonical_id: surface_runoff
+  match_type: exact_canonical
+  primitives_needed:
+  - convert_units
+  - exchange_data
+  - validate_boundary
+  details:
+    convert_units: &id002
+      from_unit: mm/timestep
+      to_unit: mm/s
+      known: false
+      canonical_id: surface_runoff
+    exchange_data: &id004
+      from_format: ascii_text
+      to_format: netcdf
+      conversion_needed: true
+      source: card_level_format_check
+      variable_mapping:
+        source_name: runoff
+        target_name: surface_runoff
+      canonical_id: surface_runoff
+    validate_boundary: &id006
+      checks:
+      - non_negative
+      - no_nan
+      - 'range: [0.0, 0.01]'
+      canonical_id: surface_runoff
+- canonical_id: baseflow
+  source_canonical_id: baseflow
+  target_canonical_id: baseflow
+  match_type: exact_canonical
+  primitives_needed:
+  - convert_units
+  - exchange_data
+  - validate_boundary
+  details:
+    convert_units: &id003
+      from_unit: mm/timestep
+      to_unit: mm/s
+      known: false
+      canonical_id: baseflow
+    exchange_data: &id005
+      from_format: ascii_text
+      to_format: netcdf
+      conversion_needed: true
+      source: card_level_format_check
+      variable_mapping:
+        source_name: baseflow
+        target_name: baseflow
+      canonical_id: baseflow
+    validate_boundary: &id007
+      checks:
+      - non_negative
+      - no_nan
+      - 'range: [0.0, 0.01]'
+      canonical_id: baseflow
+primitives_needed:
+- combine_sources
+- convert_units
+- exchange_data
+- validate_boundary
+execution_order:
+- combine_sources
+- convert_units
+- exchange_data
+- validate_boundary
+primitive_configs:
+  combine_sources:
+  - target_canonical_id: surface_runoff
+    target_local_name: surface_runoff
+    target_unit: mm/s
+    sources: *id001
+    method: sum
+    note: total_runoff = surface_runoff + baseflow
+  convert_units:
+  - *id002
+  - *id003
+  exchange_data:
+  - *id004
+  - *id005
+  validate_boundary:
+  - *id006
+  - *id007
+risks:
+  total_traps: 9
+  automatable: 6
+  judgment_required: 3
+  traps:
+  - canonical_var: surface_runoff
+    model: mizuRoute
+    trap_id: vic_units_mm_timestep
+    description: VIC runoff in mm/timestep not converted to mm/s
+    detection: max(RUNOFF) in NetCDF should be < 0.01 mm/s for most basins
+    fix: Divide by 86400 (daily) or 10800 (3-hourly)
+    is_unit_trap: true
+    automatable: true
+  - canonical_var: surface_runoff
+    model: mizuRoute
+    trap_id: conv_runoff
+    description: 'Conversion trap: VIC (mm/day) -> mizuRoute (mm/s)'
+    detection: Discharge 86400x too high (mm/day fed as mm/s)
+    fix: Apply divide by 86400 factor=1.157e-05 offset=
+    is_unit_trap: true
+    automatable: true
+  - canonical_var: surface_runoff
+    model: mizuRoute
+    trap_id: dt_m003
+    description: '{''description'': ''Discharge is systematically 8x, 24x, or 86400x too high or too low'', ''error_pattern'':
+      None, ''detection_method'': ''value_comparison''}'
+    detection: '{''root_cause'': ''VIC runoff not converted from mm/timestep to mm/s'', ''explanation'': ''VIC reports RUNOFF
+      and BASEFLOW in mm per model timestep (daily=mm/day, 3-hourly=mm/3hr). mizuRoute expects mm/s (ra'
+    fix: '{''action'': ''Verify runoff input units: open NetCDF, check max value. Daily runoff of 10 mm/day = 10/86400 = 0.000116
+      mm/s. If values are >0.01, units are probably wrong.'', ''tool_to_run'': ''convert_vic_'
+    is_unit_trap: true
+    automatable: true
+  - canonical_var: surface_runoff
+    model: mizuRoute
+    trap_id: dt_m005
+    description: '{''description'': ''Discharge is near zero even though runoff input looks correct'', ''error_pattern'':
+      None, ''detection_method'': ''value_comparison''}'
+    detection: '{''root_cause'': ''CRS mismatch between VIC grid and HRU polygons causes zero overlap areas'', ''explanation'':
+      ''If the VIC grid is in WGS84 (EPSG:4326) but HRU polygons are in a projected CRS (e.g., UTM), '
+    fix: '{''action'': ''Ensure both VIC grid and HRU polygons are in the same CRS (WGS84 EPSG:4326)'', ''tool_to_run'': ''create_remap_weights.py'',
+      ''manual_steps'': [''Check VIC grid CRS: python -c "import netCDF4; pri'
+    is_unit_trap: true
+    automatable: false
+  - canonical_var: surface_runoff
+    model: mizuRoute
+    trap_id: dt_m010
+    description: '{''description'': ''Some river reaches get zero flow even in wet season'', ''error_pattern'': None, ''detection_method'':
+      ''value_comparison''}'
+    detection: '{''root_cause'': "VIC grid doesn''t fully cover all HRUs — edge HRUs get no runoff", ''explanation'': ''At
+      coarse VIC resolution (0.25 deg), some small HRUs at basin edges may not overlap with any VIC grid '
+    fix: '{''action'': ''Check remap weights: every HRU should have weight sum > 0. Use finer VIC resolution (0.1 deg) for
+      better coverage.'', ''tool_to_run'': ''create_remap_weights.py'', ''manual_steps'': [''Read weight'
+    is_unit_trap: false
+    automatable: false
+  - canonical_var: surface_runoff
+    model: mizuRoute
+    trap_id: dt_m013
+    description: '{''description'': ''Runoff seasonality appears inverted or offset by months'', ''error_pattern'': None,
+      ''detection_method'': ''value_comparison''}'
+    detection: '{''root_cause'': ''Time zone or calendar mismatch between VIC output and mizuRoute expectations'', ''explanation'':
+      "If VIC uses UTC but the basin is at UTC+8, and the time coordinate doesn''t specify timezo'
+    fix: '{''action'': "Ensure time coordinate has correct ''calendar'' attribute and reference date", ''manual_steps'': [''Check:
+      ncdump -h runoff.nc | grep calendar'', "Should be ''standard'' or ''gregorian''", ''Referenc'
+    is_unit_trap: true
+    automatable: true
+  - canonical_var: surface_runoff
+    model: mizuRoute
+    trap_id: dt_m014
+    description: '{''description'': ''Slight timing shift in hydrograph relative to Lohmann routing'', ''error_pattern'':
+      None, ''detection_method'': ''value_comparison''}'
+    detection: '{''root_cause'': ''doesBasinRoute=1 applies an additional hillslope IRF that Lohmann routing already includes
+      in its unit hydrograph'', ''explanation'': "mizuRoute''s basin IRF delays runoff before reach rou'
+    fix: '{''action'': ''When comparing with Lohmann: set doesBasinRoute=0 to avoid double hillslope delay'', ''manual_steps'':
+      [''Edit control file: <doesBasinRoute> 0''], ''prevention'': ''generate_control_file.py defau'
+    is_unit_trap: true
+    automatable: false
+  - canonical_var: surface_runoff
+    model: VIC->mizuRoute
+    trap_id: unit_mismatch_surface_runoff
+    description: 'Unit mismatch: source [mm/timestep] vs target [mm/s]'
+    detection: Check surface_runoff units at coupling boundary
+    fix: Convert mm/timestep -> mm/s
+    is_unit_trap: true
+    automatable: true
+  - canonical_var: baseflow
+    model: VIC->mizuRoute
+    trap_id: unit_mismatch_baseflow
+    description: 'Unit mismatch: source [mm/timestep] vs target [mm/s]'
+    detection: Check baseflow units at coupling boundary
+    fix: Convert mm/timestep -> mm/s
+    is_unit_trap: true
+    automatable: true

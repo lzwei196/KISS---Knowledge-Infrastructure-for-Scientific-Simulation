@@ -1,0 +1,72 @@
+# Forcing Provider Card: MSWX
+entity_type: forcing_provider
+provider_id: mswx_v1
+provider_name: "Multi-Source Weather"
+version: "1.0"
+description: "Global multi-source blended meteorological forcing, 0.1°, 3-hourly, 1979-present"
+data_path: "/mnt/disk3/msxw/"
+
+variables:
+  - canonical_id: precipitation_rate
+    local_name: Precipitation
+    unit: mm/3hr
+    valid_range: [0, 200]
+    known_traps:
+      - trap_id: mswx_prec_unit
+        description: "Unit is mm per 3-hour interval. Divide by 3 for mm/hr, multiply by 8 for mm/day."
+        severity: high
+
+  - canonical_id: air_temperature
+    local_name: Temp
+    unit: degC
+    valid_range: [-60, 55]
+
+  - canonical_id: air_temperature_max
+    local_name: Tmax
+    unit: degC
+    valid_range: [-50, 60]
+
+  - canonical_id: air_temperature_min
+    local_name: Tmin
+    unit: degC
+    valid_range: [-70, 50]
+
+  - canonical_id: shortwave_radiation
+    local_name: SWd
+    unit: W/m2
+    valid_range: [0, 1400]
+
+  - canonical_id: longwave_radiation
+    local_name: LWd
+    unit: W/m2
+    valid_range: [50, 600]
+
+  - canonical_id: wind_speed
+    local_name: Wind
+    unit: m/s
+    valid_range: [0, 50]
+
+  - canonical_id: relative_humidity
+    local_name: RelHum
+    unit: percent
+    valid_range: [0, 100]
+
+  - canonical_id: air_pressure
+    local_name: Pres
+    unit: Pa
+    valid_range: [50000, 110000]
+
+spatial:
+  type: regular_grid
+  resolution: 0.1deg
+  extent: {west: -180, east: 180, south: -90, north: 90}
+  crs: EPSG:4326
+
+temporal:
+  resolution: 3-hourly
+  range: {start: "1979-01-01", end: "2026-04-01"}
+  calendar: standard
+
+data_format: netcdf
+access: local_file
+performance_note: "Files are 3-16 GB each. First-run clipping is slow (~3 min/file). Subsequent runs use cache."

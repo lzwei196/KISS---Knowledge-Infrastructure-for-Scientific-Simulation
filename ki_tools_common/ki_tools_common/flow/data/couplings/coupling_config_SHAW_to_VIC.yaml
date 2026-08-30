@@ -1,0 +1,203 @@
+# Coupling Config v2: SHAW -> VIC
+# FIXED 2026-05-16: original auto-generated config mapped soil_temperature→air_temperature
+# (physically wrong — same family match, but semantically invalid for forcing injection).
+# Correct science: SHAW computes frozen-soil thermal state (temperature + ice fraction per layer).
+# VIC's frozen-soil module uses soil_temperature_layer_N to compute ice content and reduce K_sat.
+# This config passes SHAW column-profile soil temperatures to VIC soil-layer initial conditions.
+
+coupling_config_version: '2.0'
+generated: '2026-05-16'
+generator: manual_fix_v1
+metadata:
+  edge_id: SHAW_to_VIC
+  source_model: SHAW
+  target_model: VIC
+  source_domain: soil_physics
+  target_domain: hydrology
+  edge_type: type5_cross_scale_cross_domain
+  n_forward_variables: 2
+  n_combine_variables: 0
+  n_plausible_feedback: 1
+  n_review_feedback: 0
+  is_feedback: false
+  fix_note: >
+    Pipeline2 matched soil_temperature→air_temperature (same temperature family) which is
+    physically wrong. SHAW's soil temperature profiles initialize VIC's frozen-soil module,
+    NOT VIC's atmospheric forcing. The transform below maps SHAW per-layer T [°C] to
+    VIC's SOIL_TEMP initial conditions in global_param.
+
+forward_edges:
+  - canonical_id: soil_temperature
+    source_canonical_id: soil_temperature
+    target_canonical_id: soil_temperature
+    match_type: exact_canonical
+    source_local_name: soil_temperature_profiles     # SHAW .out column "TSOI_n" (°C)
+    source_unit: degC
+    target_local_name: SOIL_TEMP                     # VIC global_param SOIL_TEMP layer init
+    target_unit: degC
+    primitives_needed:
+      - map_space
+      - align_time
+      - transform_semantic
+      - validate_boundary
+    transform_semantic:
+      description: >
+        SHAW outputs 1-D vertical profile at point scale; VIC expects per-grid-cell
+        soil temperature for N soil layers. Collapse SHAW's soil column to VIC layer depths
+        (0-d1, d1-d2, d2-d3) by depth-weighted average. Then spatially interpolate to VIC
+        grid cells using nearest-neighbor or kriging from SHAW simulation points.
+      formula: |
+        # SHAW layer → VIC layer depth-weighted average
+        # SHAW outputs at nodes 0, 5, 10, 20, 50, 100, 200 cm depth
+        # VIC default layers: d1=0.1m, d2=0.3m, d3=1.5m
+        T_layer1 = mean(T_SHAW[depth <= d1_m])
+        T_layer2 = mean(T_SHAW[(depth > d1_m) & (depth <= d1_m+d2_m)])
+        T_layer3 = mean(T_SHAW[(depth > d1_m+d2_m) & (depth <= d1_m+d2_m+d3_m)])
+      injection_point: global_param  # edit INIT_STATE or SOIL_TEMP in VIC global param
+
+  - canonical_id: soil_ice_fraction
+    source_canonical_id: soil_ice_fraction
+    target_canonical_id: soil_ice_fraction
+    match_type: exact_canonical
+    source_local_name: fice_profiles              # SHAW ice fraction per node
+    source_unit: fraction_0_to_1
+    target_local_name: ice_content               # VIC state file ice_content[layer][band]
+    target_unit: fraction_0_to_1
+    primitives_needed:
+      - map_space
+      - align_time
+      - transform_semantic
+      - validate_boundary
+    transform_semantic:
+      description: >
+        SHAW computes ice fraction at each soil node. VIC's frozen-soil module uses this
+        to reduce hydraulic conductivity K_sat by factor (1 - fice)^exp_ice (exp_ice≈3).
+        Pass SHAW's ice fraction at VIC layer mid-depths as initial state.
+      formula: |
+        # interpolate SHAW fice(z) to VIC layer mid-depths
+        fice_layer1 = interp(shaw_z, shaw_fice, d1_m / 2)
+        fice_layer2 = interp(shaw_z, shaw_fice, d1_m + d2_m / 2)
+        fice_layer3 = interp(shaw_z, shaw_fice, d1_m + d2_m + d3_m / 2)
+        # K_sat_eff = K_sat * (1 - fice) ** 3  [applied internally by VIC]
+      injection_point: state_file  # VIC state file ice_content variable
+
+plausible_feedback:
+  - note: >
+      VIC soil moisture → SHAW initial soil water content (moi file). Would allow
+      SHAW to update frozen-soil state dynamically from VIC's simulated moisture.
+      Currently not implemented. Requires feedback coupling YAML (pipeline3 or manual).
+
+combine_edges: []
+review_feedback: []
+
+compatibility:
+  - canonical_id: soil_temperature
+    primitives_needed:
+      - map_space
+      - align_time
+      - transform_semantic
+      - validate_boundary
+    details:
+      map_space:
+        from_type: 1d_vertical_point
+        to_type: regular_grid_3layer
+        method: depth_weighted_average + spatial_interpolation
+      align_time:
+        from_resolution: hourly
+        to_resolution: daily
+        direction: snapshot_at_end_of_day
+        aggregation_method: last_value  # soil temp at end of day for next-day VIC init
+      validate_boundary:
+        checks:
+          - no_nan
+          - "range: [-50.0, 40.0]"
+
+  - canonical_id: soil_ice_fraction
+    primitives_needed:
+      - map_space
+      - align_time
+      - transform_semantic
+      - validate_boundary
+    details:
+      map_space:
+        from_type: 1d_vertical_point
+        to_type: regular_grid_3layer
+        method: depth_interpolation_to_layer_midpoint
+      align_time:
+        from_resolution: hourly
+        to_resolution: daily
+        direction: snapshot_at_end_of_day
+      validate_boundary:
+        checks:
+          - no_nan
+          - "range: [0.0, 1.0]"
+
+risks:
+  total_traps: 8
+  automatable: 4
+  judgment_required: 4
+  traps:
+    - canonical_var: soil_temperature
+      model: SHAW
+      trap_id: shaw_012
+      description: 99999 sentinel value in SHAW temperature output means missing node
+      fix: Filter 99999 before depth-weighted average; if >50% nodes missing, skip cell.
+      is_unit_trap: false
+      automatable: true
+    - canonical_var: soil_temperature
+      model: SHAW
+      trap_id: shaw_013
+      description: SHAW uses 2-digit year codes in output headers
+      fix: Parse year as (year + 1900) if year > 50 else (year + 2000)
+      is_unit_trap: true
+      automatable: true
+    - canonical_var: soil_ice_fraction
+      model: SHAW
+      trap_id: shaw_fice_001
+      description: SHAW ice fraction column only present in output when FROZEN_SOIL=1 in .sit
+      fix: Verify SHAW .sit has MFROZEN=1 (line G flag). If not, ice fraction not computed.
+      is_unit_trap: false
+      automatable: true
+    - canonical_var: soil_temperature
+      model: VIC
+      trap_id: vic_frozen_001
+      description: VIC must have FROZEN_SOIL=TRUE in global_param to use injected soil temperature
+      fix: Set FROZEN_SOIL TRUE in VIC global_param. Also set FULL_ENERGY TRUE.
+      is_unit_trap: false
+      automatable: true
+    - canonical_var: soil_temperature
+      model: VIC
+      trap_id: vic_frozen_002
+      description: VIC state file ice_content units are volumetric (mm water equivalent per layer)
+      fix: Convert SHAW fice [fraction] → VIC ice_content [mm]: ice_mm = fice * porosity * layer_depth_mm
+      is_unit_trap: true
+      automatable: false
+    - canonical_var: soil_ice_fraction
+      model: SHAW
+      trap_id: shaw_spatial_001
+      description: SHAW runs at point scale; VIC grid cells are 0.1-0.25° (11-28 km). Spatial mismatch.
+      fix: >
+        Run SHAW at representative points for each VIC grid cell soil type (HWSD mapping).
+        Use kriging or nearest-neighbor for spatial interpolation. Not valid for heterogeneous
+        terrain where frozen fraction varies spatially within a 0.25° cell.
+      is_unit_trap: false
+      automatable: false
+    - canonical_var: soil_temperature
+      model: VIC
+      trap_id: vic_forced_003
+      description: >
+        Injecting soil temperature as VIC initial conditions only affects run startup.
+        For fully dynamic frozen-soil feedback, SHAW must run in parallel timestep-by-timestep
+        — this config handles INITIALIZATION only, not dynamic coupling.
+      fix: >
+        For initialization: inject once before VIC run. For dynamic coupling: requires
+        feedback YAML with Picard iteration via coupled_orchestrator.py.
+      is_unit_trap: false
+      automatable: false
+    - canonical_var: soil_temperature
+      model: SHAW
+      trap_id: shaw_031
+      description: Copy-first rule violated — use setup_shaw_from_template.py always
+      fix: Always copy JackPine template and modify; never generate .sit from scratch.
+      is_unit_trap: false
+      automatable: false

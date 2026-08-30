@@ -96,9 +96,16 @@ def _new(goal: str = "", selected_kis: list[str] | None = None) -> dict:
     }
 
 
-def _normalise(raw: dict | None, fallback: dict | None = None) -> dict:
+def _normalise(raw: dict | None, fallback: dict | None = None, *,
+               allow_stage: bool = True) -> dict:
+    """allow_stage=False (plan v3 B5): an AGENT report may change status/summary/goal/
+    selected_kis/blocker but never the stage — the flow (flowgate) owns the stage. The
+    desktop passes allow_stage=False for every agent-sourced update once a project has a
+    flow state file; app-sourced updates keep the old behaviour."""
     base = dict(fallback or _new())
     raw = raw if isinstance(raw, dict) else {}
+    if not allow_stage:
+        raw = {k: v for k, v in raw.items() if k != "stage"}
     stage = str(raw.get("stage") or base.get("stage") or "understanding")
     status = str(raw.get("status") or base.get("status") or "idle")
     if stage not in STAGES:
@@ -172,7 +179,7 @@ def load(project: Path, *, goal: str = "", selected_kis: list[str] | None = None
     try:
         agent = json.loads(agent_path.read_text(encoding="utf-8"))
         if isinstance(agent, dict) and agent_path.stat().st_mtime >= path.stat().st_mtime:
-            state = _normalise(agent, state)
+            state = _normalise(agent, state, allow_stage=not flow_owned(project))
             state["updated_at"] = agent_path.stat().st_mtime
             _write(project, state)
             _event(project, "agent_progress", state)
@@ -199,13 +206,38 @@ def begin_turn(project: Path, message: str, selected_kis: list[str] | None = Non
     return state
 
 
+FLOW_STATE_FILE = "flow-state.json"     # written by ki_tools_common.flow (flowgate), never by agents
+FLOW_SOURCES = ("flow",)                # the only report() sources allowed to move the stage
+
+
+def flow_owned(project: Path) -> bool:
+    """True once the project has a flow state file: from then on the stage is the flow's."""
+    return _path(project, FLOW_STATE_FILE).is_file()
+
+
+def set_stage(project: Path, stage: str, summary: str = "", *, source: str = "flow") -> dict:
+    """The flow's way to move the display stage (maps a flow state to the 8 UI labels)."""
+    if source not in FLOW_SOURCES:
+        raise ValueError("only the flow may set the stage")
+    state = load(project)
+    if stage in STAGES:
+        state["stage"] = stage
+    if summary:
+        state["summary"] = _short(summary, 500)
+    state["updated_at"] = time.time()
+    _write(project, state)
+    _event(project, f"stage:{source}", state)
+    return state
+
+
 def report(project: Path, payload: dict, *, source: str = "agent") -> dict:
     state = load(project)
     update = dict(payload or {})
     if update.get("status") != "waiting_for_user" and "blocker" not in update:
         state.pop("blocker", None)
     update["updated_at"] = time.time()
-    state = _normalise(update, state)
+    state = _normalise(update, state,
+                       allow_stage=(source in FLOW_SOURCES) or not flow_owned(project))
     _write(project, state)
     _event(project, f"progress:{source}", state)
     return state

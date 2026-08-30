@@ -1,0 +1,220 @@
+ata_card_version: '1.0'
+generated: '2026-05-22'
+generator: hand_authored
+identity:
+  model_id: SaltMod
+  model_name: SaltMod 5.0 (Agro-Hydro-Salinity Model, ILRI/Wageningen)
+  domain: hydrology
+  secondary_domains:
+  - soil_water
+  - water_quality
+  - agriculture
+  language: Delphi/Pascal (Windows PE32 binary, runs under Wine 9.0)
+  binary_path: /mnt/disk1/Hydrocraft_server/models/SaltMod/source/SaltMod.exe
+inputs:
+- canonical_id: irrigation_water_applied
+  local_name: Iq
+  unit: m/season
+  valid_range:
+  - 0.0
+  - 3.0
+  format: ascii_text
+  semantic_type: flux_density
+  unit_confidence: documented
+  mapping_confidence: exact_alias
+  input_category: forcing
+  conversion_notes:
+    from_cwatm: CWatM irrigation demand (mm/day) × days_in_season / 1000 = m/season
+    from_dssat: DSSAT irrigation events (mm) summed per season / 1000 = m/season
+  silent_error: Providing m/yr instead of m/season (typically 4× too large) — SaltMod
+    reads any numeric value; water balance diverges silently.
+- canonical_id: actual_evapotranspiration
+  local_name: ETa
+  unit: m/season
+  valid_range:
+  - 0.0
+  - 1.5
+  format: ascii_text
+  semantic_type: flux_density
+  unit_confidence: documented
+  mapping_confidence: exact_alias
+  input_category: forcing
+  conversion_notes:
+    from_vic: VIC ET (mm/day) × days_in_season / 1000 = m/season
+- canonical_id: precipitation_rate
+  local_name: P
+  unit: m/season
+  valid_range:
+  - 0.0
+  - 2.0
+  format: ascii_text
+  semantic_type: flux_density
+  unit_confidence: documented
+  mapping_confidence: exact_alias
+  input_category: forcing
+  conversion_notes:
+    from_cmfd: CMFD prec (mm/day) summed per season / 1000 = m/season
+- canonical_id: soil_salinity
+  local_name: CA0
+  unit: dS/m
+  valid_range:
+  - 0.0
+  - 50.0
+  format: ascii_text
+  semantic_type: state
+  unit_confidence: documented
+  mapping_confidence: exact_alias
+  input_category: initial_conditions
+- canonical_id: water_table_depth
+  local_name: Dw
+  unit: m
+  valid_range:
+  - 0.0
+  - 20.0
+  format: ascii_text
+  semantic_type: state
+  unit_confidence: documented
+  mapping_confidence: exact_alias
+  input_category: initial_conditions
+  conversion_notes:
+    from_fan_wtd: Fan WTD is mean depth in m — use directly as initial Dw
+    from_modflow6: MODFLOW6 head (m) → Dw = surface_elevation - modflow_head
+outputs:
+- canonical_id: soil_salinity
+  local_name: CA
+  unit: dS/m
+  valid_range:
+  - 0.0
+  - 50.0
+  format: ascii_text
+  semantic_type: state
+  unit_confidence: documented
+  mapping_confidence: exact_alias
+  output_section: primary
+  origin: simulated
+  origin_confidence: high
+- canonical_id: water_table_depth
+  local_name: Dw_out
+  unit: m
+  valid_range:
+  - 0.0
+  - 20.0
+  format: ascii_text
+  semantic_type: state
+  unit_confidence: documented
+  mapping_confidence: exact_alias
+  output_section: primary
+  origin: simulated
+  origin_confidence: high
+- canonical_id: drainage_rate
+  local_name: Qd
+  unit: m/season
+  valid_range:
+  - 0.0
+  - 2.0
+  format: ascii_text
+  semantic_type: flux_density
+  unit_confidence: documented
+  mapping_confidence: exact_alias
+  output_section: primary
+  origin: simulated
+  origin_confidence: high
+  conversion_notes:
+    to_modflow6: Qd (m/season) / days_in_season / 1000 = m/day drainage rate
+- canonical_id: leached_salt
+  local_name: CQ_drain
+  unit: dS/m
+  valid_range:
+  - 0.0
+  - 80.0
+  format: ascii_text
+  semantic_type: state
+  unit_confidence: documented
+  mapping_confidence: exact_alias
+  output_section: primary
+  origin: simulated
+  origin_confidence: high
+- canonical_id: soil_salt_concentration
+  local_name: salt_conc
+  unit: g/L
+  semantic_type: concentration
+  mapping_confidence: inferred
+  origin: simulated
+  origin_confidence: high
+  output_section: primary
+  format: unspecified
+  valid_range:
+  - 0
+  - 100
+spatial:
+  type: lumped
+  resolution: field_to_district
+  crs: EPSG:4326
+  source: format_spec
+temporal:
+  resolution: seasonal
+  calendar: up_to_4_seasons_per_year
+  source: format_spec
+risks:
+  known_traps:
+  - canonical_var: irrigation_water_applied
+    trap_id: unit_m_per_season_not_mm
+    description: SaltMod uses m/season throughout. Providing mm/day, mm/season, or
+      m/yr will silently corrupt the water balance. Most hydrological models output
+      mm/day or mm/yr.
+    detection: Water table rising to ground surface in first season; soil salinity
+      collapsing to zero
+    fix: 'Convert all fluxes: mm/day × days_per_season / 1000 = m/season'
+    is_unit_trap: true
+    automatable: true
+    severity: high
+  - canonical_var: soil_salinity
+    trap_id: wine_headless_run
+    description: SaltMod.exe is a Windows GUI binary and must run under Wine with
+      a virtual X display (Xephyr or Xvfb). Direct invocation without DISPLAY set
+      causes immediate crash.
+    detection: SaltMod.exe exits with code 1, no output produced
+    fix: Set DISPLAY=:99; start Xvfb :99 & before invoking wine SaltMod.exe
+    is_unit_trap: false
+    automatable: true
+    severity: high
+  - canonical_var: drainage_rate
+    trap_id: no_interactive_year_changes
+    description: When Ky=1 in INP file, SaltMod expects interactive year-by-year parameter
+      changes via GUI. Non-interactive driver cannot replicate reference outputs for
+      MPRECON/INTERACT test cases. Use Ky=0 for automated runs.
+    detection: SaltMod hangs waiting for GUI input after year 1
+    fix: Set Ky=0 in INP file for fully automated (non-interactive) runs
+    is_unit_trap: false
+    automatable: true
+    severity: high
+  unit_conversions:
+  - from_unit: mm/day
+    to_unit: m/season
+    formula: value_mm_day * days_in_season / 1000
+    applies_to:
+    - precipitation_rate
+    - irrigation_water_applied
+    - actual_evapotranspiration
+coupling:
+  chain_position: consumer_producer
+  native_formats:
+  - ascii_text
+  exchange_format: ascii_text
+  coupling_role: earth_system
+quality:
+  has_format_spec: true
+  has_skill_md: true
+  has_triplets: true
+  n_inputs: 5
+  n_outputs: 4
+  n_inputs_canonical: 5
+  n_outputs_canonical: 4
+  n_unmapped: 0
+  n_traps: 3
+  n_conversions: 1
+  spatial_complete: true
+  temporal_complete: true
+  unmapped_variables: []
+  validation_issues: []
+  card_status: complete

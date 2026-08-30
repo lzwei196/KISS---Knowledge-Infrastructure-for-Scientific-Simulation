@@ -1,0 +1,224 @@
+# Coupling Config v2: CWatM -> VIC
+# MANUAL — 2026-05-21 (pipeline2 cannot auto-generate this edge)
+#
+# Pipeline2 failure reason: CWatM's ATA card does not expose irrigation_gross,
+# irrigation_from_surface_water, or irrigation_from_groundwater as canonical outputs.
+# The only registered CWatM outputs are: discharge, surface_runoff, baseflow, totalET,
+# storGroundwater, SnowCover, tws — all unmapped or aliased to hydraulics.
+# VIC has no canonical input for managed-demand corrections either.
+#
+# Architecture role of this edge in the Huaihe system:
+#   CWatM is the WATER ALLOCATION model: it knows total irrigation demand, sector
+#   withdrawals, and return flows. VIC is the LAND SURFACE model: it computes
+#   naturalized ET and runoff without human water use.
+#   The CWatM→VIC coupling closes the consumptive-use loop:
+#     VIC naturalized runoff → (CWatM allocates water) → CWatM consumed ET
+#     → re-injected into VIC as a soil moisture depletion correction.
+#   This correction is needed for the water balance to close in irrigated regions
+#   of the Huaihe plain (Bengbu, Wangjiaba) where human water use reduces
+#   naturalized runoff by 15-40%.
+#
+# CURRENT LIMITATION: This edge is NOT yet executable as a standard ata_runtime.py
+# primitive. Injection of CWatM totalET corrections into VIC requires modifying VIC
+# global_param to use IRRIGATION forcing, which is not a standard ata_runtime primitive.
+# Treat this config as a DESIGN SPECIFICATION for a future custom adapter.
+# For current runs: use parallel-scenario mode (VIC naturalized only), and apply
+# CWatM water balance correction as post-processing on routed discharge.
+
+coupling_config_version: '2.0'
+generated: '2026-05-21'
+generator: manual_v1
+metadata:
+  edge_id: CWatM_to_VIC
+  source_model: CWatM
+  target_model: VIC
+  source_domain: water_allocation
+  target_domain: hydrology
+  edge_type: type5_cross_scale_cross_domain
+  n_forward_variables: 1
+  n_combine_variables: 0
+  n_plausible_feedback: 1
+  n_review_feedback: 0
+  is_feedback: false
+  pipeline2_status: failed_no_canonical_overlap
+  execution_status: design_spec_only  # NOT yet executable via ata_runtime.py
+  note: >
+    CWatM→VIC is a semantic-gap coupling. The variable CWatM produces
+    (managed consumptive ET) has no registered canonical counterpart in VIC's input
+    interface. This YAML documents the intended coupling for when a VIC IRRIGATION
+    forcing adapter is implemented.
+
+forward_edges:
+  - canonical_id: evapotranspiration
+    source_canonical_id: evapotranspiration
+    target_canonical_id: evapotranspiration
+    match_type: family_match_with_semantic_transform
+    source_local_name: totalET              # CWatM output: total ET including irrigation, [m/day]
+    source_unit: m/day
+    target_local_name: IRRIGATION_FORCING  # VIC optional forcing: irrigation water applied [mm/day]
+    target_unit: mm/day
+    primitives_needed:
+      - convert_units
+      - transform_semantic
+      - map_space
+      - align_time
+      - validate_boundary
+    transform_semantic:
+      description: >
+        CWatM totalET [m/day] includes both naturalized ET and irrigation-induced ET.
+        VIC computes its own naturalized ET. The difference
+        (CWatM_totalET - VIC_ET) approximates the irrigation water consumed from
+        surface/groundwater sources. This delta is injected into VIC's IRRIGATION
+        forcing (available in VIC 5.x when USE_IRRIGATION=TRUE in global_param) as
+        additional soil water supplied by human management.
+      formula: |
+        # Step 1: Run VIC naturalized (no irrigation) → extract VIC_ET per grid cell [mm/day]
+        # Step 2: Get CWatM totalET per grid cell [m/day] → convert to mm/day (×1000)
+        # Step 3: Compute irrigation increment
+        IRR_mm_day = max(0.0, CWatM_totalET_mm - VIC_ET_mm)
+        # Step 4: Inject IRR_mm_day into VIC IRRIGATION forcing file (ASCII or NetCDF)
+        # VIC IRRIGATION forcing is treated as direct soil moisture addition to layer 1
+        # No double-counting: VIC still computes its own ET from soil water after injection
+      injection_point: >
+        VIC IRRIGATION forcing file — one additional column in the VIC ASCII forcing
+        or a separate NetCDF variable. Enable with IRRIGATION TRUE and
+        FORCE_TYPE IRRIGATION SIGNED in VIC global_param.
+    notes: >
+      If VIC IRRIGATION forcing is not available (classic driver without irrigation patch),
+      fall back to: subtract CWatM water consumption from VIC routed discharge in
+      post-processing (simpler, less physically correct but defensible for Huaihe basin-scale
+      water balance closure).
+
+combine_edges: []
+
+plausible_feedback:
+  - note: >
+      VIC soil moisture → CWatM soil water content initialization. CWatM's soil
+      bucket model could be initialized from VIC's calibrated soil moisture state,
+      improving early-season allocation accuracy. Not implemented. Would require
+      feedback YAML (VIC_bidir_CWatM) via pipeline3 or manual.
+
+review_feedback: []
+
+compatibility:
+  - canonical_id: evapotranspiration
+    primitives_needed:
+      - convert_units
+      - transform_semantic
+      - map_space
+      - align_time
+      - validate_boundary
+    details:
+      convert_units:
+        from_unit: m/day
+        to_unit: mm/day
+        factor: 1000
+        known: true
+      transform_semantic:
+        description: >
+          totalET_to_irrigation_increment via delta method. Requires naturalized VIC ET
+          to already be computed. This makes the edge ORDER-DEPENDENT: VIC must run in
+          naturalized mode first, then CWatM runs, then the correction is injected for
+          a second VIC run with irrigation.
+        semantic_type: state_correction
+      map_space:
+        from_type: regular_grid
+        to_type: regular_grid
+        method: bilinear_regrid
+        note: CWatM grid (0.5°) → VIC grid (0.1° or 0.25°); disaggregate using area weights
+      align_time:
+        from_resolution: daily
+        to_resolution: daily
+        direction: direct_pass
+      validate_boundary:
+        checks:
+          - non_negative
+          - no_nan
+          - "range: [0.0, 50.0]"   # max realistic irrigation application [mm/day]
+
+primitives_needed:
+  - convert_units
+  - transform_semantic
+  - map_space
+  - align_time
+  - validate_boundary
+
+execution_order:
+  - align_time
+  - map_space
+  - convert_units
+  - transform_semantic
+  - validate_boundary
+
+risks:
+  total_traps: 4
+  automatable: 2
+  judgment_required: 2
+  traps:
+    - canonical_var: evapotranspiration
+      model: CWatM->VIC
+      trap_id: cwatm_vic_001
+      description: >
+        Double-counting: if VIC already uses irrigation forcing AND CWatM also accounts
+        for the same water withdrawal, the basin water balance will show double the
+        consumption. The delta method avoids this only if VIC naturalized run is the
+        reference.
+      detection: >
+        Basin P - ET - ΔS - Q closure error > 15% (water balance residual).
+        Compare VIC_ET_naturalized vs CWatM_totalET; if CWatM < VIC in wet years,
+        the delta will be negative (correct, suppress to 0). If CWatM >> VIC in all
+        years, suspect double-counting.
+      fix: >
+        Always run VIC naturalized FIRST (no irrigation forcing). Extract VIC_ET.
+        Compute delta. Only apply positive deltas as irrigation supplement.
+      is_unit_trap: false
+      automatable: false
+    - canonical_var: evapotranspiration
+      model: CWatM
+      trap_id: cwatm_vic_002
+      description: >
+        CWatM totalET unit is m/day but may be stored as m/timestep in NetCDF output
+        depending on CWatM version. At 0.5° grid, 1 m/day is already extremely high
+        (10× typical); if values appear 365× too large, the file stores annual totals.
+      detection: >
+        CWatM totalET mean in irrigated Huaihe plain should be 2-5 mm/day in growing
+        season. If mean > 20 mm/day or values look like annual sums (~500-1000 mm),
+        unit is wrong.
+      fix: Divide by 365 if annual totals; check CWatM output configuration for timestep.
+      is_unit_trap: true
+      automatable: true
+    - canonical_var: evapotranspiration
+      model: CWatM->VIC
+      trap_id: cwatm_vic_003
+      description: >
+        Spatial mismatch: CWatM default resolution is 0.5°; VIC for Huaihe is 0.1° or 0.25°.
+        Naive nearest-neighbor regridding will blocky-sharpen the irrigation signal,
+        concentrating it in certain cells while zeros appear in adjacent cells.
+      detection: >
+        Irrigation forcing map shows rectangular 0.5° blocks instead of smooth spatial pattern.
+        Check plot: skills/plot/plot_forcing_preview.py on the irrigation forcing file.
+      fix: >
+        Use area-weighted bilinear regridding (xarray.interp or cdo remapbil).
+        For the Huaihe plain (flat terrain), bilinear is sufficient; no need for
+        topography-aware disaggregation.
+      is_unit_trap: false
+      automatable: true
+    - canonical_var: evapotranspiration
+      model: VIC
+      trap_id: cwatm_vic_004
+      description: >
+        VIC IRRIGATION forcing is only supported in VIC 5.x with the irrigation patch.
+        VIC 5.1.0 (the binary at model/VIC-5.1.0/vic/drivers/classic/vic_classic.exe)
+        does NOT support IRRIGATION forcing natively. The fallback (post-processing
+        discharge correction) must be used until a patched binary is compiled.
+      detection: >
+        VIC global_param with 'IRRIGATION TRUE' causes VIC to exit with:
+        "ERROR: unknown forcing type IRRIGATION". Confirm with vic_classic.exe --version.
+      fix: >
+        Use fallback: apply CWatM water consumption as a post-processing correction to
+        Lohmann-routed discharge before feeding to DSSAT or downstream models.
+        Correction: Q_managed = Q_naturalized - (CWatM_withdrawal - CWatM_returnFlow)
+        Both withdrawal and returnFlow variables need to be read from CWatM output files
+        directly (not via ATA card — they are unmapped).
+      is_unit_trap: false
+      automatable: false

@@ -1,0 +1,163 @@
+# Coupling Config v2: UrbanSim -> SWMM
+
+coupling_config_version: '2.0'
+generated: '2026-05-23'
+generator: ata_pipeline2_coupling_gen.py v2
+metadata:
+  edge_id: UrbanSim_to_SWMM
+  source_model: UrbanSim
+  target_model: SWMM
+  source_domain: urban
+  target_domain: urban_drainage
+  edge_type: type5_cross_scale_cross_domain
+  n_forward_variables: 2
+  n_combine_variables: 0
+  n_plausible_feedback: 0
+  n_review_feedback: 1
+  is_feedback: false
+forward_edges:
+- canonical_id: impervious_fraction
+  source_canonical_id: impervious_fraction
+  target_canonical_id: impervious_fraction
+  match_type: exact_canonical
+  source_local_name: impervious_area_km2
+  source_unit: km2
+  target_local_name: imperv
+  target_unit: fraction
+- canonical_id: land_use_fraction
+  source_canonical_id: land_use_fraction
+  target_canonical_id: land_use_fraction
+  match_type: exact_canonical
+  source_local_name: parcels_land_use_type_id_out
+  source_unit: categorical (integer code)
+  target_local_name: land_use
+  target_unit: fraction
+combine_edges: []
+plausible_feedback: []
+review_feedback:
+- canonical_id: discharge
+  source_local_name: runoff
+  target_local_name: flood_depth_at_parcels
+  note: Flagged for review — physical plausibility uncertain
+compatibility:
+- canonical_id: impervious_fraction
+  source_canonical_id: impervious_fraction
+  target_canonical_id: impervious_fraction
+  match_type: exact_canonical
+  primitives_needed:
+  - convert_units
+  - map_space
+  - align_time
+  - validate_boundary
+  details:
+    convert_units: &id001
+      from_unit: km2
+      to_unit: fraction
+      known: false
+      canonical_id: impervious_fraction
+    exchange_data: &id003
+      status: format_unspecified
+      variable_mapping:
+        source_name: impervious_area_km2
+        target_name: imperv
+      canonical_id: impervious_fraction
+    map_space: &id005
+      from_type: parcel_level
+      to_type: regular_grid
+      method: unknown
+      canonical_id: impervious_fraction
+    align_time: &id007
+      from_resolution: annual
+      to_resolution: daily
+      direction: disaggregate
+      aggregation_method: distribute_uniform
+      semantic_type: state
+      canonical_id: impervious_fraction
+    validate_boundary: &id009
+      checks:
+      - no_nan
+      canonical_id: impervious_fraction
+- canonical_id: land_use_fraction
+  source_canonical_id: land_use_fraction
+  target_canonical_id: land_use_fraction
+  match_type: exact_canonical
+  primitives_needed:
+  - convert_units
+  - map_space
+  - align_time
+  - validate_boundary
+  details:
+    convert_units: &id002
+      from_unit: categorical (integer code)
+      to_unit: fraction
+      known: false
+      canonical_id: land_use_fraction
+    exchange_data: &id004
+      status: format_unspecified
+      variable_mapping:
+        source_name: parcels_land_use_type_id_out
+        target_name: land_use
+      canonical_id: land_use_fraction
+    map_space: &id006
+      from_type: parcel_level
+      to_type: regular_grid
+      method: unknown
+      canonical_id: land_use_fraction
+    align_time: &id008
+      from_resolution: annual
+      to_resolution: daily
+      direction: disaggregate
+      aggregation_method: distribute_uniform
+      semantic_type: fraction
+      canonical_id: land_use_fraction
+    validate_boundary: &id010
+      checks:
+      - no_nan
+      canonical_id: land_use_fraction
+primitives_needed:
+- align_time
+- convert_units
+- map_space
+- validate_boundary
+execution_order:
+- align_time
+- convert_units
+- map_space
+- validate_boundary
+primitive_configs:
+  convert_units:
+  - *id001
+  - *id002
+  exchange_data:
+  - *id003
+  - *id004
+  map_space:
+  - *id005
+  - *id006
+  align_time:
+  - *id007
+  - *id008
+  validate_boundary:
+  - *id009
+  - *id010
+risks:
+  total_traps: 2
+  automatable: 2
+  judgment_required: 0
+  traps:
+  - canonical_var: impervious_fraction
+    model: UrbanSim->SWMM
+    trap_id: unit_mismatch_impervious_fraction
+    description: 'Unit mismatch: source [km2] vs target [fraction]'
+    detection: Check impervious_fraction units at coupling boundary
+    fix: Convert km2 -> fraction
+    is_unit_trap: true
+    automatable: true
+  - canonical_var: land_use_fraction
+    model: UrbanSim->SWMM
+    trap_id: unit_mismatch_land_use_fraction
+    description: 'Unit mismatch: source [categorical (integer code)] vs target [fraction]'
+    detection: Check land_use_fraction units at coupling boundary
+    fix: Convert categorical (integer code) -> fraction
+    is_unit_trap: true
+    automatable: true

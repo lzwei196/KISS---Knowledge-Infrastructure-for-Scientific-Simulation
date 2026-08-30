@@ -1,0 +1,152 @@
+# Coupling Config v2: SFINCS -> WNTR
+# Hand-authored 2026-05-22 — urban flood inundation depth -> water network infrastructure damage/pressure loss
+
+coupling_config_version: '2.0'
+generated: '2026-05-22'
+generator: hand_authored
+metadata:
+  edge_id: SFINCS_to_WNTR
+  source_model: SFINCS
+  target_model: WNTR
+  source_domain: flood
+  target_domain: urban
+  edge_type: type3b_cross_domain
+  n_forward_variables: 1
+  n_combine_variables: 0
+  n_plausible_feedback: 0
+  n_review_feedback: 0
+  is_feedback: false
+  coupling_frequency: daily
+  note: >
+    SFINCS simulates urban flood inundation depth at 10-100 m resolution.
+    This feeds WNTR as a flood-damage scenario: (1) inundated pipes are set to
+    broken status (depth > threshold), (2) inundated storage tanks are set to
+    flood-contaminated (depth > 0.1 m), (3) pump stations lose power if
+    depth > 0.5 m. This is a scenario-forcing coupling, not a continuous
+    state cascade — WNTR runs once per flood event using the maximum inundation
+    extent from SFINCS.
+forward_edges:
+- canonical_id: water_surface_elevation
+  source_canonical_id: water_surface_elevation
+  target_canonical_id: water_surface_elevation
+  match_type: exact_canonical
+  source_local_name: water_surface_elevation
+  source_unit: m
+  target_local_name: tank_init_level
+  target_unit: m
+  note: >
+    Exact canonical match but different physical interpretation: SFINCS outputs
+    floodwater surface elevation (m above datum) at each grid cell; WNTR uses
+    this to set tank init level AND to trigger pipe damage flags. The
+    flood_depth at each WNTR element = SFINCS WSE - element_elevation.
+combine_edges: []
+plausible_feedback: []
+compatibility:
+- canonical_id: water_surface_elevation
+  source_canonical_id: water_surface_elevation
+  target_canonical_id: water_surface_elevation
+  match_type: exact_canonical
+  primitives_needed:
+  - map_space
+  - align_time
+  - exchange_data
+  - validate_boundary
+  details:
+    map_space: &ms1
+      status: bilinear_point_sample
+      note: >
+        SFINCS outputs a 2D WSE grid (NetCDF: zs variable, dims: time × y × x).
+        WNTR network elements (nodes, pipes, tanks, pumps) have lat/lon coordinates
+        in the INP file. Sample SFINCS WSE at each WNTR element location using
+        bilinear interpolation. If SFINCS cell is dry (zs = -9999 or NaN), set
+        flood_depth = 0.0 for that element (not inundated).
+        Output: CSV with columns: element_id, element_type, lon, lat, elevation_m,
+        sfincs_wse_m, flood_depth_m (= wse - elevation, min 0).
+      canonical_id: water_surface_elevation
+    align_time: &a1
+      status: event_max
+      note: >
+        SFINCS outputs sub-daily (typically 1-hourly). WNTR damage assessment uses
+        the PEAK inundation depth over the flood event duration (typically 12-72 h
+        for urban Huaihe floods). Extract the maximum WSE at each element location
+        across the event time window. Use this peak for the damage scenario.
+        For multi-day events, run separate WNTR scenarios per day.
+      canonical_id: water_surface_elevation
+    exchange_data: &e1
+      status: event_csv
+      variable_mapping:
+        source_name: water_surface_elevation
+        target_name: tank_init_level
+      note: >
+        Write flood damage input to WNTR via the WNTR.network.WaterNetworkModel API:
+        - Pipes with flood_depth > 1.0 m: set status = Closed (pipe washout/burial)
+        - Pumps with flood_depth > 0.5 m: set status = Closed (motor damage)
+        - Tanks with flood_depth > 0.1 m: set init_level = sfincs_wse_m - tank_base_elevation
+          (floodwater enters open storage tanks and contaminates supply)
+        - Junction demands: reduce by (1 - min(flood_depth/2.0, 1.0)) for inaccessible nodes
+        See WNTR resilience analysis docs: NetworkStatus and ScenarioBuilder.
+      canonical_id: water_surface_elevation
+    validate_boundary: &v1
+      checks:
+      - no_nan
+      - 'range: [0.0, 15.0]'
+      note: >
+        Urban flood depth > 15 m is beyond any recorded Huaihe urban event and
+        indicates a SFINCS boundary condition error. Depths 0.1-3.0 m are typical
+        for Bengbu/Huainan 100-yr events. Zero depth is valid (no flooding).
+      canonical_id: water_surface_elevation
+primitives_needed:
+- map_space
+- align_time
+- exchange_data
+- validate_boundary
+execution_order:
+- map_space
+- align_time
+- exchange_data
+- validate_boundary
+primitive_configs:
+  map_space:
+  - *ms1
+  align_time:
+  - *a1
+  exchange_data:
+  - *e1
+  validate_boundary:
+  - *v1
+risks:
+  total_traps: 2
+  automatable: 1
+  judgment_required: 1
+  traps:
+  - canonical_var: water_surface_elevation
+    model: SFINCS->WNTR
+    trap_id: wse_vs_depth_confusion
+    description: >
+      SFINCS outputs water surface ELEVATION (m above datum), not flood DEPTH
+      (m above ground). WNTR elements need flood depth = WSE - element_elevation.
+      Using WSE directly as flood depth overestimates inundation by 10-30 m at
+      elevated infrastructure nodes (pumping stations on higher ground).
+    detection: All WNTR pumps closed even when SFINCS shows only minor flooding
+    fix: >
+      Subtract element elevation from SFINCS WSE to get flood depth.
+      flood_depth_m = max(0, sfincs_wse_m - element_elevation_m).
+      Element elevation must match the WNTR INP file node elevation field.
+    is_unit_trap: false
+    automatable: true
+  - canonical_var: water_surface_elevation
+    model: SFINCS->WNTR
+    trap_id: wntr_coordinate_reference_system
+    description: >
+      SFINCS grid is in projected CRS (metres, typically EPSG:32650 for Huaihe).
+      WNTR INP files store node coordinates in local units that may be geographic
+      (degrees) or projected (metres) without explicit CRS labelling. Mismatching
+      CRS causes the spatial sample to extract wrong flood depths — a node on the
+      east side of Bengbu could be matched to a cell 10 km away.
+    detection: Some WNTR elements have flood_depth > 5 m in completely dry areas
+    fix: >
+      Open WNTR INP in a GIS tool, confirm coordinate units. Reproject WNTR node
+      coordinates to SFINCS CRS before sampling. Store reprojected coordinates in
+      WNTR coupling config, not in the INP file itself.
+    is_unit_trap: false
+    automatable: false

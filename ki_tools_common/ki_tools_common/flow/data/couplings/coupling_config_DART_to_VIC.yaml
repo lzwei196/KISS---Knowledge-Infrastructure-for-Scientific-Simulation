@@ -1,0 +1,138 @@
+# Coupling Config v2: DART -> VIC
+
+coupling_config_version: '2.0'
+generated: '2026-05-23'
+generator: ata_pipeline2_coupling_gen.py v2
+metadata:
+  edge_id: DART_to_VIC
+  source_model: DART
+  target_model: VIC
+  source_domain: unknown
+  target_domain: hydrology
+  edge_type: type3b_cross_domain
+  n_forward_variables: 1
+  n_combine_variables: 0
+  n_plausible_feedback: 0
+  n_review_feedback: 0
+  is_feedback: false
+forward_edges:
+- canonical_id: air_temperature
+  source_canonical_id: soil_temperature
+  target_canonical_id: air_temperature
+  match_type: family_match
+  source_local_name: st_analysis
+  source_unit: C
+  target_local_name: air_temperature
+  target_unit: degC
+combine_edges: []
+plausible_feedback: []
+review_feedback: []
+compatibility:
+- canonical_id: air_temperature
+  source_canonical_id: soil_temperature
+  target_canonical_id: air_temperature
+  match_type: family_match
+  primitives_needed:
+  - convert_units
+  - align_time
+  - validate_boundary
+  details:
+    convert_units: &id001
+      from_unit: C
+      to_unit: degC
+      known: false
+      canonical_id: air_temperature
+    exchange_data: &id002
+      status: format_unspecified
+      variable_mapping:
+        source_name: st_analysis
+        target_name: air_temperature
+      canonical_id: air_temperature
+    align_time: &id003
+      from_resolution: hourly
+      to_resolution: 3-hourly
+      direction: aggregate
+      aggregation_method: mean
+      semantic_type: temperature
+      canonical_id: air_temperature
+    family_mapping: &id004
+      source_canonical: soil_temperature
+      target_canonical: air_temperature
+      note: Source provides soil_temperature, target needs air_temperature. These are in the same family (temperature) — may
+        need splitting/derivation.
+      canonical_id: air_temperature
+    validate_boundary: &id005
+      checks:
+      - no_nan
+      - 'range: [-60.0, 60.0]'
+      canonical_id: air_temperature
+primitives_needed:
+- align_time
+- convert_units
+- validate_boundary
+execution_order:
+- align_time
+- convert_units
+- validate_boundary
+primitive_configs:
+  convert_units:
+  - *id001
+  exchange_data:
+  - *id002
+  align_time:
+  - *id003
+  family_mapping:
+  - *id004
+  validate_boundary:
+  - *id005
+risks:
+  total_traps: 5
+  automatable: 4
+  judgment_required: 1
+  traps:
+  - canonical_var: air_temperature
+    model: DART
+    trap_id: dt_005
+    description: '{''description'': ''Temperature observations systematically ~273 K too warm or too cold compared to model.
+      Large positive or negative bias in temperature assimilation.\n'', ''error_pattern'': ''bias'', ''detec'
+    detection: '{''root_cause'': ''Temperature in Celsius instead of Kelvin (or vice versa). Most atmospheric models in DART
+      use Kelvin. Some land/ocean datasets provide Celsius.\n'', ''explanation'': ''DART itself is unit-'
+    fix: '{''action'': ''Convert Celsius to Kelvin: T_K = T_C + 273.15'', ''tool_to_run'': ''convert_obs_to_dart'', ''manual_steps'':
+      [''Check temperature range — values near 0-40 suggest Celsius'', ''Values near 200-320 su'
+    is_unit_trap: true
+    automatable: true
+  - canonical_var: air_temperature
+    model: DART
+    trap_id: dt_015
+    description: '{''description'': "quickbuild.sh fails with ''undefined reference to nf90_open'' or similar NetCDF symbol
+      errors during linking.\n", ''error_pattern'': ''undefined reference'', ''detection_method'': ''log_match'''
+    detection: '{''root_cause'': ''NetCDF library not found or wrong library linked. LIBS in mkmf.template must include both
+      -lnetcdff (Fortran) and -lnetcdf (C).\n'', ''explanation'': "NetCDF has separate C and Fortran li'
+    fix: '{''action'': ''Update LIBS in mkmf.template to include -lnetcdff -lnetcdf'', ''tool_to_run'': None, ''manual_steps'':
+      [''Check: nf-config --flibs (shows correct link flags)'', ''Update LIBS in mkmf.template'', ''M'
+    is_unit_trap: false
+    automatable: false
+  - canonical_var: air_temperature
+    model: VIC
+    trap_id: path_inconsistency
+    description: Output files scattered across vic_temp vs basin/vic_temp directories
+    detection: Check all paths in global_param.txt resolve correctly
+    fix: Unify all paths under outputs/{basin_name}/
+    is_unit_trap: false
+    automatable: true
+  - canonical_var: air_temperature
+    model: VIC
+    trap_id: conv_temperature
+    description: 'Conversion trap: CMFD (K) -> VIC (degC)'
+    detection: Values ~300 = still in Kelvin; wrong ET, wrong snow
+    fix: Apply subtract factor= offset=-273.15
+    is_unit_trap: true
+    automatable: true
+  - canonical_var: air_temperature
+    model: DART->VIC
+    trap_id: unit_mismatch_air_temperature
+    description: 'Unit mismatch: source [C] vs target [degC]'
+    detection: Check air_temperature units at coupling boundary
+    fix: Convert C -> degC
+    is_unit_trap: true
+    automatable: true

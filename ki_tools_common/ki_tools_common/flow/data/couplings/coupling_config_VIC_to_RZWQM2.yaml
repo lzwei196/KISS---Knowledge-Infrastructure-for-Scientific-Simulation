@@ -1,0 +1,95 @@
+# Coupling Config v2: VIC -> RZWQM2
+
+coupling_config_version: '2.0'
+generated: '2026-04-17'
+generator: ata_pipeline2_coupling_gen.py v2
+metadata:
+  edge_id: VIC_to_RZWQM2
+  source_model: VIC
+  target_model: RZWQM2
+  source_domain: hydrology
+  target_domain: crop
+  edge_type: type3b_cross_domain
+  n_forward_variables: 1
+  n_combine_variables: 0
+  n_plausible_feedback: 0
+  n_review_feedback: 1
+  is_feedback: false
+forward_edges:
+- canonical_id: evapotranspiration
+  source_canonical_id: evapotranspiration
+  target_canonical_id: evapotranspiration
+  match_type: exact_canonical
+  source_local_name: evapotranspiration
+  source_unit: mm/timestep
+  target_local_name: pan_evaporation
+  target_unit: mm/day
+combine_edges: []
+plausible_feedback: []
+review_feedback:
+- canonical_id: precipitation_rate
+  source_local_name: tile_drainage
+  target_local_name: precipitation
+  note: Flagged for review — physical plausibility uncertain
+compatibility:
+- canonical_id: evapotranspiration
+  source_canonical_id: evapotranspiration
+  target_canonical_id: evapotranspiration
+  match_type: exact_canonical
+  primitives_needed:
+  - convert_units
+  - align_time
+  - validate_boundary
+  details:
+    convert_units: &id001
+      from_unit: mm/timestep
+      to_unit: mm/day
+      known: false
+      canonical_id: evapotranspiration
+    exchange_data:
+      status: not_needed
+      variable_mapping:
+        source_name: evapotranspiration
+        target_name: pan_evaporation
+    align_time: &id002
+      from_resolution: 3-hourly
+      to_resolution: daily
+      direction: aggregate
+      aggregation_method: sum
+      semantic_type: flux_density
+      canonical_id: evapotranspiration
+    validate_boundary: &id003
+      checks:
+      - non_negative
+      - no_nan
+      - 'range: [0.0, 20.0]'
+      canonical_id: evapotranspiration
+primitives_needed:
+- align_time
+- convert_units
+- validate_boundary
+execution_order:
+- align_time
+- convert_units
+- validate_boundary
+primitive_configs:
+  convert_units:
+  - *id001
+  exchange_data: []
+  align_time:
+  - *id002
+  validate_boundary:
+  - *id003
+risks:
+  total_traps: 1
+  automatable: 1
+  judgment_required: 0
+  traps:
+  - canonical_var: evapotranspiration
+    model: VIC->RZWQM2
+    trap_id: unit_mismatch_evapotranspiration
+    description: 'Unit mismatch: source [mm/timestep] vs target [mm/day]'
+    detection: Check evapotranspiration units at coupling boundary
+    fix: Convert mm/timestep -> mm/day
+    is_unit_trap: true
+    automatable: true

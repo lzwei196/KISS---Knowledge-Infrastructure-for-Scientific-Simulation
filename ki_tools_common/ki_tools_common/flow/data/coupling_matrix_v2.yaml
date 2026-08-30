@@ -1,0 +1,1247 @@
+# ATA Step 1 — Coupling Matrix v2 (with normalized domains)
+# 2182 pairs, 8 edge types
+
+stats:
+  total_model_pairs: 2182
+  edge_type_counts:
+    type1_same_domain_trivial: 49
+    type2_same_domain_conversion: 117
+    type3a_cross_domain_trivial: 594
+    type3b_cross_domain_conversion: 838
+    type3c_cross_domain_rich: 13
+    type5_cross_scale_cross_domain: 65
+    type6_cross_domain_feedback: 396
+    type6_same_domain_feedback: 110
+edge_types:
+  type1_same_domain_trivial:
+    count: 49
+    examples:
+    - edge: MODFLOW6 -> FloPy
+      n_shared: 2
+      n_unit_mismatches: 0
+      producer_domain: groundwater
+      consumer_domain: groundwater
+      shared_vars:
+      - water_surface_elevation
+      - hydraulic_head
+    - edge: ISSM -> icepack
+      n_shared: 2
+      n_unit_mismatches: 0
+      producer_domain: cryosphere
+      consumer_domain: cryosphere
+      shared_vars:
+      - air_temperature
+      - ice_thickness
+    - edge: VIC -> wflow
+      n_shared: 1
+      n_unit_mismatches: 0
+      producer_domain: hydrology
+      consumer_domain: hydrology
+      shared_vars:
+      - precipitation_rate
+    - edge: HYPE -> SWAT_Plus
+      n_shared: 1
+      n_unit_mismatches: 0
+      producer_domain: hydrology
+      consumer_domain: hydrology
+      shared_vars:
+      - precipitation_rate
+    - edge: HYPE -> mHM
+      n_shared: 1
+      n_unit_mismatches: 0
+      producer_domain: hydrology
+      consumer_domain: hydrology
+      shared_vars:
+      - precipitation_rate
+    - edge: HYPE -> GR4J___airGR
+      n_shared: 1
+      n_unit_mismatches: 0
+      producer_domain: hydrology
+      consumer_domain: hydrology
+      shared_vars:
+      - precipitation_rate
+    - edge: CREST -> MARRMoT
+      n_shared: 1
+      n_unit_mismatches: 0
+      producer_domain: unknown
+      consumer_domain: unknown
+      shared_vars:
+      - discharge
+    - edge: CREST -> Lohmann_Routing
+      n_shared: 1
+      n_unit_mismatches: 0
+      producer_domain: unknown
+      consumer_domain: unknown
+      shared_vars:
+      - discharge
+    - edge: CREST -> TOPMODEL
+      n_shared: 1
+      n_unit_mismatches: 0
+      producer_domain: unknown
+      consumer_domain: unknown
+      shared_vars:
+      - discharge
+    - edge: CREST -> HEC_RAS
+      n_shared: 1
+      n_unit_mismatches: 0
+      producer_domain: unknown
+      consumer_domain: unknown
+      shared_vars:
+      - discharge
+  type2_same_domain_conversion:
+    count: 117
+    examples:
+    - edge: VIC -> PRMS
+      n_shared: 2
+      n_unit_mismatches: 2
+      producer_domain: hydrology
+      consumer_domain: hydrology
+      shared_vars:
+      - precipitation_rate
+      - surface_runoff
+    - edge: PySWMM -> PRMS
+      n_shared: 2
+      n_unit_mismatches: 2
+      producer_domain: hydrology
+      consumer_domain: hydrology
+      shared_vars:
+      - precipitation_rate
+      - surface_runoff
+    - edge: PRMS -> RHESSys
+      n_shared: 2
+      n_unit_mismatches: 2
+      producer_domain: hydrology
+      consumer_domain: hydrology
+      shared_vars:
+      - air_temperature_min
+      - air_temperature_max
+    - edge: PRMS -> SWAT_Plus
+      n_shared: 2
+      n_unit_mismatches: 2
+      producer_domain: hydrology
+      consumer_domain: hydrology
+      shared_vars:
+      - air_temperature_min
+      - air_temperature_max
+    - edge: ADCIRC -> GeoClaw
+      n_shared: 2
+      n_unit_mismatches: 1
+      producer_domain: ocean
+      consumer_domain: ocean
+      shared_vars:
+      - air_pressure
+      - wind_speed
+    - edge: Elmer_Ice -> icepack
+      n_shared: 2
+      n_unit_mismatches: 2
+      producer_domain: cryosphere
+      consumer_domain: cryosphere
+      shared_vars:
+      - air_temperature
+      - ocean_velocity
+    - edge: PCR_GLOBWB_2 -> Amanzi_ATS
+      n_shared: 1
+      n_unit_mismatches: 1
+      producer_domain: hydrology
+      consumer_domain: hydrology
+      shared_vars:
+      - recharge
+    - edge: PIHM -> Amanzi_ATS
+      n_shared: 1
+      n_unit_mismatches: 1
+      producer_domain: hydrology
+      consumer_domain: hydrology
+      shared_vars:
+      - recharge
+    - edge: CLASSIC -> LDNDC
+      n_shared: 1
+      n_unit_mismatches: 1
+      producer_domain: biogeochemistry
+      consumer_domain: biogeochemistry
+      shared_vars:
+      - relative_humidity
+    - edge: APSIM -> DSSAT
+      n_shared: 1
+      n_unit_mismatches: 1
+      producer_domain: crop
+      consumer_domain: crop
+      shared_vars:
+      - precipitation_rate
+  type3a_cross_domain_trivial:
+    count: 594
+    examples:
+    - edge: Landlab -> HEC_RAS
+      n_shared: 2
+      n_unit_mismatches: 0
+      producer_domain: hydrology
+      consumer_domain: unknown
+      shared_vars:
+      - precipitation_rate
+      - discharge
+    - edge: Landlab -> MARRMoT
+      n_shared: 2
+      n_unit_mismatches: 0
+      producer_domain: hydrology
+      consumer_domain: unknown
+      shared_vars:
+      - precipitation_rate
+      - discharge
+    - edge: Landlab -> pySTEPS
+      n_shared: 2
+      n_unit_mismatches: 0
+      producer_domain: hydrology
+      consumer_domain: unknown
+      shared_vars:
+      - precipitation_rate
+      - discharge
+    - edge: VIC -> HEC_RAS
+      n_shared: 2
+      n_unit_mismatches: 0
+      producer_domain: hydrology
+      consumer_domain: unknown
+      shared_vars:
+      - precipitation_rate
+      - surface_runoff
+    - edge: VIC -> GSFLOW
+      n_shared: 2
+      n_unit_mismatches: 0
+      producer_domain: hydrology
+      consumer_domain: unknown
+      shared_vars:
+      - precipitation_rate
+      - surface_runoff
+    - edge: VIC -> MARRMoT
+      n_shared: 2
+      n_unit_mismatches: 0
+      producer_domain: hydrology
+      consumer_domain: unknown
+      shared_vars:
+      - precipitation_rate
+      - surface_runoff
+    - edge: HYPE -> HEC_RAS
+      n_shared: 2
+      n_unit_mismatches: 0
+      producer_domain: hydrology
+      consumer_domain: unknown
+      shared_vars:
+      - precipitation_rate
+      - discharge
+    - edge: HYPE -> MARRMoT
+      n_shared: 2
+      n_unit_mismatches: 0
+      producer_domain: hydrology
+      consumer_domain: unknown
+      shared_vars:
+      - precipitation_rate
+      - discharge
+    - edge: HYPE -> ANUGA
+      n_shared: 2
+      n_unit_mismatches: 0
+      producer_domain: hydrology
+      consumer_domain: unknown
+      shared_vars:
+      - precipitation_rate
+      - discharge
+    - edge: HYPE -> pySTEPS
+      n_shared: 2
+      n_unit_mismatches: 0
+      producer_domain: hydrology
+      consumer_domain: unknown
+      shared_vars:
+      - precipitation_rate
+      - discharge
+  type3b_cross_domain_conversion:
+    count: 838
+    examples:
+    - edge: PIHM -> FloPy
+      n_shared: 2
+      n_unit_mismatches: 1
+      producer_domain: hydrology
+      consumer_domain: groundwater
+      shared_vars:
+      - recharge
+      - water_surface_elevation
+    - edge: PIHM -> MODFLOW6
+      n_shared: 2
+      n_unit_mismatches: 1
+      producer_domain: hydrology
+      consumer_domain: groundwater
+      shared_vars:
+      - recharge
+      - water_surface_elevation
+    - edge: Alpine3D -> SHAW
+      n_shared: 2
+      n_unit_mismatches: 1
+      producer_domain: cryosphere
+      consumer_domain: soil_physics
+      shared_vars:
+      - shortwave_radiation
+      - air_temperature
+    - edge: Alpine3D -> LPJmL
+      n_shared: 2
+      n_unit_mismatches: 1
+      producer_domain: cryosphere
+      consumer_domain: crop
+      shared_vars:
+      - shortwave_radiation
+      - air_temperature
+    - edge: Alpine3D -> CRHM
+      n_shared: 2
+      n_unit_mismatches: 1
+      producer_domain: cryosphere
+      consumer_domain: hydrology
+      shared_vars:
+      - shortwave_radiation
+      - air_temperature
+    - edge: Alpine3D -> Raven
+      n_shared: 2
+      n_unit_mismatches: 2
+      producer_domain: cryosphere
+      consumer_domain: hydrology
+      shared_vars:
+      - shortwave_radiation
+      - air_temperature
+    - edge: Alpine3D -> RZWQM2
+      n_shared: 2
+      n_unit_mismatches: 2
+      producer_domain: cryosphere
+      consumer_domain: crop
+      shared_vars:
+      - shortwave_radiation
+      - evapotranspiration
+    - edge: Alpine3D -> tRIBS
+      n_shared: 2
+      n_unit_mismatches: 2
+      producer_domain: cryosphere
+      consumer_domain: hydrology
+      shared_vars:
+      - shortwave_radiation
+      - air_temperature
+    - edge: Alpine3D -> LDNDC
+      n_shared: 2
+      n_unit_mismatches: 1
+      producer_domain: cryosphere
+      consumer_domain: biogeochemistry
+      shared_vars:
+      - shortwave_radiation
+      - air_temperature
+    - edge: Alpine3D -> OpenHydroQual
+      n_shared: 2
+      n_unit_mismatches: 2
+      producer_domain: cryosphere
+      consumer_domain: water_quality
+      shared_vars:
+      - shortwave_radiation
+      - air_temperature
+  type3c_cross_domain_rich:
+    count: 13
+    examples:
+    - edge: Alpine3D -> DHSVM
+      n_shared: 3
+      n_unit_mismatches: 1
+      producer_domain: cryosphere
+      consumer_domain: hydrology
+      shared_vars:
+      - shortwave_radiation
+      - air_temperature
+      - longwave_radiation
+    - edge: Alpine3D -> WRF_Hydro
+      n_shared: 3
+      n_unit_mismatches: 0
+      producer_domain: cryosphere
+      consumer_domain: hydrology
+      shared_vars:
+      - shortwave_radiation
+      - air_temperature
+      - longwave_radiation
+    - edge: Alpine3D -> VIC
+      n_shared: 3
+      n_unit_mismatches: 1
+      producer_domain: cryosphere
+      consumer_domain: hydrology
+      shared_vars:
+      - shortwave_radiation
+      - air_temperature
+      - longwave_radiation
+    - edge: Alpine3D -> FATES
+      n_shared: 3
+      n_unit_mismatches: 0
+      producer_domain: cryosphere
+      consumer_domain: biogeochemistry
+      shared_vars:
+      - shortwave_radiation
+      - air_temperature
+      - longwave_radiation
+    - edge: Alpine3D -> SUMMA
+      n_shared: 3
+      n_unit_mismatches: 0
+      producer_domain: cryosphere
+      consumer_domain: hydrology
+      shared_vars:
+      - shortwave_radiation
+      - air_temperature
+      - longwave_radiation
+    - edge: Alpine3D -> ParFlow
+      n_shared: 3
+      n_unit_mismatches: 0
+      producer_domain: cryosphere
+      consumer_domain: groundwater
+      shared_vars:
+      - shortwave_radiation
+      - air_temperature
+      - longwave_radiation
+    - edge: Alpine3D -> CWatM
+      n_shared: 3
+      n_unit_mismatches: 0
+      producer_domain: cryosphere
+      consumer_domain: hydrology
+      shared_vars:
+      - shortwave_radiation
+      - air_temperature
+      - longwave_radiation
+    - edge: Alpine3D -> GLM
+      n_shared: 3
+      n_unit_mismatches: 1
+      producer_domain: cryosphere
+      consumer_domain: lake
+      shared_vars:
+      - shortwave_radiation
+      - air_temperature
+      - longwave_radiation
+    - edge: Landlab -> ANUGA
+      n_shared: 3
+      n_unit_mismatches: 0
+      producer_domain: hydrology
+      consumer_domain: unknown
+      shared_vars:
+      - precipitation_rate
+      - discharge
+      - elevation
+    - edge: HYPE -> Ribasim
+      n_shared: 3
+      n_unit_mismatches: 2
+      producer_domain: hydrology
+      consumer_domain: water_resources
+      shared_vars:
+      - precipitation_rate
+      - discharge
+      - evapotranspiration
+  type5_cross_scale_cross_domain:
+    count: 65
+    examples:
+    - edge: PRMS -> BIOME_BGC
+      n_shared: 2
+      n_unit_mismatches: 2
+      producer_domain: hydrology
+      consumer_domain: biogeochemistry
+      shared_vars:
+      - air_temperature_min
+      - air_temperature_max
+    - edge: PRMS -> DSSAT
+      n_shared: 2
+      n_unit_mismatches: 2
+      producer_domain: hydrology
+      consumer_domain: crop
+      shared_vars:
+      - air_temperature_min
+      - air_temperature_max
+    - edge: PRMS -> AquaCrop
+      n_shared: 2
+      n_unit_mismatches: 2
+      producer_domain: hydrology
+      consumer_domain: crop
+      shared_vars:
+      - air_temperature_min
+      - air_temperature_max
+    - edge: PRMS -> LDNDC
+      n_shared: 2
+      n_unit_mismatches: 2
+      producer_domain: hydrology
+      consumer_domain: biogeochemistry
+      shared_vars:
+      - air_temperature_min
+      - air_temperature_max
+    - edge: PRMS -> WOFOST
+      n_shared: 2
+      n_unit_mismatches: 2
+      producer_domain: hydrology
+      consumer_domain: crop
+      shared_vars:
+      - air_temperature_min
+      - air_temperature_max
+    - edge: APSIM -> PRMS
+      n_shared: 1
+      n_unit_mismatches: 1
+      producer_domain: crop
+      consumer_domain: hydrology
+      shared_vars:
+      - precipitation_rate
+    - edge: APSIM -> SWAT_Plus
+      n_shared: 1
+      n_unit_mismatches: 1
+      producer_domain: crop
+      consumer_domain: hydrology
+      shared_vars:
+      - precipitation_rate
+    - edge: APSIM -> wflow
+      n_shared: 1
+      n_unit_mismatches: 1
+      producer_domain: crop
+      consumer_domain: hydrology
+      shared_vars:
+      - precipitation_rate
+    - edge: APSIM -> SuperflexPy
+      n_shared: 1
+      n_unit_mismatches: 1
+      producer_domain: crop
+      consumer_domain: hydrology
+      shared_vars:
+      - precipitation_rate
+    - edge: APSIM -> WRF_Hydro
+      n_shared: 1
+      n_unit_mismatches: 1
+      producer_domain: crop
+      consumer_domain: hydrology
+      shared_vars:
+      - precipitation_rate
+  type6_cross_domain_feedback:
+    count: 396
+    examples:
+    - edge: CE_QUAL_W2 -> Delft3D
+      n_shared: 3
+      n_unit_mismatches: 1
+      producer_domain: lake
+      consumer_domain: ocean
+      shared_vars:
+      - water_surface_elevation
+      - discharge
+      - air_temperature
+    - edge: Alpine3D -> CE_QUAL_W2
+      n_shared: 2
+      n_unit_mismatches: 1
+      producer_domain: cryosphere
+      consumer_domain: lake
+      shared_vars:
+      - shortwave_radiation
+      - air_temperature
+    - edge: Alpine3D -> Delft3D
+      n_shared: 2
+      n_unit_mismatches: 1
+      producer_domain: cryosphere
+      consumer_domain: ocean
+      shared_vars:
+      - shortwave_radiation
+      - air_temperature
+    - edge: Landlab -> pyBadlands
+      n_shared: 2
+      n_unit_mismatches: 2
+      producer_domain: hydrology
+      consumer_domain: geomorphology
+      shared_vars:
+      - precipitation_rate
+      - elevation
+    - edge: RZWQM2 -> PySWMM
+      n_shared: 2
+      n_unit_mismatches: 2
+      producer_domain: crop
+      consumer_domain: hydrology
+      shared_vars:
+      - precipitation_rate
+      - evapotranspiration
+    - edge: VIC -> RZWQM2
+      n_shared: 2
+      n_unit_mismatches: 2
+      producer_domain: hydrology
+      consumer_domain: crop
+      shared_vars:
+      - precipitation_rate
+      - evapotranspiration
+    - edge: HYPE -> RZWQM2
+      n_shared: 2
+      n_unit_mismatches: 1
+      producer_domain: hydrology
+      consumer_domain: crop
+      shared_vars:
+      - precipitation_rate
+      - evapotranspiration
+    - edge: HYPE -> Delft3D
+      n_shared: 2
+      n_unit_mismatches: 1
+      producer_domain: hydrology
+      consumer_domain: ocean
+      shared_vars:
+      - precipitation_rate
+      - discharge
+    - edge: PySWMM -> GSFLOW
+      n_shared: 2
+      n_unit_mismatches: 0
+      producer_domain: hydrology
+      consumer_domain: unknown
+      shared_vars:
+      - precipitation_rate
+      - surface_runoff
+    - edge: PySWMM -> Delft3D
+      n_shared: 2
+      n_unit_mismatches: 2
+      producer_domain: hydrology
+      consumer_domain: ocean
+      shared_vars:
+      - precipitation_rate
+      - discharge
+  type6_same_domain_feedback:
+    count: 110
+    examples:
+    - edge: Alpine3D -> SNOWPACK
+      n_shared: 4
+      n_unit_mismatches: 0
+      producer_domain: cryosphere
+      consumer_domain: cryosphere
+      shared_vars:
+      - shortwave_radiation
+      - air_temperature
+      - significant_wave_height
+      - longwave_radiation
+    - edge: Alpine3D -> openAMUNDSEN
+      n_shared: 2
+      n_unit_mismatches: 1
+      producer_domain: cryosphere
+      consumer_domain: cryosphere
+      shared_vars:
+      - shortwave_radiation
+      - air_temperature
+    - edge: VIC -> PySWMM
+      n_shared: 2
+      n_unit_mismatches: 2
+      producer_domain: hydrology
+      consumer_domain: hydrology
+      shared_vars:
+      - precipitation_rate
+      - evapotranspiration
+    - edge: HYPE -> PySWMM
+      n_shared: 2
+      n_unit_mismatches: 2
+      producer_domain: hydrology
+      consumer_domain: hydrology
+      shared_vars:
+      - precipitation_rate
+      - evapotranspiration
+    - edge: DLBreach -> SFINCS
+      n_shared: 2
+      n_unit_mismatches: 1
+      producer_domain: flood
+      consumer_domain: flood
+      shared_vars:
+      - water_surface_elevation
+      - discharge
+    - edge: PRMS -> CWatM
+      n_shared: 2
+      n_unit_mismatches: 2
+      producer_domain: hydrology
+      consumer_domain: hydrology
+      shared_vars:
+      - air_temperature_min
+      - air_temperature_max
+    - edge: HEC_RAS -> MARRMoT
+      n_shared: 2
+      n_unit_mismatches: 0
+      producer_domain: unknown
+      consumer_domain: unknown
+      shared_vars:
+      - discharge
+      - surface_runoff
+    - edge: HEC_RAS -> Lohmann_Routing
+      n_shared: 2
+      n_unit_mismatches: 0
+      producer_domain: unknown
+      consumer_domain: unknown
+      shared_vars:
+      - discharge
+      - surface_runoff
+    - edge: TOPMODEL -> MARRMoT
+      n_shared: 2
+      n_unit_mismatches: 0
+      producer_domain: unknown
+      consumer_domain: unknown
+      shared_vars:
+      - discharge
+      - surface_runoff
+    - edge: TOPMODEL -> Lohmann_Routing
+      n_shared: 2
+      n_unit_mismatches: 0
+      producer_domain: unknown
+      consumer_domain: unknown
+      shared_vars:
+      - discharge
+      - surface_runoff
+domain_pair_summary:
+  hydrology -> unknown: 146
+  ocean -> hydrology: 111
+  hydrology -> hydrology: 108
+  cryosphere -> hydrology: 90
+  unknown -> unknown: 60
+  groundwater -> hydrology: 50
+  hydrology -> ocean: 48
+  crop -> hydrology: 45
+  hydrology -> crop: 44
+  hydrology -> flood: 43
+  cryosphere -> unknown: 38
+  hydrology -> water_resources: 34
+  cryosphere -> cryosphere: 33
+  ocean -> cryosphere: 32
+  flood -> unknown: 29
+  ocean -> unknown: 29
+  ocean -> ocean: 29
+  ocean -> crop: 27
+  hydrology -> groundwater: 26
+  cryosphere -> ocean: 26
+  ocean -> groundwater: 25
+  unknown -> hydrology: 24
+  hydrology -> routing: 24
+  flood -> hydrology: 23
+  crop -> unknown: 22
+  groundwater -> ocean: 22
+  routing -> unknown: 22
+  geomorphology -> unknown: 21
+  cryosphere -> groundwater: 20
+  unknown -> ocean: 19
+  cryosphere -> crop: 18
+  hydrology -> cryosphere: 18
+  unknown -> flood: 18
+  unknown -> routing: 18
+  groundwater -> groundwater: 17
+  unknown -> water_resources: 17
+  framework -> hydrology: 17
+  lake -> hydrology: 17
+  hydrology -> water_quality: 16
+  hydrology -> geophysics: 16
+  hydrology -> biogeochemistry: 15
+  crop -> crop: 14
+  ocean -> biogeochemistry: 14
+  water_resources -> unknown: 14
+  groundwater -> cryosphere: 14
+  crop -> flood: 13
+  ocean -> flood: 13
+  groundwater -> unknown: 13
+  hydrology -> geomorphology: 12
+  cryosphere -> flood: 12
+top_pairs:
+  Alpine3D -> SNOWPACK:
+    n_shared: 4
+    n_unit_mismatches: 0
+    producer_domain: cryosphere
+    consumer_domain: cryosphere
+    shared_vars:
+    - shortwave_radiation
+    - air_temperature
+    - significant_wave_height
+    - longwave_radiation
+    unit_mismatches: []
+  Alpine3D -> DHSVM:
+    n_shared: 3
+    n_unit_mismatches: 1
+    producer_domain: cryosphere
+    consumer_domain: hydrology
+    shared_vars:
+    - shortwave_radiation
+    - air_temperature
+    - longwave_radiation
+    unit_mismatches:
+    - 'air_temperature: K -> deg C'
+  Alpine3D -> WRF_Hydro:
+    n_shared: 3
+    n_unit_mismatches: 0
+    producer_domain: cryosphere
+    consumer_domain: hydrology
+    shared_vars:
+    - shortwave_radiation
+    - air_temperature
+    - longwave_radiation
+    unit_mismatches: []
+  Alpine3D -> VIC:
+    n_shared: 3
+    n_unit_mismatches: 1
+    producer_domain: cryosphere
+    consumer_domain: hydrology
+    shared_vars:
+    - shortwave_radiation
+    - air_temperature
+    - longwave_radiation
+    unit_mismatches:
+    - 'air_temperature: K -> degC'
+  Alpine3D -> FATES:
+    n_shared: 3
+    n_unit_mismatches: 0
+    producer_domain: cryosphere
+    consumer_domain: biogeochemistry
+    shared_vars:
+    - shortwave_radiation
+    - air_temperature
+    - longwave_radiation
+    unit_mismatches: []
+  Alpine3D -> SUMMA:
+    n_shared: 3
+    n_unit_mismatches: 0
+    producer_domain: cryosphere
+    consumer_domain: hydrology
+    shared_vars:
+    - shortwave_radiation
+    - air_temperature
+    - longwave_radiation
+    unit_mismatches: []
+  Alpine3D -> ParFlow:
+    n_shared: 3
+    n_unit_mismatches: 0
+    producer_domain: cryosphere
+    consumer_domain: groundwater
+    shared_vars:
+    - shortwave_radiation
+    - air_temperature
+    - longwave_radiation
+    unit_mismatches: []
+  Alpine3D -> CWatM:
+    n_shared: 3
+    n_unit_mismatches: 0
+    producer_domain: cryosphere
+    consumer_domain: hydrology
+    shared_vars:
+    - shortwave_radiation
+    - air_temperature
+    - longwave_radiation
+    unit_mismatches: []
+  Alpine3D -> GLM:
+    n_shared: 3
+    n_unit_mismatches: 1
+    producer_domain: cryosphere
+    consumer_domain: lake
+    shared_vars:
+    - shortwave_radiation
+    - air_temperature
+    - longwave_radiation
+    unit_mismatches:
+    - 'air_temperature: K -> degC'
+  Landlab -> ANUGA:
+    n_shared: 3
+    n_unit_mismatches: 0
+    producer_domain: hydrology
+    consumer_domain: unknown
+    shared_vars:
+    - precipitation_rate
+    - discharge
+    - elevation
+    unit_mismatches: []
+  HYPE -> Ribasim:
+    n_shared: 3
+    n_unit_mismatches: 2
+    producer_domain: hydrology
+    consumer_domain: water_resources
+    shared_vars:
+    - precipitation_rate
+    - discharge
+    - evapotranspiration
+    unit_mismatches:
+    - 'precipitation_rate: mm/day -> m/s'
+    - 'evapotranspiration: mm/day -> m/s'
+  PySWMM -> HEC_RAS:
+    n_shared: 3
+    n_unit_mismatches: 0
+    producer_domain: hydrology
+    consumer_domain: unknown
+    shared_vars:
+    - precipitation_rate
+    - discharge
+    - surface_runoff
+    unit_mismatches: []
+  PySWMM -> MARRMoT:
+    n_shared: 3
+    n_unit_mismatches: 0
+    producer_domain: hydrology
+    consumer_domain: unknown
+    shared_vars:
+    - precipitation_rate
+    - discharge
+    - surface_runoff
+    unit_mismatches: []
+  CE_QUAL_W2 -> Delft3D:
+    n_shared: 3
+    n_unit_mismatches: 1
+    producer_domain: lake
+    consumer_domain: ocean
+    shared_vars:
+    - water_surface_elevation
+    - discharge
+    - air_temperature
+    unit_mismatches:
+    - 'water_surface_elevation: m -> m (MSL)'
+  COAWST -> icepack:
+    n_shared: 3
+    n_unit_mismatches: 2
+    producer_domain: ocean
+    consumer_domain: cryosphere
+    shared_vars:
+    - air_temperature
+    - ocean_velocity
+    - ice_thickness
+    unit_mismatches:
+    - 'air_temperature: Celsius -> K'
+    - 'ocean_velocity: m/s -> m/yr'
+  PIHM -> FloPy:
+    n_shared: 2
+    n_unit_mismatches: 1
+    producer_domain: hydrology
+    consumer_domain: groundwater
+    shared_vars:
+    - recharge
+    - water_surface_elevation
+    unit_mismatches:
+    - 'recharge: m/s -> m/day'
+  PIHM -> MODFLOW6:
+    n_shared: 2
+    n_unit_mismatches: 1
+    producer_domain: hydrology
+    consumer_domain: groundwater
+    shared_vars:
+    - recharge
+    - water_surface_elevation
+    unit_mismatches:
+    - 'recharge: m/s -> m/day'
+  Alpine3D -> SHAW:
+    n_shared: 2
+    n_unit_mismatches: 1
+    producer_domain: cryosphere
+    consumer_domain: soil_physics
+    shared_vars:
+    - shortwave_radiation
+    - air_temperature
+    unit_mismatches:
+    - 'air_temperature: K -> degC'
+  Alpine3D -> LPJmL:
+    n_shared: 2
+    n_unit_mismatches: 1
+    producer_domain: cryosphere
+    consumer_domain: crop
+    shared_vars:
+    - shortwave_radiation
+    - air_temperature
+    unit_mismatches:
+    - 'air_temperature: K -> deg C'
+  Alpine3D -> CE_QUAL_W2:
+    n_shared: 2
+    n_unit_mismatches: 1
+    producer_domain: cryosphere
+    consumer_domain: lake
+    shared_vars:
+    - shortwave_radiation
+    - air_temperature
+    unit_mismatches:
+    - 'air_temperature: K -> degC'
+  Alpine3D -> openAMUNDSEN:
+    n_shared: 2
+    n_unit_mismatches: 1
+    producer_domain: cryosphere
+    consumer_domain: cryosphere
+    shared_vars:
+    - shortwave_radiation
+    - air_temperature
+    unit_mismatches:
+    - 'shortwave_radiation: W/m2 -> W m-2'
+  Alpine3D -> CRHM:
+    n_shared: 2
+    n_unit_mismatches: 1
+    producer_domain: cryosphere
+    consumer_domain: hydrology
+    shared_vars:
+    - shortwave_radiation
+    - air_temperature
+    unit_mismatches:
+    - 'air_temperature: K -> degC'
+  Alpine3D -> Raven:
+    n_shared: 2
+    n_unit_mismatches: 2
+    producer_domain: cryosphere
+    consumer_domain: hydrology
+    shared_vars:
+    - shortwave_radiation
+    - air_temperature
+    unit_mismatches:
+    - 'shortwave_radiation: W/m2 -> MJ/m2/d'
+    - 'air_temperature: K -> degC'
+  Alpine3D -> RZWQM2:
+    n_shared: 2
+    n_unit_mismatches: 2
+    producer_domain: cryosphere
+    consumer_domain: crop
+    shared_vars:
+    - shortwave_radiation
+    - evapotranspiration
+    unit_mismatches:
+    - 'shortwave_radiation: W/m2 -> MJ/m2/day'
+    - 'evapotranspiration: kg/m2 -> mm/day'
+  Alpine3D -> tRIBS:
+    n_shared: 2
+    n_unit_mismatches: 2
+    producer_domain: cryosphere
+    consumer_domain: hydrology
+    shared_vars:
+    - shortwave_radiation
+    - air_temperature
+    unit_mismatches:
+    - 'shortwave_radiation: W/m2 -> W/m²'
+    - 'air_temperature: K -> °C'
+  Alpine3D -> LDNDC:
+    n_shared: 2
+    n_unit_mismatches: 1
+    producer_domain: cryosphere
+    consumer_domain: biogeochemistry
+    shared_vars:
+    - shortwave_radiation
+    - air_temperature
+    unit_mismatches:
+    - 'air_temperature: K -> degC'
+  Alpine3D -> OpenHydroQual:
+    n_shared: 2
+    n_unit_mismatches: 2
+    producer_domain: cryosphere
+    consumer_domain: water_quality
+    shared_vars:
+    - shortwave_radiation
+    - air_temperature
+    unit_mismatches:
+    - 'shortwave_radiation: W/m2 -> W/m^2'
+    - 'air_temperature: K -> Celsius'
+  Alpine3D -> HYPE:
+    n_shared: 2
+    n_unit_mismatches: 2
+    producer_domain: cryosphere
+    consumer_domain: hydrology
+    shared_vars:
+    - shortwave_radiation
+    - air_temperature
+    unit_mismatches:
+    - 'shortwave_radiation: W/m2 -> MJ/m2/day'
+    - 'air_temperature: K -> degC'
+  Alpine3D -> Delft3D:
+    n_shared: 2
+    n_unit_mismatches: 1
+    producer_domain: cryosphere
+    consumer_domain: ocean
+    shared_vars:
+    - shortwave_radiation
+    - air_temperature
+    unit_mismatches:
+    - 'air_temperature: K -> degC'
+  APSIM -> SFINCS:
+    n_shared: 2
+    n_unit_mismatches: 2
+    producer_domain: crop
+    consumer_domain: flood
+    shared_vars:
+    - precipitation_rate
+    - water_surface_elevation
+    unit_mismatches:
+    - 'precipitation_rate: g/m2 -> mm/hr'
+    - 'water_surface_elevation: code -> m'
+  APSIM -> Delft3D:
+    n_shared: 2
+    n_unit_mismatches: 2
+    producer_domain: crop
+    consumer_domain: ocean
+    shared_vars:
+    - precipitation_rate
+    - water_surface_elevation
+    unit_mismatches:
+    - 'precipitation_rate: g/m2 -> mm/hr'
+    - 'water_surface_elevation: code -> m (MSL)'
+  Landlab -> HEC_RAS:
+    n_shared: 2
+    n_unit_mismatches: 0
+    producer_domain: hydrology
+    consumer_domain: unknown
+    shared_vars:
+    - precipitation_rate
+    - discharge
+    unit_mismatches: []
+  Landlab -> Ribasim:
+    n_shared: 2
+    n_unit_mismatches: 2
+    producer_domain: hydrology
+    consumer_domain: water_resources
+    shared_vars:
+    - precipitation_rate
+    - discharge
+    unit_mismatches:
+    - 'precipitation_rate: m^2 -> m/s'
+    - 'discharge: m^3/s -> m3/s'
+  Landlab -> MARRMoT:
+    n_shared: 2
+    n_unit_mismatches: 0
+    producer_domain: hydrology
+    consumer_domain: unknown
+    shared_vars:
+    - precipitation_rate
+    - discharge
+    unit_mismatches: []
+  Landlab -> SFINCS:
+    n_shared: 2
+    n_unit_mismatches: 2
+    producer_domain: hydrology
+    consumer_domain: flood
+    shared_vars:
+    - precipitation_rate
+    - discharge
+    unit_mismatches:
+    - 'precipitation_rate: m^2 -> mm/hr'
+    - 'discharge: m^3/s -> m3/s'
+  Landlab -> pyBadlands:
+    n_shared: 2
+    n_unit_mismatches: 2
+    producer_domain: hydrology
+    consumer_domain: geomorphology
+    shared_vars:
+    - precipitation_rate
+    - elevation
+    unit_mismatches:
+    - 'precipitation_rate: m^2 -> m/year'
+    - 'elevation: m -> metres'
+  Landlab -> pySTEPS:
+    n_shared: 2
+    n_unit_mismatches: 0
+    producer_domain: hydrology
+    consumer_domain: unknown
+    shared_vars:
+    - precipitation_rate
+    - discharge
+    unit_mismatches: []
+  Landlab -> Delft3D:
+    n_shared: 2
+    n_unit_mismatches: 2
+    producer_domain: hydrology
+    consumer_domain: ocean
+    shared_vars:
+    - precipitation_rate
+    - discharge
+    unit_mismatches:
+    - 'precipitation_rate: m^2 -> mm/hr'
+    - 'discharge: m^3/s -> m3/s'
+  RZWQM2 -> PySWMM:
+    n_shared: 2
+    n_unit_mismatches: 2
+    producer_domain: crop
+    consumer_domain: hydrology
+    shared_vars:
+    - precipitation_rate
+    - evapotranspiration
+    unit_mismatches:
+    - 'precipitation_rate: cm -> mm/hr (SI) or in/hr (US)'
+    - 'evapotranspiration: mm/day -> mm/day (SI) or in/day (US)'
+  RZWQM2 -> Ribasim:
+    n_shared: 2
+    n_unit_mismatches: 2
+    producer_domain: crop
+    consumer_domain: water_resources
+    shared_vars:
+    - precipitation_rate
+    - evapotranspiration
+    unit_mismatches:
+    - 'precipitation_rate: cm -> m/s'
+    - 'evapotranspiration: mm/day -> m/s'
+  RZWQM2 -> SWMM:
+    n_shared: 2
+    n_unit_mismatches: 1
+    producer_domain: crop
+    consumer_domain: urban_drainage
+    shared_vars:
+    - precipitation_rate
+    - evapotranspiration
+    unit_mismatches:
+    - 'precipitation_rate: cm -> mm/hr (INTENSITY) or mm/interval (VOLUME)'
+  VIC -> PRMS:
+    n_shared: 2
+    n_unit_mismatches: 2
+    producer_domain: hydrology
+    consumer_domain: hydrology
+    shared_vars:
+    - precipitation_rate
+    - surface_runoff
+    unit_mismatches:
+    - 'precipitation_rate: mm/timestep -> inches/day'
+    - 'surface_runoff: mm/timestep -> cfs'
+  VIC -> HEC_RAS:
+    n_shared: 2
+    n_unit_mismatches: 0
+    producer_domain: hydrology
+    consumer_domain: unknown
+    shared_vars:
+    - precipitation_rate
+    - surface_runoff
+    unit_mismatches: []
+  VIC -> PySWMM:
+    n_shared: 2
+    n_unit_mismatches: 2
+    producer_domain: hydrology
+    consumer_domain: hydrology
+    shared_vars:
+    - precipitation_rate
+    - evapotranspiration
+    unit_mismatches:
+    - 'precipitation_rate: mm/timestep -> mm/hr (SI) or in/hr (US)'
+    - 'evapotranspiration: mm/timestep -> mm/day (SI) or in/day (US)'
+  VIC -> Ribasim:
+    n_shared: 2
+    n_unit_mismatches: 2
+    producer_domain: hydrology
+    consumer_domain: water_resources
+    shared_vars:
+    - precipitation_rate
+    - evapotranspiration
+    unit_mismatches:
+    - 'precipitation_rate: mm/timestep -> m/s'
+    - 'evapotranspiration: mm/timestep -> m/s'
+  VIC -> GSFLOW:
+    n_shared: 2
+    n_unit_mismatches: 0
+    producer_domain: hydrology
+    consumer_domain: unknown
+    shared_vars:
+    - precipitation_rate
+    - surface_runoff
+    unit_mismatches: []
+  VIC -> MARRMoT:
+    n_shared: 2
+    n_unit_mismatches: 0
+    producer_domain: hydrology
+    consumer_domain: unknown
+    shared_vars:
+    - precipitation_rate
+    - surface_runoff
+    unit_mismatches: []
+  VIC -> RZWQM2:
+    n_shared: 2
+    n_unit_mismatches: 2
+    producer_domain: hydrology
+    consumer_domain: crop
+    shared_vars:
+    - precipitation_rate
+    - evapotranspiration
+    unit_mismatches:
+    - 'precipitation_rate: mm/timestep -> inches'
+    - 'evapotranspiration: mm/timestep -> mm/day'
+  VIC -> SWMM:
+    n_shared: 2
+    n_unit_mismatches: 2
+    producer_domain: hydrology
+    consumer_domain: urban_drainage
+    shared_vars:
+    - precipitation_rate
+    - evapotranspiration
+    unit_mismatches:
+    - 'precipitation_rate: mm/timestep -> mm/hr (INTENSITY) or mm/interval (VOLUME)'
+    - 'evapotranspiration: mm/timestep -> mm/day'
+  HYPE -> HEC_RAS:
+    n_shared: 2
+    n_unit_mismatches: 0
+    producer_domain: hydrology
+    consumer_domain: unknown
+    shared_vars:
+    - precipitation_rate
+    - discharge
+    unit_mismatches: []

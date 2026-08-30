@@ -1,0 +1,122 @@
+# Coupling Config v2: VIC -> MODFLOW6
+# Hand-authored 2026-05-22 — semantic transform: baseflow + deep_seepage → recharge
+
+coupling_config_version: '2.0'
+generated: '2026-05-22'
+generator: hand_authored
+metadata:
+  edge_id: VIC_to_MODFLOW6
+  source_model: VIC
+  target_model: MODFLOW6
+  source_domain: hydrology
+  target_domain: groundwater
+  edge_type: type3b_cross_domain
+  n_forward_variables: 1
+  n_combine_variables: 0
+  n_plausible_feedback: 1
+  n_review_feedback: 0
+  is_feedback: false
+forward_edges:
+- canonical_id: recharge
+  source_canonical_id: baseflow
+  target_canonical_id: recharge
+  match_type: transform_semantic
+  source_local_name: baseflow
+  source_unit: mm/day
+  target_local_name: rech
+  target_unit: m/day
+combine_edges: []
+plausible_feedback:
+- canonical_id: hydraulic_head
+  source_canonical_id: hydraulic_head
+  target_canonical_id: soil_moisture
+  match_type: review_feedback
+  note: Water table depth affects VIC baseflow parameters — declare as SCC if coupled
+compatibility:
+- canonical_id: recharge
+  source_canonical_id: baseflow
+  target_canonical_id: recharge
+  match_type: transform_semantic
+  primitives_needed:
+  - transform_semantic
+  - convert_units
+  - exchange_data
+  - validate_boundary
+  details:
+    transform_semantic: &t1
+      type: baseflow_to_recharge
+      transform: recharge_m_day = VIC_baseflow_mm_day / 1000.0
+      requires:
+      - baseflow
+      source_canonical: baseflow
+      target_canonical: recharge
+      note: VIC baseflow (slow drainage from lower soil layers) is the dominant
+        recharge signal to the unconfined aquifer. Surface runoff does NOT contribute
+        to MODFLOW6 recharge (it leaves the cell). Deep seepage from bottom soil
+        layer is VIC's baseflow component.
+      canonical_id: recharge
+    convert_units: &c1
+      status: explicit
+      from_unit: mm/day
+      to_unit: m/day
+      factor: 0.001
+      canonical_id: recharge
+    exchange_data: &e1
+      status: raster_to_raster
+      variable_mapping:
+        source_name: baseflow
+        target_name: rech
+      note: VIC produces per-cell daily baseflow (mm/day). Resample to MODFLOW6
+        grid via area-weighted average if grids differ. Write MODFLOW6 RCH package
+        input files one per stress period.
+      canonical_id: recharge
+    validate_boundary: &v1
+      checks:
+      - no_nan
+      - 'range: [0.0, 0.05]'
+      note: Recharge > 0.05 m/day (50 mm/day) is unphysical — check for VIC
+        baseflow anomalies
+      canonical_id: recharge
+primitives_needed:
+- transform_semantic
+- convert_units
+- exchange_data
+- validate_boundary
+execution_order:
+- transform_semantic
+- convert_units
+- exchange_data
+- validate_boundary
+primitive_configs:
+  transform_semantic:
+  - *t1
+  convert_units:
+  - *c1
+  exchange_data:
+  - *e1
+  validate_boundary:
+  - *v1
+risks:
+  total_traps: 2
+  automatable: 2
+  judgment_required: 0
+  traps:
+  - canonical_var: recharge
+    model: VIC->MODFLOW6
+    trap_id: baseflow_unit_mm_to_m
+    description: VIC outputs baseflow in mm/day; MODFLOW6 RCH package expects m/day.
+      Off by 1000× if not converted.
+    detection: MODFLOW6 water table rises to land surface within first time step
+    fix: Multiply VIC baseflow by 0.001 before writing RCH package
+    is_unit_trap: true
+    automatable: true
+  - canonical_var: recharge
+    model: VIC->MODFLOW6
+    trap_id: surface_runoff_not_recharge
+    description: VIC surface_runoff should NOT be added to MODFLOW6 recharge. Surface
+      runoff leaves the basin via CaMa-Flood or is routed as overland flow. Only
+      baseflow (deep soil drainage) enters the aquifer.
+    detection: MODFLOW6 budget shows recharge >> regional estimates (>500 mm/yr)
+    fix: Use only VIC baseflow variable for MODFLOW6 rech; exclude surface_runoff
+    is_unit_trap: false
+    automatable: true

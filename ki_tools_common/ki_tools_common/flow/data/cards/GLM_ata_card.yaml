@@ -1,0 +1,587 @@
+ata_card_version: '1.0'
+generated: '2026-04-17'
+generator: ata_pipeline1_card_gen.py
+identity:
+  model_id: GLM
+  model_name: GLM v3.3.3
+  domain: lake
+  secondary_domains:
+  - water_quality
+  language: Fortran / C
+  binary_path: /mnt/disk1/Hydrocraft_server/model/glm/bin/glm
+inputs:
+- canonical_id: shortwave_radiation
+  local_name: shortwave_radiation
+  unit: W/m2
+  valid_range:
+  - 0.0
+  - 1400.0
+  format: csv
+  semantic_type: energy_flux
+  unit_confidence: documented
+  mapping_confidence: exact_alias
+  input_category: forcing
+- canonical_id: longwave_radiation
+  local_name: longwave_radiation
+  unit: W/m2
+  valid_range:
+  - 50.0
+  - 600.0
+  format: csv
+  semantic_type: energy_flux
+  unit_confidence: documented
+  mapping_confidence: exact_alias
+  input_category: forcing
+- canonical_id: air_temperature
+  local_name: air_temperature
+  unit: degC
+  valid_range:
+  - -50.0
+  - 55.0
+  format: csv
+  semantic_type: temperature
+  unit_confidence: documented
+  mapping_confidence: exact_alias
+  input_category: forcing
+- canonical_id: relative_humidity
+  local_name: relative_humidity
+  unit: percent (0-100)
+  valid_range:
+  - 0.0
+  - 100.0
+  format: csv
+  semantic_type: fraction
+  unit_confidence: documented
+  mapping_confidence: exact_alias
+  input_category: forcing
+  conversion_notes:
+    conversion_from_vic: 'VP (kPa) to RH%: RH = 100 * VP / (0.6108 * exp(17.27*T/(T+237.3)))'
+- canonical_id: wind_speed
+  local_name: wind_speed
+  unit: m/s
+  valid_range:
+  - 0.0
+  - 80.0
+  format: csv
+  semantic_type: unknown
+  unit_confidence: documented
+  mapping_confidence: exact_alias
+  input_category: forcing
+- canonical_id: precipitation_rate
+  local_name: precipitation
+  unit: m/day
+  valid_range:
+  - 0.0
+  - 0.5
+  format: csv
+  semantic_type: flux_density
+  unit_confidence: documented
+  mapping_confidence: exact_alias
+  input_category: forcing
+  conversion_notes:
+    conversion_from_cmfd: CMFD mm/3hr * 8 / 1000 = m/day
+- canonical_id: cloud_cover
+  local_name: cloud_cover
+  unit: fraction (0-1)
+  valid_range:
+  - 0.0
+  - 1.0
+  format: csv
+  semantic_type: fraction
+  unit_confidence: documented
+  mapping_confidence: exact_alias
+  input_category: forcing
+- canonical_id: discharge
+  local_name: inflow_discharge
+  unit: m3/s
+  valid_range:
+  - 0.0
+  - null
+  format: csv
+  semantic_type: volumetric_flow
+  unit_confidence: documented
+  mapping_confidence: exact_alias
+  input_category: boundary_conditions
+  conversion_notes:
+    conversion_from_cama: 'CaMa outflw (m3/s) → GLM FLOW (m3/s): direct, same unit'
+- canonical_id: water_temperature
+  local_name: inflow_temperature
+  unit: degC
+  valid_range:
+  - 0.0
+  - 35.0
+  format: csv
+  semantic_type: temperature
+  unit_confidence: documented
+  mapping_confidence: exact_alias
+  input_category: boundary_conditions
+outputs:
+- canonical_id: water_temperature
+  local_name: temperature_profile
+  unit: degC
+  valid_range:
+  - 0.0
+  - 40.0
+  format: netcdf
+  semantic_type: temperature
+  unit_confidence: documented
+  mapping_confidence: exact_alias
+  output_section: primary
+  origin: simulated
+  origin_confidence: high
+- canonical_id: water_surface_elevation
+  local_name: lake_level
+  unit: m
+  valid_range: null
+  format: csv
+  semantic_type: state
+  unit_confidence: documented
+  mapping_confidence: exact_alias
+  output_section: primary
+  origin: simulated
+  origin_confidence: high
+- canonical_id: water_temperature
+  local_name: surface_temperature
+  unit: degC
+  valid_range:
+  - 0.0
+  - 35.0
+  format: unspecified
+  semantic_type: temperature
+  unit_confidence: documented
+  mapping_confidence: exact_alias
+  output_section: primary
+  origin: simulated
+  origin_confidence: high
+- canonical_id: discharge
+  local_name: aed2_wq_output
+  unit: various (mmol/m3)
+  valid_range: null
+  format: unspecified
+  semantic_type: volumetric_flow
+  unit_confidence: documented
+  mapping_confidence: substring
+  output_section: primary
+  origin: simulated
+  origin_confidence: high
+spatial:
+  type: 1d_vertical
+  resolution: unspecified
+  crs: EPSG:4326
+  source: none
+temporal:
+  resolution: daily
+  calendar: standard
+  source: format_spec
+risks:
+  known_traps:
+  - canonical_var: air_temperature
+    trap_id: ice_silently_disabled
+    description: Missing dt_iceon_avg silently disables ice model
+    detection: Surface temp ~0.002 C, zero ice
+    fix: Set dt_iceon_avg = 0.02, min_ice_thickness = 0.001
+    is_unit_trap: true
+    automatable: true
+    severity: high
+  - canonical_var: air_temperature
+    trap_id: dt_003
+    description: '{''description'': ''Negative shortwave radiation values in forcing
+      CSV. May cause NaN in temperature.'', ''error_pattern'': ''NaN'', ''detection_method'':
+      ''value_comparison''}'
+    detection: '{''root_cause'': ''Night-time shortwave radiation not clipped to zero
+      after temporal interpolation'', ''explanation'': ''When interpolating 3-hourly
+      forcing to hourly, linear interpolation can produce small '
+    fix: '{''action'': ''Apply max(0, SW) after interpolation'', ''tool_to_run'':
+      ''convert_met_to_glm'', ''manual_steps'': [''Check min ShortWave value in met
+      CSV — must be >= 0''], ''prevention'': ''convert_met_to_glm appli'
+    is_unit_trap: true
+    automatable: true
+    severity: high
+  - canonical_var: air_temperature
+    trap_id: dt_004
+    description: '{''description'': ''Inflow temperature always 0 degC or NaN. Artificial
+      cold layer forms at insertion depth.'', ''error_pattern'': '''', ''detection_method'':
+      ''value_comparison''}'
+    detection: '{''root_cause'': ''Temperature column missing from inflow CSV or not
+      estimated from air temperature'', ''explanation'': ''GLM reads TEMP from inflow
+      CSV. If the column is missing or all zeros, the inflow wat'
+    fix: '{''action'': ''Estimate inflow temperature from air temperature using T_water
+      = 0.9*T_air + 1.5'', ''tool_to_run'': ''convert_inflow_to_glm'', ''manual_steps'':
+      [''Verify TEMP column exists in inflow CSV'', ''Chec'
+    is_unit_trap: true
+    automatable: true
+    severity: high
+  - canonical_var: air_temperature
+    trap_id: dt_013
+    description: '{''description'': ''GLM crashes with NaN in temperature. Simulation
+      aborts mid-run.'', ''error_pattern'': ''NaN'', ''detection_method'': ''log_match''}'
+    detection: '{''root_cause'': ''Extremely large wind speed or unrealistic forcing
+      causing numerical instability'', ''explanation'': ''Very high wind speeds (>50
+      m/s sustained), zero timestep, or extreme temperature swing'
+    fix: '{''action'': ''Check forcing data for outliers. Ensure dt >= 60 seconds.'',
+      ''tool_to_run'': '''', ''manual_steps'': [''Check WindSpeed column for values
+      > 30 m/s'', ''Check AirTemp for sudden jumps > 20 degC betw'
+    is_unit_trap: true
+    automatable: true
+    severity: high
+  - canonical_var: air_temperature
+    trap_id: dt_014
+    description: '{''description'': ''Ice model produces unrealistic thickness (>5m).
+      Permanent ice cover in warm climate.'', ''error_pattern'': '''', ''detection_method'':
+      ''value_comparison''}'
+    detection: '{''root_cause'': ''Snow accumulation without melt in warm/tropical
+      climate due to temperature data issues'', ''explanation'': ''For tropical lakes
+      (latitude < 23), the snowice model should produce negligible'
+    fix: '{''action'': ''For tropical lakes, verify temperature data. Consider increasing
+      min_layer_thick.'', ''tool_to_run'': '''', ''manual_steps'': [''Check if AirTemp
+      is consistently below 0 degC (wrong for tropical)'''
+    is_unit_trap: true
+    automatable: true
+    severity: high
+  - canonical_var: air_temperature
+    trap_id: dt_018
+    description: '{''description'': ''Temperature heatmap shows artifacts at depth
+      boundaries. Stripy patterns.'', ''error_pattern'': '''', ''detection_method'':
+      ''value_comparison''}'
+    detection: '{''root_cause'': ''Output nsave too large — misses diurnal cycle and
+      layer dynamics'', ''explanation'': ''If nsave is set too high (e.g., 168 = weekly),
+      the output captures only snapshots of the evolving lay'
+    fix: '{''action'': ''Set nsave to 24 (daily) or lower for thermal analysis'',
+      ''tool_to_run'': ''generate_glm_nml'', ''manual_steps'': [''Edit nsave in &output
+      block to 24 (daily, with dt=3600)''], ''prevention'': ''gener'
+    is_unit_trap: false
+    automatable: false
+    severity: medium
+  - canonical_var: air_temperature
+    trap_id: dt_019
+    description: '{''description'': ''Stratification never develops in deep lake.
+      Surface-to-bottom temp difference < 2 degC.'', ''error_pattern'': '''', ''detection_method'':
+      ''value_comparison''}'
+    detection: '{''root_cause'': ''Kw (light extinction) too high — all solar energy
+      absorbed near surface'', ''explanation'': ''High Kw values (>3 m^-1) cause all
+      shortwave radiation to be absorbed in the top 1-2 meters. N'
+    fix: '{''action'': ''Use literature Kw values. Clear lakes: 0.2-0.5, moderate:
+      0.5-1.5, turbid: 1.5-3.0'', ''tool_to_run'': ''calibrate_glm'', ''manual_steps'':
+      [''Check Kw value in &light block'', ''For clear oligotrop'
+    is_unit_trap: true
+    automatable: false
+    severity: high
+  - canonical_var: air_temperature
+    trap_id: dt_020
+    description: '{''description'': ''Summer surface temperatures 3-5 degC too warm.
+      Excessive heating.'', ''error_pattern'': '''', ''detection_method'': ''value_comparison''}'
+    detection: '{''root_cause'': ''Longwave radiation double-counted — both computed
+      internally and provided in forcing'', ''explanation'': "GLM has two longwave
+      modes: ''LW_IN'' (incoming LW provided in forcing CSV) and ''LW'
+    fix: '{''action'': "Set lw_type consistently: ''LW_IN'' if forcing has measured/modeled
+      LW, ''LW_CC'' if only cloud cover", ''tool_to_run'': ''generate_glm_nml'', ''manual_steps'':
+      [''Check if LongWave column in met CSV'
+    is_unit_trap: true
+    automatable: true
+    severity: high
+  - canonical_var: air_temperature
+    trap_id: dt_022
+    description: '{''description'': ''Artificial cold or warm layer forms at wrong
+      depth. Density instability.'', ''error_pattern'': '''', ''detection_method'':
+      ''value_comparison''}'
+    detection: '{''root_cause'': ''Inflow salinity set to non-zero when lake is freshwater'',
+      ''explanation'': ''GLM computes inflow density from both temperature AND salinity.
+      If the inflow CSV has SALT = 0.5 psu (a small '
+    fix: '{''action'': ''Set inflow SALT = 0.0 for all freshwater lakes'', ''tool_to_run'':
+      ''convert_inflow_to_glm'', ''manual_steps'': [''Check SALT column in inflow
+      CSV — should be 0.0 for freshwater'', ''convert_inflow_'
+    is_unit_trap: true
+    automatable: true
+    severity: high
+  - canonical_var: air_temperature
+    trap_id: dt_023
+    description: '{''description'': ''Surface T asymptotes to 0.002 C but never crosses
+      0 C. No ice forms despite air temp reaching -15 C. All mixing/wind/LW parameters
+      exhaustively tested.'', ''error_pattern'': '''', ''detecti'
+    detection: '{''root_cause'': ''Missing dt_iceon_avg parameter in &snowice block
+      (see dt_027). Originally diagnosed as thermal inertia issue, but true cause
+      was the missing ice onset parameter.'', ''explanation'': ''Exha'
+    fix: '{''action'': ''Add dt_iceon_avg=0.02 and min_ice_thickness=0.001 to &snowice
+      block'', ''tool_to_run'': ''generate_glm_nml'', ''manual_steps'': [''See dt_027
+      for full fix''], ''prevention'': ''generate_glm_nml now al'
+    is_unit_trap: true
+    automatable: false
+    severity: high
+  - canonical_var: air_temperature
+    trap_id: dt_026
+    description: '{''description'': ''subdaily=.true. with 3-hourly CMFD forcing produces
+      flat temperature (max ~4.5 C). No seasonal cycle despite correct forcing data.'',
+      ''error_pattern'': '''', ''detection_method'': ''value_co'
+    detection: '{''root_cause'': ''Timestamp alignment issue between 3-hourly CMFD
+      forcing and GLM internal dt=3600s. GLM may not correctly interpolate between
+      3-hourly records.'', ''explanation'': ''With met_miyun.csv (3-h'
+    fix: '{''action'': ''Use daily forcing with subdaily=.false. for CMFD data until
+      3-hourly parsing is debugged'', ''tool_to_run'': ''convert_met_to_glm'', ''manual_steps'':
+      [''Average 3-hourly forcing to daily before p'
+    is_unit_trap: true
+    automatable: false
+    severity: high
+  - canonical_var: air_temperature
+    trap_id: dt_027
+    description: '{''description'': ''Zero ice formation despite sub-zero air temperatures.
+      Surface temp asymptotes to 0.002 C but never freezes. All ice columns remain
+      zero.'', ''error_pattern'': '''', ''detection_method'': ''va'
+    detection: '{''root_cause'': ''Missing dt_iceon_avg and min_ice_thickness parameters
+      in &snowice block. Without these, GLM ice model is silently disabled.'', ''explanation'':
+      ''The &snowice block in most GLM examples on'
+    fix: '{''action'': ''Add dt_iceon_avg and min_ice_thickness to &snowice block'',
+      ''tool_to_run'': ''generate_glm_nml'', ''manual_steps'': [''Add to &snowice:
+      dt_iceon_avg = 0.02'', ''Add to &snowice: min_ice_thickness ='
+    is_unit_trap: true
+    automatable: true
+    severity: high
+  - canonical_var: air_temperature
+    trap_id: dt_029
+    description: '{''description'': ''AED2 runs successfully but phytoplankton biomass
+      collapses to near-zero within weeks. Chlorophyll-a is unrealistically low (<0.1
+      ug/L) even for eutrophic lakes.'', ''error_pattern'': ''PH'
+    detection: '{''root_cause'': ''Inflow CSV has no nutrient columns — AED2 receives
+      zero external nutrient loading'', ''explanation'': ''When the inflow CSV only
+      contains FLOW, TEMP, SALT (no NIT_nit, NIT_amm, PHS_frp, et'
+    fix: '{''action'': ''Add nutrient concentrations to inflow CSV using configure_inflow_wq.py'',
+      ''tool_to_run'': ''configure_inflow_wq'', ''manual_steps'': [''Run configure_inflow_wq.py
+      --inflow_csv <path> --trophic <s'
+    is_unit_trap: true
+    automatable: true
+    severity: high
+  - canonical_var: longwave_radiation
+    trap_id: lw_double_counting
+    description: LongWave double-counting when lw_type mismatches forcing
+    detection: Systematic warm bias in summer
+    fix: 'Match lw_type to forcing content: LW_IN if forcing has LW, LW_CC if cloud
+      cover'
+    is_unit_trap: false
+    automatable: true
+    severity: medium
+  - canonical_var: wind_speed
+    trap_id: dt_021
+    description: '{''description'': ''Mixing too strong — no thermal stratification
+      develops even in summer'', ''error_pattern'': '''', ''detection_method'': ''value_comparison''}'
+    detection: '{''root_cause'': ''coef_wind_stir or wind_factor too high for sheltered
+      or small lake'', ''explanation'': ''Large wind_factor (>1.5) or coef_wind_stir
+      (>0.8) can prevent stratification by mixing surface heat'
+    fix: '{''action'': ''Reduce wind_factor or coef_wind_stir for small/sheltered
+      lakes'', ''tool_to_run'': ''calibrate_glm'', ''manual_steps'': [''Start with
+      wind_factor = 0.7-0.8 for small sheltered lakes'', ''Start with '
+    is_unit_trap: true
+    automatable: false
+    severity: high
+  - canonical_var: discharge
+    trap_id: aed2_no_inflow_nutrients
+    description: AED2 with zero inflow nutrient loading depletes nutrients rapidly
+    detection: Nutrients drop to zero within weeks
+    fix: Use configure_inflow_wq.py to add nutrient columns to inflow CSV
+    is_unit_trap: false
+    automatable: true
+    severity: medium
+  - canonical_var: discharge
+    trap_id: dt_010
+    description: '{''description'': ''num_inflows is 0 but inflow CSV files are referenced.
+      Inflow is silently ignored.'', ''error_pattern'': '''', ''detection_method'':
+      ''value_comparison''}'
+    detection: '{''root_cause'': ''Inconsistency between num_inflows count and inflow
+      file list'', ''explanation'': ''If num_inflows = 0, GLM ignores all inflow_fl
+      entries. The lake runs without any river input, which may b'
+    fix: '{''action'': ''Set num_inflows to match the number of inflow CSV files'',
+      ''tool_to_run'': ''generate_glm_nml'', ''manual_steps'': [''Count inflow CSV
+      files and set num_inflows accordingly''], ''prevention'': ''gene'
+    is_unit_trap: false
+    automatable: false
+    severity: medium
+  - canonical_var: discharge
+    trap_id: dt_012
+    description: '{''description'': ''Unable to open inflow file. GLM exits during
+      setup.'', ''error_pattern'': ''Unable to open'', ''detection_method'': ''log_match''}'
+    detection: '{''root_cause'': ''inflow_fl path does not match actual file location'',
+      ''explanation'': ''Same as dt_011 but for inflow files. The inflow_fl path must
+      be resolvable from the GLM working directory.\n'', ''aff'
+    fix: '{''action'': ''Verify all file paths in namelist exist before running GLM'',
+      ''tool_to_run'': ''run_glm'', ''manual_steps'': [''run_glm preflight check validates
+      all referenced file paths''], ''prevention'': ''run_g'
+    is_unit_trap: false
+    automatable: true
+    severity: medium
+  - canonical_var: discharge
+    trap_id: dt_016
+    description: '{''description'': ''Inflow timing offset — flow arrives 1 day early
+      or late'', ''error_pattern'': '''', ''detection_method'': ''value_comparison''}'
+    detection: '{''root_cause'': ''Timezone mismatch between forcing and inflow data'',
+      ''explanation'': ''If the meteorological CSV uses UTC timestamps but the inflow
+      CSV uses local time (or vice versa), there is a systema'
+    fix: '{''action'': ''Ensure all CSV timestamps use the same timezone as GLM timezone
+      parameter'', ''tool_to_run'': '''', ''manual_steps'': [''Check timezone parameter
+      in &time block'', ''Verify met CSV and inflow CSV us'
+    is_unit_trap: true
+    automatable: true
+    severity: high
+  - canonical_var: discharge
+    trap_id: dt_017
+    description: '{''description'': ''CaMa-Flood discharge is inconsistent with GLM
+      inflow. Water balance does not close.'', ''error_pattern'': '''', ''detection_method'':
+      ''value_comparison''}'
+    detection: '{''root_cause'': ''CaMa grid cell does not correspond to the actual
+      lake inlet'', ''explanation'': ''When extracting CaMa-Flood discharge for GLM
+      inflow, the grid cell must be the one immediately upstream of'
+    fix: '{''action'': ''Verify spatial alignment of CaMa output point with GLM inflow
+      location'', ''tool_to_run'': '''', ''manual_steps'': [''Check CaMa river network
+      to find the correct upstream cell'', ''Compare total in'
+    is_unit_trap: true
+    automatable: true
+    severity: high
+  - canonical_var: precipitation_rate
+    trap_id: rain_unit_error
+    description: Rain in mm/day instead of m/day — lake floods continuously
+    detection: Lake level rises unrealistically
+    fix: 'Divide by 1000: m/day = mm/day / 1000'
+    is_unit_trap: true
+    automatable: true
+    severity: high
+  - canonical_var: precipitation_rate
+    trap_id: dt_001
+    description: '{''description'': ''Lake level rises continuously, overflow every
+      day. Lake volume grows unrealistically.'', ''error_pattern'': ''overflow'',
+      ''detection_method'': ''value_comparison''}'
+    detection: '{''root_cause'': ''Rain in mm/day instead of m/day — 1000x too much
+      precipitation input'', ''explanation'': ''GLM expects rain in meters per day
+      (m/day). CMFD and MSWX provide precipitation in mm per 3-hour '
+    fix: '{''action'': ''Divide rain values by 1000 in convert_met_to_glm.py'', ''tool_to_run'':
+      ''convert_met_to_glm'', ''manual_steps'': [''Check max rain value in met CSV
+      — should be < 0.5 m/day for most climates'', ''If'
+    is_unit_trap: true
+    automatable: true
+    severity: high
+  - canonical_var: precipitation_rate
+    trap_id: dt_024
+    description: '{''description'': ''GLM met CSV has zero precipitation (Rain=0,
+      Snow=0) for entire simulation. No direct rainfall on lake surface.'', ''error_pattern'':
+      '''', ''detection_method'': ''value_comparison''}'
+    detection: '{''root_cause'': ''convert_met_to_glm.py does not extract CMFD precipitation.
+      VIC forcing files may not have precipitation mapped to GLM Rain/Snow columns.'',
+      ''explanation'': ''Miyun Reservoir receives ~480'
+    fix: '{''action'': ''Add precipitation extraction to convert_met_to_glm.py using
+      CMFD prec variable'', ''tool_to_run'': ''convert_met_to_glm'', ''manual_steps'':
+      [''Extract CMFD precipitation (mm/3hr) and convert to m'
+    is_unit_trap: true
+    automatable: false
+    severity: high
+  - trap_id: rain_unit_error
+    triplet_ref: dt_001
+    description: Rain in mm/day instead of m/day — lake floods continuously
+    affected_output: Lake level, all outputs
+    detection: Lake level rises unrealistically
+    fix: 'Divide by 1000: m/day = mm/day / 1000'
+    is_unit_trap: true
+    automatable: true
+    severity: high
+    source: format_spec
+  - trap_id: rh_fraction_not_pct
+    triplet_ref: dt_002
+    description: Relative humidity 0-1 instead of 0-100% — extreme evaporation
+    affected_output: Lake level, surface temperature
+    detection: Lake level drops rapidly, extreme evaporation
+    fix: 'Multiply by 100: RH% = RH_fraction * 100'
+    is_unit_trap: false
+    automatable: true
+    severity: medium
+    source: format_spec
+  - trap_id: fortran_double_quotes
+    triplet_ref: dt_005
+    description: Double quotes in glm3.nml cause Fortran parse error
+    affected_output: GLM fails to start
+    detection: Fortran namelist read error
+    fix: Use single quotes for all string values in namelist
+    is_unit_trap: false
+    automatable: true
+    severity: medium
+    source: format_spec
+  - trap_id: morphometry_reversed
+    triplet_ref: dt_006
+    description: H[] and A[] arrays in descending order — crash
+    affected_output: GLM crashes at startup
+    detection: GLM abort on morphometry read
+    fix: Sort H[] and A[] ascending (bottom to top)
+    is_unit_trap: false
+    automatable: true
+    severity: medium
+    source: format_spec
+  - trap_id: bsn_vals_mismatch
+    triplet_ref: dt_008
+    description: bsn_vals does not match H/A array length — crash
+    affected_output: GLM crashes at startup
+    detection: Array bounds error
+    fix: Set bsn_vals = len(H)
+    is_unit_trap: false
+    automatable: true
+    severity: medium
+    source: format_spec
+  - trap_id: aed2_nan_thermal_only
+    triplet_ref: dt_028
+    description: AED2 phytoplankton module without dependencies produces NaN
+    affected_output: AED2 WQ outputs
+    detection: NaN values in WQ variables
+    fix: Enable all dependency modules (oxygen, nitrogen, phosphorus, organic_matter)
+      or use thermal-only mode (disable AED2)
+    is_unit_trap: false
+    automatable: true
+    severity: medium
+    source: format_spec
+  - trap_id: aed2_no_inflow_nutrients
+    triplet_ref: dt_029
+    description: AED2 with zero inflow nutrient loading depletes nutrients rapidly
+    affected_output: Phytoplankton, nutrient concentrations
+    detection: Nutrients drop to zero within weeks
+    fix: Use configure_inflow_wq.py to add nutrient columns to inflow CSV
+    is_unit_trap: false
+    automatable: true
+    severity: medium
+    source: format_spec
+  - trap_id: ice_silently_disabled
+    triplet_ref: dt_027
+    description: Missing dt_iceon_avg silently disables ice model
+    affected_output: Ice thickness = 0 despite freezing conditions
+    detection: Surface temp ~0.002 C, zero ice
+    fix: Set dt_iceon_avg = 0.02, min_ice_thickness = 0.001
+    is_unit_trap: false
+    automatable: true
+    severity: medium
+    source: format_spec
+  - trap_id: lw_double_counting
+    triplet_ref: dt_020
+    description: LongWave double-counting when lw_type mismatches forcing
+    affected_output: Surface temperature (3-5 degC warm bias)
+    detection: Systematic warm bias in summer
+    fix: 'Match lw_type to forcing content: LW_IN if forcing has LW, LW_CC if cloud
+      cover'
+    is_unit_trap: false
+    automatable: true
+    severity: medium
+    source: format_spec
+  unit_conversions: []
+coupling:
+  chain_position: bidirectional
+  native_formats:
+  - csv
+  - netcdf
+  exchange_format: netcdf
+  coupling_role: earth_system
+quality:
+  has_format_spec: true
+  has_skill_md: true
+  has_triplets: true
+  n_inputs: 9
+  n_outputs: 4
+  n_inputs_canonical: 9
+  n_outputs_canonical: 4
+  n_unmapped: 0
+  n_traps: 32
+  n_conversions: 0
+  spatial_complete: true
+  temporal_complete: true
+  unmapped_variables: []
+  validation_issues: []
+  card_status: complete

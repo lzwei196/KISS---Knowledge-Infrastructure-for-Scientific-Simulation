@@ -1,0 +1,203 @@
+# ATA Card: HYDRUS_1D
+# Hand-authored 2026-05-22 for Huaihe 30-model system
+
+ata_card_version: '1.0'
+generated: '2026-05-22'
+generator: hand_authored
+identity:
+  model_id: HYDRUS_1D
+  model_name: HYDRUS-1D v4.17 (1D Variably-Saturated Flow and Transport)
+  domain: hydrology
+  secondary_domains:
+  - soil_water
+  - vadose_zone
+  - solute_transport
+  language: Fortran 77
+  binary_path: /home/server/knowledge-dissection-toolkit/auto_dissect_multi_agent/_work/HYDRUS_1D.retry1_20260424/source/repo/hydrus
+inputs:
+- canonical_id: precipitation_rate
+  local_name: hCritA
+  unit: cm/day
+  valid_range:
+  - 0.0
+  - 50.0
+  format: fortran_fixed
+  semantic_type: flux_density
+  unit_confidence: documented
+  mapping_confidence: exact_alias
+  input_category: forcing
+  conversion_notes:
+    from_cmfd: 'mm/day → cm/day: divide by 10. CRITICAL: HYDRUS-1D uses cm throughout.'
+  silent_error: Providing mm/day (10× too large) causes ponding and runoff every time step.
+    No error raised; METEO.IN reads any value.
+- canonical_id: potential_evapotranspiration
+  local_name: rTop
+  unit: cm/day
+  valid_range:
+  - 0.0
+  - 2.0
+  format: fortran_fixed
+  semantic_type: flux_density
+  unit_confidence: documented
+  mapping_confidence: exact_alias
+  input_category: forcing
+  conversion_notes:
+    from_vic: 'mm/day → cm/day: divide by 10'
+- canonical_id: soil_hydraulic_conductivity
+  local_name: Ks
+  unit: cm/day
+  valid_range:
+  - 0.001
+  - 500.0
+  format: fortran_fixed
+  semantic_type: state
+  unit_confidence: documented
+  mapping_confidence: exact_alias
+  input_category: parameters
+  conversion_notes:
+    from_glhymps: 'GLHYMPS K_m_day → cm/day: multiply by 100'
+  silent_error: Ks in m/day (100× too small) produces near-zero drainage; no warning.
+- canonical_id: volumetric_soil_moisture
+  local_name: theta_r
+  unit: cm3/cm3
+  valid_range:
+  - 0.0
+  - 0.6
+  format: fortran_fixed
+  semantic_type: state
+  unit_confidence: documented
+  mapping_confidence: exact_alias
+  input_category: parameters
+outputs:
+- canonical_id: volumetric_soil_moisture
+  local_name: theta
+  unit: cm3/cm3
+  valid_range:
+  - 0.0
+  - 0.65
+  format: ascii_text
+  semantic_type: state
+  unit_confidence: documented
+  mapping_confidence: exact_alias
+  output_section: primary
+  origin: simulated
+  origin_confidence: high
+- canonical_id: actual_evapotranspiration
+  local_name: vActTop
+  unit: cm/day
+  valid_range:
+  - 0.0
+  - 2.0
+  format: ascii_text
+  semantic_type: flux_density
+  unit_confidence: documented
+  mapping_confidence: exact_alias
+  output_section: primary
+  origin: simulated
+  origin_confidence: high
+  conversion_notes:
+    to_vic: 'cm/day → mm/day: multiply by 10'
+- canonical_id: groundwater_recharge
+  local_name: vBot
+  unit: cm/day
+  valid_range:
+  - -1.0
+  - 5.0
+  format: ascii_text
+  semantic_type: flux_density
+  unit_confidence: documented
+  mapping_confidence: exact_alias
+  output_section: primary
+  origin: simulated
+  origin_confidence: high
+  conversion_notes:
+    to_modflow6: 'cm/day → m/day: divide by 100'
+- canonical_id: pressure_head
+  local_name: h
+  unit: cm
+  valid_range:
+  - -1.0e6
+  - 0.0
+  format: ascii_text
+  semantic_type: state
+  unit_confidence: documented
+  mapping_confidence: exact_alias
+  output_section: diagnostic
+  origin: simulated
+  origin_confidence: high
+spatial:
+  type: 1d_vertical
+  resolution: user_defined_nodes
+  crs: EPSG:4326
+  source: format_spec
+temporal:
+  resolution: daily
+  calendar: standard
+  source: format_spec
+risks:
+  known_traps:
+  - canonical_var: precipitation_rate
+    trap_id: length_unit_cm_not_mm
+    description: HYDRUS-1D uses cm throughout (NOT mm). Providing mm values (10× too large)
+      causes ponding on every time step, zero actual transpiration, and runoff spike.
+      No error is raised.
+    detection: Drainage >> precipitation; actual ET near zero despite vegetation
+    fix: 'Divide all length fluxes by 10: mm → cm'
+    is_unit_trap: true
+    automatable: true
+    severity: high
+  - canonical_var: soil_hydraulic_conductivity
+    trap_id: ks_in_wrong_unit
+    description: Ks must be in cm/day. GLHYMPS and HWSD deliver K in m/day. If you
+      forget to multiply by 100, Ks is 100× too small → anaerobic soil, zero drainage.
+    detection: Drainage rate < 1e-4 cm/day despite rainfall; water table never drops
+    fix: 'GLHYMPS K_m_day × 100 = cm/day'
+    is_unit_trap: true
+    automatable: true
+    severity: high
+  - canonical_var: pressure_head
+    trap_id: convergence_failure_dry_soil
+    description: Simulation aborts with 'Convergence failure' when initial pressure head
+      is far from field conditions. Common for very dry initial conditions (h < -1e6 cm).
+    detection: '''Convergence failure'' in HYDRUS1D.OUT'
+    fix: Set initial pressure head to -100 cm (field capacity) and use reset_option=1
+      for first time step
+    is_unit_trap: false
+    automatable: true
+    severity: medium
+  unit_conversions:
+  - from_unit: mm/day
+    to_unit: cm/day
+    factor: 0.1
+    applies_to: [precipitation_rate, potential_evapotranspiration, actual_evapotranspiration]
+  - from_unit: m/day
+    to_unit: cm/day
+    factor: 100.0
+    applies_to: [soil_hydraulic_conductivity]
+  - from_unit: cm/day
+    to_unit: m/day
+    factor: 0.01
+    applies_to: [groundwater_recharge]
+coupling:
+  chain_position: consumer_producer
+  native_formats:
+  - fortran_fixed
+  - ascii_text
+  exchange_format: ascii_text
+  coupling_role: earth_system
+quality:
+  has_format_spec: true
+  has_skill_md: false
+  has_triplets: false
+  n_inputs: 4
+  n_outputs: 4
+  n_inputs_canonical: 4
+  n_outputs_canonical: 4
+  n_unmapped: 0
+  n_traps: 3
+  n_conversions: 3
+  spatial_complete: true
+  temporal_complete: true
+  unmapped_variables: []
+  validation_issues: []
+  card_status: complete

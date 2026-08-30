@@ -43,6 +43,16 @@ harness_hidden = [
     "ki_tools_common.harness.ki_path",
     "ki_tools_common.harness.ki_attention",
     "ki_tools_common.harness.agent_spawn",
+    # the plan → approve → execute → verify flow (lazy __getattr__ imports need these listed)
+    "ki_tools_common.flow",
+    "ki_tools_common.flow.states",
+    "ki_tools_common.flow.resolve",
+    "ki_tools_common.flow.plan",
+    "ki_tools_common.flow.approval",
+    "ki_tools_common.flow.contracts",
+    "ki_tools_common.flow.receipts",
+    "ki_tools_common.flow.policy",
+    "ki_tools_common.flow.build_data",
 ]
 
 a = Analysis(

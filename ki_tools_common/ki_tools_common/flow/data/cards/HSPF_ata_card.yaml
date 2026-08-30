@@ -1,0 +1,192 @@
+ata_card_version: '2.0'
+generated: '2026-05-23'
+generator: manual
+identity:
+  canonical_id: HSPF
+  full_name: Hydrological Simulation Program FORTRAN
+  version: '12.2'
+  domain: hydrology
+  scale: watershed
+  language: Fortran
+  binary: /home/server/knowledge-dissection-toolkit/auto_dissect_multi_agent/_work/HSPF/build/hspf
+  ki_path: models/HSPF
+inputs:
+- canonical_id: precipitation_rate
+  local_name: PREC
+  unit: mm/hr
+  semantic_type: flux_density
+  mapping_confidence: exact_alias
+  origin: forcing
+  origin_confidence: high
+  format: WDM
+- canonical_id: air_temperature
+  local_name: ATEM
+  unit: C
+  semantic_type: temperature
+  mapping_confidence: exact_alias
+  origin: forcing
+  origin_confidence: high
+  format: WDM
+- canonical_id: wind_speed
+  local_name: WIND
+  unit: m/s
+  semantic_type: velocity
+  mapping_confidence: exact_alias
+  origin: forcing
+  origin_confidence: high
+  format: WDM
+- canonical_id: shortwave_radiation
+  local_name: SOLRA
+  unit: W/m2
+  semantic_type: flux_density
+  mapping_confidence: exact_alias
+  origin: forcing
+  origin_confidence: high
+  format: WDM
+- canonical_id: evapotranspiration
+  local_name: PETINP
+  unit: mm/hr
+  semantic_type: flux_density
+  mapping_confidence: exact_alias
+  origin: forcing
+  origin_confidence: high
+  format: WDM
+- canonical_id: nitrogen_load
+  local_name: NITRO_IN
+  unit: kgN/day
+  semantic_type: flux
+  mapping_confidence: inferred
+  origin: coupled_model
+  origin_confidence: high
+  format: unspecified
+- canonical_id: sediment_flux
+  local_name: SED_IN
+  unit: t/day
+  semantic_type: flux
+  mapping_confidence: inferred
+  origin: coupled_model
+  origin_confidence: high
+  format: unspecified
+- canonical_id: surface_runoff
+  local_name: lateral_inflow
+  unit: m3/s
+  semantic_type: volumetric_flow
+  mapping_confidence: inferred
+  origin: coupled_model
+  origin_confidence: high
+  format: unspecified
+outputs:
+- canonical_id: discharge
+  local_name: FLOW
+  unit: m3/s
+  semantic_type: volumetric_flow
+  mapping_confidence: exact_alias
+  origin: simulated
+  origin_confidence: high
+  output_section: primary
+  format: WDM
+  valid_range:
+  - 0
+  - null
+- canonical_id: surface_runoff
+  local_name: SURO
+  unit: mm/hr
+  semantic_type: flux_density
+  mapping_confidence: exact_alias
+  origin: simulated
+  origin_confidence: high
+  output_section: primary
+  format: WDM
+  valid_range:
+  - 0
+  - null
+- canonical_id: baseflow
+  local_name: AGWO
+  unit: mm/hr
+  semantic_type: flux_density
+  mapping_confidence: exact_alias
+  origin: simulated
+  origin_confidence: high
+  output_section: primary
+  format: WDM
+  valid_range:
+  - 0
+  - null
+- canonical_id: evapotranspiration
+  local_name: TAET
+  unit: mm/hr
+  semantic_type: flux_density
+  mapping_confidence: exact_alias
+  origin: simulated
+  origin_confidence: high
+  output_section: primary
+  format: WDM
+  valid_range:
+  - 0
+  - 20
+- canonical_id: sediment_flux
+  local_name: SSED
+  unit: t/day
+  semantic_type: flux
+  mapping_confidence: exact_alias
+  origin: simulated
+  origin_confidence: high
+  output_section: primary
+  format: WDM
+  valid_range:
+  - 0
+  - null
+- canonical_id: total_nitrogen
+  local_name: RQNO3
+  unit: kgN/day
+  semantic_type: flux
+  mapping_confidence: exact_alias
+  origin: simulated
+  origin_confidence: high
+  output_section: primary
+  format: WDM
+  valid_range:
+  - 0
+  - null
+- canonical_id: total_phosphorus
+  local_name: RQPO4
+  unit: kgP/day
+  semantic_type: flux
+  mapping_confidence: exact_alias
+  origin: simulated
+  origin_confidence: high
+  output_section: primary
+  format: WDM
+  valid_range:
+  - 0
+  - null
+- canonical_id: nitrogen_load
+  local_name: TN_OUT
+  unit: kgN/day
+  semantic_type: flux
+  mapping_confidence: inferred
+  origin: simulated
+  origin_confidence: high
+  output_section: secondary
+  format: WDM
+  valid_range:
+  - 0
+  - null
+- canonical_id: dissolved_oxygen
+  local_name: DOX
+  unit: mg/L
+  semantic_type: concentration
+  mapping_confidence: exact_alias
+  origin: simulated
+  origin_confidence: high
+  output_section: secondary
+  format: WDM
+  valid_range:
+  - 0
+  - 20
+traps:
+- id: hspf_wdm_units
+  description: All WDM time series must use HSPF internal units (e.g. PREC in inches/interval,
+    not mm)
+- id: hspf_uci_timestep
+  description: DELT in UCI must match WDM time series interval exactly

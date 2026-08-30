@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import re
 import time
 from collections import defaultdict
@@ -672,10 +673,11 @@ def validate(plan: dict, inventory: dict, selected_kis: list[str],
                 tp = (Path(root) / tp) if not tp.is_absolute() else tp
                 tp = tp.resolve()
                 tools_dir = (Path(root) / "tools").resolve()
-                ok = tools_dir in tp.parents and tp.is_file() and tp.suffix.lower() in (".py", ".sh")
+                runnable = tp.suffix.lower() in (".py", ".sh") or (tp.suffix == "" and os.access(tp, os.X_OK))
+                ok = tools_dir in tp.parents and tp.is_file() and runnable
                 if not ok:
-                    errs.append(f"step {st.get('id')!r}: tool {tool!r} is not a runnable .py/.sh file "
-                                f"under {tools_dir}")
+                    errs.append(f"step {st.get('id')!r}: tool {tool!r} is not a runnable .py/.sh/"
+                                f"executable file under {tools_dir}")
         for inp in st.get("inputs") or []:
             if inp and inp not in item_ids:
                 errs.append(f"step {st.get('id')!r} input {inp!r} is not in the data inventory")

@@ -1,0 +1,129 @@
+# Coupling Config v2: DSSAT -> SHAW
+
+coupling_config_version: '2.0'
+generated: '2026-05-23'
+generator: ata_pipeline2_coupling_gen.py v2
+metadata:
+  edge_id: DSSAT_to_SHAW
+  source_model: DSSAT
+  target_model: SHAW
+  source_domain: crop
+  target_domain: soil_physics
+  edge_type: type5_cross_scale_cross_domain
+  n_forward_variables: 2
+  n_combine_variables: 0
+  n_plausible_feedback: 0
+  n_review_feedback: 0
+  is_feedback: false
+forward_edges:
+- canonical_id: crop_residue_carbon
+  source_canonical_id: crop_residue_carbon
+  target_canonical_id: crop_residue_carbon
+  match_type: exact_canonical
+  source_local_name: residue_above
+  source_unit: kgC/ha
+  target_local_name: residue_carbon
+  target_unit: kgC/ha
+- canonical_id: root_biomass
+  source_canonical_id: root_biomass
+  target_canonical_id: root_biomass
+  match_type: exact_canonical
+  source_local_name: root_wt
+  source_unit: kgDM/ha
+  target_local_name: root_biomass
+  target_unit: kgDM/ha
+combine_edges: []
+plausible_feedback: []
+review_feedback: []
+compatibility:
+- canonical_id: crop_residue_carbon
+  source_canonical_id: crop_residue_carbon
+  target_canonical_id: crop_residue_carbon
+  match_type: exact_canonical
+  primitives_needed:
+  - map_space
+  - align_time
+  - validate_boundary
+  details:
+    convert_units:
+      status: not_needed
+      units_match: true
+    exchange_data:
+      status: not_needed
+      variable_mapping:
+        source_name: residue_above
+        target_name: residue_carbon
+    map_space: &id001
+      from_type: point
+      to_type: 1d_vertical
+      method: unknown
+      canonical_id: crop_residue_carbon
+    align_time: &id003
+      from_resolution: daily
+      to_resolution: hourly
+      direction: disaggregate
+      aggregation_method: distribute_uniform
+      semantic_type: mass_per_area
+      canonical_id: crop_residue_carbon
+    validate_boundary: &id005
+      checks:
+      - no_nan
+      canonical_id: crop_residue_carbon
+- canonical_id: root_biomass
+  source_canonical_id: root_biomass
+  target_canonical_id: root_biomass
+  match_type: exact_canonical
+  primitives_needed:
+  - map_space
+  - align_time
+  - validate_boundary
+  details:
+    convert_units:
+      status: not_needed
+      units_match: true
+    exchange_data:
+      status: not_needed
+      variable_mapping:
+        source_name: root_wt
+        target_name: root_biomass
+    map_space: &id002
+      from_type: point
+      to_type: 1d_vertical
+      method: unknown
+      canonical_id: root_biomass
+    align_time: &id004
+      from_resolution: daily
+      to_resolution: hourly
+      direction: disaggregate
+      aggregation_method: distribute_uniform
+      semantic_type: mass_per_area
+      canonical_id: root_biomass
+    validate_boundary: &id006
+      checks:
+      - no_nan
+      canonical_id: root_biomass
+primitives_needed:
+- align_time
+- map_space
+- validate_boundary
+execution_order:
+- align_time
+- map_space
+- validate_boundary
+primitive_configs:
+  convert_units: []
+  exchange_data: []
+  map_space:
+  - *id001
+  - *id002
+  align_time:
+  - *id003
+  - *id004
+  validate_boundary:
+  - *id005
+  - *id006
+risks:
+  total_traps: 0
+  automatable: 0
+  judgment_required: 0
+  traps: []

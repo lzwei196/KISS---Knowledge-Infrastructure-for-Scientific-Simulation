@@ -1,0 +1,82 @@
+# Forcing Provider Card: CMFD
+entity_type: forcing_provider
+provider_id: cmfd_v1
+provider_name: "China Meteorological Forcing Dataset"
+version: "1.0"
+description: "Gridded meteorological forcing for China, 0.1° resolution, 3-hourly, 1979-2018"
+reference: "He et al., 2020, Scientific Data"
+data_path: "/mnt/disk1/Hydrocraft_server/data/forcing/Data_forcing_03hr_010deg/"
+
+variables:
+  - canonical_id: precipitation_rate
+    local_name: prec
+    unit: kg/m2/s
+    valid_range: [0, 0.01]
+    known_traps:
+      - trap_id: cmfd_prec_unit
+        description: "Raw unit is kg/m²/s (= mm/s). Must multiply by 10800 for mm/3hr or 86400 for mm/day."
+        severity: critical
+        detection: "Values < 0.001 when expecting mm-scale precipitation"
+        fix: "multiply by 10800 (for 3-hourly) or 86400 (for daily)"
+
+  - canonical_id: air_temperature
+    local_name: tmp
+    unit: K
+    valid_range: [200, 340]
+    known_traps:
+      - trap_id: cmfd_temp_unit
+        description: "Temperature in Kelvin. Most models need degC."
+        severity: critical
+        fix: "subtract 273.15"
+
+  - canonical_id: air_pressure
+    local_name: pres
+    unit: Pa
+    valid_range: [50000, 110000]
+    known_traps:
+      - trap_id: cmfd_pres_unit
+        description: "Pressure in Pa. VIC needs kPa, some models need hPa."
+        severity: high
+        fix: "divide by 1000 for kPa, divide by 100 for hPa"
+
+  - canonical_id: shortwave_radiation
+    local_name: srad
+    unit: W/m2
+    valid_range: [0, 1400]
+    known_traps:
+      - trap_id: cmfd_srad_unit
+        description: "Already in W/m². DSSAT needs MJ/m²/day (multiply by 0.0864). WOFOST needs J/m²/day (multiply by 86400)."
+        severity: critical
+
+  - canonical_id: longwave_radiation
+    local_name: lrad
+    unit: W/m2
+    valid_range: [50, 600]
+
+  - canonical_id: specific_humidity
+    local_name: shum
+    unit: kg/kg
+    valid_range: [0, 0.04]
+    known_traps:
+      - trap_id: cmfd_humidity_conv
+        description: "Specific humidity (kg/kg). VIC needs vapor pressure (kPa). Convert via VP = SH * P / (0.622 + 0.378*SH)."
+        severity: high
+
+  - canonical_id: wind_speed
+    local_name: wind
+    unit: m/s
+    valid_range: [0, 50]
+
+spatial:
+  type: regular_grid
+  resolution: 0.1deg
+  extent: {west: 70, east: 140, south: 15, north: 55}
+  crs: EPSG:4326
+
+temporal:
+  resolution: 3-hourly
+  range: {start: "1979-01-01", end: "2018-12-31"}
+  calendar: standard
+
+data_format: netcdf
+access: local_file

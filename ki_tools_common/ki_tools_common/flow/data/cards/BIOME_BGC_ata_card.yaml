@@ -1,0 +1,326 @@
+ata_card_version: '1.0'
+generated: '2026-04-17'
+generator: ata_pipeline1_card_gen.py
+identity:
+  model_id: BIOME_BGC
+  model_name: BIOME-BGC 4.2
+  domain: biogeochemistry
+  secondary_domains:
+  - carbon_cycling
+  - forest_ecosystem
+  - water_balance
+  language: C
+  binary_path: /mnt/disk1/Hydrocraft_server/model/biome-bgc/bgc-src/bgc
+inputs:
+- canonical_id: air_temperature_max
+  local_name: temperature_max
+  unit: degC
+  valid_range:
+  - -70.0
+  - 60.0
+  format: ascii_text
+  semantic_type: temperature
+  unit_confidence: documented
+  mapping_confidence: exact_alias
+  input_category: forcing
+- canonical_id: air_temperature_min
+  local_name: temperature_min
+  unit: degC
+  valid_range:
+  - -80.0
+  - 50.0
+  format: unspecified
+  semantic_type: temperature
+  unit_confidence: documented
+  mapping_confidence: exact_alias
+  input_category: forcing
+- canonical_id: precipitation_rate
+  local_name: precipitation
+  unit: cm/day
+  valid_range:
+  - 0.0
+  - 50.0
+  format: unspecified
+  semantic_type: flux_density
+  unit_confidence: documented
+  mapping_confidence: exact_alias
+  input_category: forcing
+  conversion_notes:
+    conversion_from_cmfd: 'mm/day -> cm/day: divide by 10'
+  silent_error: 'BIOME-BGC expects precipitation in cm/day. CMFD/MSWX/VIC provide
+    mm. Forgetting to divide by 10 gives 10x too much water. The model runs fine --
+    GPP/NPP will just be unrealistically high. This is the '
+- canonical_id: vapor_pressure_deficit
+  local_name: vpd
+  unit: Pa
+  valid_range:
+  - 0.0
+  - 10000.0
+  format: unspecified
+  semantic_type: unknown
+  unit_confidence: documented
+  mapping_confidence: exact_alias
+  input_category: forcing
+  conversion_notes:
+    conversion_from_cmfd: Compute from Tmin/Tmax and specific humidity using bgc_utils.compute_vpd_from_tmin_tmax_q()
+  silent_error: 'VPD must be in Pascals (typical: 200-4000 Pa). If provided in kPa
+    (0.2-4.0), stomata stay fully open, transpiration is unrealistic. No error message.
+    (dt_008)
+
+    '
+- canonical_id: shortwave_radiation
+  local_name: shortwave_radiation
+  unit: W/m2
+  valid_range:
+  - 0.0
+  - 500.0
+  format: unspecified
+  semantic_type: energy_flux
+  unit_confidence: documented
+  mapping_confidence: exact_alias
+  input_category: forcing
+- canonical_id: null
+  local_name: day_length
+  unit: seconds
+  valid_range:
+  - 0
+  - 86400
+  format: unspecified
+  semantic_type: unknown
+  unit_confidence: documented
+  mapping_confidence: unmapped
+  input_category: forcing
+outputs:
+- canonical_id: gross_primary_production
+  local_name: gross_primary_production
+  unit: gC/m2/day
+  valid_range:
+  - 0
+  - 30
+  format: unspecified
+  semantic_type: unknown
+  unit_confidence: documented
+  mapping_confidence: exact_alias
+  output_section: primary
+  origin: simulated
+  origin_confidence: high
+- canonical_id: npp
+  local_name: net_primary_production
+  unit: gC/m2/day
+  valid_range:
+  - 0
+  - 15
+  format: unspecified
+  semantic_type: flux_density
+  unit_confidence: documented
+  mapping_confidence: exact_alias
+  output_section: primary
+  origin: simulated
+  origin_confidence: high
+- canonical_id: leaf_area_index
+  local_name: leaf_area_index
+  unit: m2/m2
+  valid_range:
+  - 0
+  - 12
+  format: unspecified
+  semantic_type: fraction
+  unit_confidence: documented
+  mapping_confidence: exact_alias
+  output_section: primary
+  origin: simulated
+  origin_confidence: high
+- canonical_id: vegetation_carbon
+  local_name: vegetation_carbon
+  unit: kgC/m2
+  valid_range:
+  - 0
+  - 30
+  format: unspecified
+  semantic_type: state
+  unit_confidence: documented
+  mapping_confidence: exact_alias
+  output_section: primary
+  origin: simulated
+  origin_confidence: high
+spatial:
+  type: network
+  resolution: unspecified
+  crs: EPSG:4326
+  source: skill_md
+temporal:
+  resolution: daily
+  calendar: standard
+  source: format_spec
+risks:
+  known_traps:
+  - canonical_var: shortwave_radiation
+    trap_id: dt_009
+    description: '{''description'': ''No photosynthesis (GPP=0 every day) but LAI
+      grows normally from initial conditions'', ''detection_method'': ''value_comparison''}'
+    detection: '{''root_cause'': ''Day length column is 0, missing, or extremely small'',
+      ''explanation'': ''BIOME-BGC uses day length (seconds) to partition day/night
+      processes. If dayl=0, all shortwave is assigned to zero'
+    fix: '{''action'': ''Compute day length from latitude and day-of-year using astronomical
+      formula'', ''tool_to_run'': ''convert_forcing_to_bgc'', ''manual_steps'': [''Day
+      length is NOT available from CMFD/MSWX -- it mu'
+    is_unit_trap: true
+    automatable: true
+    severity: high
+  - canonical_var: precipitation_rate
+    trap_id: precip_mm_not_cm
+    description: Precipitation in mm/day instead of cm/day (10x too much water)
+    detection: Precip values > 5 cm/day for non-extreme events
+    fix: Divide mm/day by 10 to get cm/day
+    is_unit_trap: true
+    automatable: true
+    severity: high
+  - canonical_var: precipitation_rate
+    trap_id: dt_007
+    description: '{''description'': ''GPP and NPP approximately 10x higher than expected
+      for the biome'', ''detection_method'': ''value_comparison''}'
+    detection: '{''root_cause'': ''Precipitation provided in mm/day instead of cm/day'',
+      ''explanation'': ''BIOME-BGC expects precipitation in CM per day. CMFD/MSWX
+      and VIC provide mm. Forgetting to divide by 10 gives 10x t'
+    fix: '{''action'': ''Divide precipitation by 10 when converting from mm to cm'',
+      ''tool_to_run'': ''convert_forcing_to_bgc'', ''manual_steps'': [''In the met
+      file, column 6 (prcp) must be in cm'', ''Check: typical daily'
+    is_unit_trap: true
+    automatable: true
+    severity: high
+  - canonical_var: precipitation_rate
+    trap_id: dt_008
+    description: '{''description'': ''Stomata always fully open, transpiration unrealistically
+      high (>10 mm/day)'', ''detection_method'': ''value_comparison''}'
+    detection: '{''root_cause'': ''VPD provided in kPa instead of Pa (1000x too low)'',
+      ''explanation'': ''BIOME-BGC expects VPD in Pascals. Typical daytime VPD is
+      500-3000 Pa. If provided in kPa (0.5-3.0), the model sees e'
+    fix: '{''action'': ''Multiply VPD by 1000 to convert kPa to Pa'', ''tool_to_run'':
+      ''convert_forcing_to_bgc'', ''manual_steps'': [''In the met file, column 7 (VPD)
+      must be in Pa'', ''Typical values: 200-4000 Pa'', ''If va'
+    is_unit_trap: true
+    automatable: true
+    severity: high
+  - canonical_var: precipitation_rate
+    trap_id: dt_016
+    description: '{''description'': ''Spinup SOC oscillates up and down without converging'',
+      ''detection_method'': ''value_comparison''}'
+    detection: '{''root_cause'': ''Met data has extreme drought/wet years that alternately
+      build/deplete pools'', ''explanation'': ''Short met records (5-10 years) with
+      high interannual variability cause soil C to oscillate'
+    fix: '{''action'': ''Use longer met record (20+ years) for spinup cycling'', ''manual_steps'':
+      [''Increase the met record to 20+ years if possible'', ''Or smooth extreme precipitation
+      years'', ''Or increase max_spinup'
+    is_unit_trap: false
+    automatable: false
+    severity: medium
+  - trap_id: precip_mm_not_cm
+    triplet_ref: dt_007
+    description: Precipitation in mm/day instead of cm/day (10x too much water)
+    affected_output: GPP/NPP unrealistically high, soil waterlogged
+    detection: Precip values > 5 cm/day for non-extreme events
+    fix: Divide mm/day by 10 to get cm/day
+    is_unit_trap: true
+    automatable: true
+    severity: high
+    source: format_spec
+  - trap_id: vpd_kpa_not_pa
+    triplet_ref: dt_008
+    description: VPD in kPa instead of Pa (1000x too low)
+    affected_output: Stomata fully open, unrealistic transpiration
+    detection: VPD values < 10 Pa for daytime conditions
+    fix: Multiply kPa by 1000 to get Pa
+    is_unit_trap: true
+    automatable: true
+    severity: high
+    source: format_spec
+  - trap_id: daylength_missing
+    triplet_ref: dt_009
+    description: Day length column is zero or missing
+    affected_output: GPP = 0 (photosynthesis requires daylight hours)
+    detection: Day length = 0 in met file
+    fix: Compute from latitude + DOY using bgc_utils.compute_daylength()
+    is_unit_trap: false
+    automatable: true
+    severity: medium
+    source: format_spec
+  - trap_id: ini_format_shifted
+    triplet_ref: dt_004
+    description: Extra or missing line in .ini file shifts all subsequent parameters
+    affected_output: Random wrong parameter values, unpredictable behavior
+    detection: Unexpected output values, no error message
+    fix: Always use generate_site_ini.py. Never hand-edit .ini files.
+    is_unit_trap: false
+    automatable: true
+    severity: medium
+    source: format_spec
+  - trap_id: spinup_required
+    triplet_ref: dt_012
+    description: Running without spinup leaves soil C/N pools uninitialized
+    affected_output: NEE dominated by initial condition artifacts, not real ecosystem
+      dynamics
+    detection: NEE has unrealistic trend in first decades
+    fix: 'Always run spinup first (bgc -u -s spinup.ini). Spinup durations: grassland
+      1000-1500 yr, deciduous forest 2000-3000 yr, evergreen forest 3000-6000 yr,
+      boreal 4000-6000 yr.
+
+      '
+    is_unit_trap: false
+    automatable: true
+    severity: medium
+    source: format_spec
+  - trap_id: cropland_wrong_model
+    triplet_ref: dt_021
+    description: BIOME-BGC used on cropland (AVHRR class 11)
+    affected_output: Nonsensical carbon/nitrogen budgets
+    detection: AVHRR land cover class is 11 (cropland)
+    fix: Use LDNDC or DSSAT for cropland. BIOME-BGC is for classes 1-10 only.
+    is_unit_trap: false
+    automatable: true
+    severity: medium
+    source: format_spec
+  - trap_id: et_double_counting
+    triplet_ref: dt_020
+    description: Adding BIOME-BGC ET to VIC discharge when coupled
+    affected_output: Double-counted evapotranspiration, wrong water balance
+    detection: Basin ET appears unrealistically high when summing VIC + BGC
+    fix: VIC owns the water balance. BIOME-BGC ET is diagnostic only.
+    is_unit_trap: false
+    automatable: true
+    severity: medium
+    source: format_spec
+  unit_conversions: []
+coupling:
+  chain_position: consumer_endpoint
+  native_formats:
+  - ascii_text
+  exchange_format: ascii_text
+  coupling_role: earth_system
+quality:
+  has_format_spec: true
+  has_skill_md: true
+  has_triplets: true
+  n_inputs: 6
+  n_outputs: 7
+  n_inputs_canonical: 5
+  n_outputs_canonical: 4
+  n_unmapped: 4
+  n_traps: 12
+  n_conversions: 0
+  spatial_complete: true
+  temporal_complete: true
+  unmapped_variables:
+  - name: day_length
+    direction: input
+    reason: unmapped
+  - name: net_ecosystem_exchange
+    direction: output
+    reason: unmapped
+  - name: soil_carbon
+    direction: output
+    reason: unmapped
+  - name: total_ecosystem_carbon
+    direction: output
+    reason: unmapped
+  validation_issues: []
+  card_status: complete

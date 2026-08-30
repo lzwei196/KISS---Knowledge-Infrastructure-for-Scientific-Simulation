@@ -16,6 +16,7 @@ file (flow.policy.protected_paths).
 from __future__ import annotations
 
 import json
+import os
 import time
 from pathlib import Path
 
@@ -73,7 +74,9 @@ def approve(project: Path, decisions: dict | None = None, by: str = "user") -> d
     doc = _r.sign(project, doc)
     p = _path(project)
     p.parent.mkdir(parents=True, exist_ok=True)
-    tmp = p.with_suffix(".json.tmp")
+    tmpdir = Path(project) / ".geoforge" / "tmp"          # protected tree (kimi R2 #3)
+    tmpdir.mkdir(parents=True, exist_ok=True)
+    tmp = tmpdir / f"approval.{os.getpid()}.json"
     tmp.write_text(json.dumps(doc, indent=2, ensure_ascii=False), encoding="utf-8")
     tmp.replace(p)
     return doc

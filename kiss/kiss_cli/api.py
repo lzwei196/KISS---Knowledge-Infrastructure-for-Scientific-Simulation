@@ -27,6 +27,7 @@ import os
 import re
 import shutil
 import subprocess
+import time
 import urllib.error
 import urllib.request
 from dataclasses import dataclass, field
@@ -113,7 +114,9 @@ def available() -> list[ApiProvider]:
 # command string.
 
 def tool_schemas(ki, *, setup_mode: bool = False,
-                 project_mode: bool = False) -> list[dict]:
+                 project_mode: bool = False, flow=None) -> list[dict]:
+    """``flow`` (a flowgate.FlowSession) filters the list by the project's flow state
+    (plan v3 B4): the agent never sees a tool it may not call in this state."""
     tools = [
         {
             "name": "read_ki_file",
@@ -233,6 +236,13 @@ def tool_schemas(ki, *, setup_mode: bool = False,
                     "cwd": {"type": "string",
                             "description": "relative project working directory; defaults to project root"},
                     "timeout_seconds": {"type": "integer", "minimum": 1, "maximum": 3600},
+                    "ki": {"type": "string",
+                           "description": "which selected KI the tool belongs to (multi-model runs); "
+                                          "defaults to the chat's primary KI"},
+                    "plan_step_id": {"type": "string",
+                                     "description": "the approved plan step this run executes "
+                                                    "(runs/plan.json steps[].id); required once a "
+                                                    "plan is approved — the receipt is bound to it"},
                 }, "required": ["tool_path"]},
             },
             {
@@ -478,10 +488,45 @@ def tool_schemas(ki, *, setup_mode: bool = False,
                 }, "required": ["kind", "title", "message"]},
             },
         ]
+    if project_mode:
+        tools += [
+            {
+                "name": "write_plan",
+                "description": (
+                    "PLANNING only. Write runs/plan.json and runs/data-inventory.json (the "
+                    "schemas are in your instructions). GeoForge validates them; errors come "
+                    "back and nothing is written until they pass. No downloads, no inputs, no "
+                    "model runs happen in planning — the user approves the plan first."
+                ),
+                "input_schema": {"type": "object", "properties": {
+                    "plan": {"type": "object"},
+                    "data_inventory": {"type": "object"},
+                }, "required": ["plan", "data_inventory"]},
+            },
+            {
+                "name": "fetch_data",
+                "description": (
+                    "EXECUTING only. Download one public http(s) file into inputs/raw/<item_id>/ "
+                    "and write a signed download receipt (URL, status, sha256). Use it for every "
+                    "download the approved data inventory calls for; a download made any other "
+                    "way has no receipt and cannot count."
+                ),
+                "input_schema": {"type": "object", "properties": {
+                    "url": {"type": "string"},
+                    "item_id": {"type": "string", "description": "the data-inventory item id"},
+                    "filename": {"type": "string"},
+                    "plan_step_id": {"type": "string"},
+                }, "required": ["url", "item_id"]},
+            },
+        ]
     # Combined installation + project turns intentionally expose both tool
     # families.  A shared operation such as request_user_action must still be
     # declared only once; the later (setup-aware) definition wins.
-    return list({tool["name"]: tool for tool in tools}.values())
+    out = list({tool["name"]: tool for tool in tools}.values())
+    if flow is not None:
+        allowed = flow.api_tools()
+        out = [t for t in out if t["name"] in allowed]
+    return out
 
 
 class ToolError(Exception):
@@ -490,8 +535,19 @@ class ToolError(Exception):
 
 def execute_tool(name: str, args: dict, ki, cfg, *, setup_mode: bool = False,
                  setup_context: dict | None = None,
-                 project_mode: bool = False) -> str:
-    """Run one tool. Every path argument is confined to the KI package."""
+                 project_mode: bool = False, flow=None) -> str:
+    """Run one tool. Every path argument is confined to the KI package.
+
+    ``flow`` (flowgate.FlowSession, plan v3 B4): when present, every call is re-checked
+    against the project's flow state before it runs (the schema filter is not trusted on
+    its own), writes obey ``flow.write_allowed``, model/tool runs and downloads write
+    signed receipts, and agent progress reports cannot move the stage."""
+    if flow is not None:
+        from .flowgate import FlowDenied
+        try:
+            flow.check_tool(name)
+        except FlowDenied as e:
+            raise ToolError(str(e)) from None
     root = Path(ki.root).resolve()
     workroot = Path(cfg.root).resolve()
     provider_id = str((setup_context or {}).get("provider_id") or "")
@@ -623,14 +679,37 @@ def execute_tool(name: str, args: dict, ki, cfg, *, setup_mode: bool = False,
             raise ToolError(
                 "project writes must stay under inputs, runs, outputs, artifacts, "
                 "references, calibration/cases, or calibration/kis")
+        if flow is not None and not flow.write_allowed(p):
+            # plan v3 B4: approval.json, flow-state.json, .geoforge/, the plan files outside
+            # PLANNING, and anything under runs/ except logs/notes are never agent-writable
+            raise ToolError(f"writing {rel.as_posix()} is not allowed in state "
+                            f"{flow.state.value} (protected or outside the writable subtrees)")
         p.parent.mkdir(parents=True, exist_ok=True)
         p.write_text(content, encoding="utf-8")
         return f"wrote {rel} ({len(content.encode('utf-8'))} bytes)"
 
     if project_mode and name == "run_ki_tool":
-        script = _inside(args.get("tool_path") or "")
+        tool_ki_name, tool_root = getattr(ki, "name", root.name), root
+        if flow is not None:
+            from .flowgate import FlowDenied
+            try:
+                tool_ki_name, tool_root = flow.ki_root_for(args.get("ki"), root)
+            except FlowDenied as e:
+                raise ToolError(str(e)) from None
+            tool_root = Path(tool_root).resolve()
+            if tool_root != root and tool_root not in project_argument_roots:
+                project_argument_roots.append(tool_root)
+        def _inside_tool_ki(rel: str, _root=tool_root) -> Path:
+            # same containment rule as _inside, against the KI this call names (multi-KI runs)
+            if Path(rel).is_absolute():
+                raise ToolError(f"absolute paths are not accepted: {rel}")
+            p = (_root / rel).resolve()
+            if p != _root and _root not in p.parents:
+                raise ToolError(f"path escapes the KI package: {rel}")
+            return p
+        script = _inside_tool_ki(args.get("tool_path") or "")
         try:
-            rel_script = script.relative_to(root)
+            rel_script = script.relative_to(tool_root)
         except ValueError:
             raise ToolError("tool escapes the selected KI")
         if not script.is_file() or script.suffix.casefold() != ".py" or "tools" not in rel_script.parts:
@@ -666,20 +745,61 @@ def execute_tool(name: str, args: dict, ki, cfg, *, setup_mode: bool = False,
         if provider_id:
             from .settings import with_provider_proxy
             child_env = with_provider_proxy(provider_id, child_env)
+        command = [str(cfg.python), str(script), *arguments]
+        before = None
+        if flow is not None:
+            from . import flowgate as _fg
+            # the receipt must be bindable BEFORE anything runs
+            if flow.approval_status() != "OK":
+                raise ToolError("no valid approval — runs happen only in an approved plan")
+            if not args.get("plan_step_id"):
+                raise ToolError("plan_step_id is required: name the approved plan step this run executes")
+            before = _fg._snapshot(project_root)
+        started = time.time()
         try:
             proc = subprocess.run(
-                [str(cfg.python), str(script), *arguments], cwd=str(cwd),
+                command, cwd=str(cwd),
                 env=child_env, capture_output=True, text=True, errors="replace",
                 timeout=timeout,
             )
         except subprocess.TimeoutExpired as e:
             tail = ((e.stdout or "") + (e.stderr or ""))[-12000:]
+            if flow is not None:
+                try:
+                    flow.record_tool_run(ki=tool_ki_name, ki_root=tool_root, command=command, cwd=cwd,
+                                         started_at=started, finished_at=time.time(), exit_code=None,
+                                         before=before, plan_step_id=args.get("plan_step_id"),
+                                         stdout_tail=tail)
+                except Exception as exc:  # the timeout is the headline; the receipt failure is noted
+                    tail += f"\n[receipt not written: {exc}]"
             return f"TIMEOUT after {timeout}s\n{tail}"
+        finished = time.time()
         output = (proc.stdout + proc.stderr)[-80000:]
-        return f"exit_code={proc.returncode}\n{output}"
+        if flow is None:
+            return f"exit_code={proc.returncode}\n{output}"
+        from .flowgate import FlowDenied
+        try:
+            summary = flow.record_tool_run(ki=tool_ki_name, ki_root=tool_root, command=command, cwd=cwd,
+                                           started_at=started, finished_at=finished,
+                                           exit_code=proc.returncode, before=before,
+                                           plan_step_id=args.get("plan_step_id"),
+                                           stdout_tail=output[-20000:])
+        except FlowDenied as e:
+            raise ToolError(str(e)) from None
+        return (f"exit_code={proc.returncode}\n[RECEIPT] {json.dumps(summary, ensure_ascii=False)}\n"
+                f"{output}")
 
     if project_mode and name == "run_calibration":
         from . import calibration as _calibration
+        calib_before = None
+        calib_started = time.time()
+        if flow is not None:
+            from . import flowgate as _fg
+            if flow.approval_status() != "OK":
+                raise ToolError("no valid approval — calibration is a scientific run and needs an approved plan")
+            if not args.get("plan_step_id"):
+                raise ToolError("plan_step_id is required: name the approved 'calibrate' plan step")
+            calib_before = _fg._snapshot(project_root, subs=("inputs", "outputs", "artifacts", "calibration"))
         # Ensure the adapter copy exists before building the generated runtime
         # KI. `ki` is already the session-materialised package in pinned chats.
         _calibration.ensure_project(project_root, [ki])
@@ -709,7 +829,45 @@ def execute_tool(name: str, args: dict, ki, cfg, *, setup_mode: bool = False,
             "log_path": result.get("log_path"),
             "log_tail": result.get("log_tail"),
         }
+        if flow is not None:
+            from .flowgate import FlowDenied
+            try:
+                _kname = getattr(ki, "name", root.name)
+                summary["receipt"] = flow.record_tool_run(
+                    ki=_kname, ki_root=root,
+                    command=["geoforge-calibration", _kname, str(args.get("algorithm") or "default")],
+                    cwd=project_root, started_at=calib_started, finished_at=time.time(),
+                    exit_code=0 if str(report.get("status") or "").lower() in ("ok", "success", "completed", "done") else 1,
+                    before=calib_before, plan_step_id=args.get("plan_step_id"),
+                    stdout_tail=str(result.get("log_tail") or ""))
+            except FlowDenied as e:
+                raise ToolError(str(e)) from None
         return json.dumps(summary, indent=2, ensure_ascii=False, default=str)
+
+    if project_mode and name == "write_plan":
+        if flow is None:
+            raise ToolError("write_plan is available only in a flow-managed project")
+        plan_doc, inv_doc = args.get("plan"), args.get("data_inventory")
+        if not isinstance(plan_doc, dict) or not isinstance(inv_doc, dict):
+            raise ToolError("plan and data_inventory must be JSON objects")
+        errs = flow.write_plan(plan_doc, inv_doc)
+        if errs:
+            return "PLAN NOT WRITTEN — fix these and call write_plan again:\n- " + "\n- ".join(errs[:30])
+        return ("Plan files written: runs/plan.json, runs/data-inventory.json. Stop here: GeoForge "
+                "shows the plan to the user; execution starts in a separate session after approval.")
+
+    if project_mode and name == "fetch_data":
+        if flow is None:
+            raise ToolError("fetch_data is available only in a flow-managed project")
+        from .flowgate import FlowDenied
+        try:
+            info = flow.fetch(str(args.get("url") or ""), str(args.get("item_id") or ""),
+                              filename=args.get("filename"), plan_step_id=args.get("plan_step_id"))
+        except FlowDenied as e:
+            raise ToolError(str(e)) from None
+        except (OSError, ValueError) as e:
+            raise ToolError(f"download failed: {e}") from None
+        return "[RECEIPT] " + json.dumps(info, ensure_ascii=False)
 
     if project_mode and name == "create_project_plot":
         from .plotting import PlotError, render_svg
@@ -786,8 +944,12 @@ def execute_tool(name: str, args: dict, ki, cfg, *, setup_mode: bool = False,
 
     if (project_mode or setup_mode) and name == "report_project_progress":
         from . import projectrun as _projectrun
-        state = _projectrun.report(progress_root, args, source="api")
-        return "Project status updated:\n" + json.dumps(state, indent=2)
+        payload = dict(args or {})
+        if flow is not None and "stage" in payload:
+            payload.pop("stage")        # plan v3 B5: the flow owns the stage; agents report status/summary
+        state = _projectrun.report(progress_root, payload, source="api")
+        note = "" if flow is None else "\n(the stage is tracked by GeoForge from the plan/approval/receipts; only status and summary were taken from your report)"
+        return "Project status updated:\n" + json.dumps(state, indent=2) + note
 
     if setup_mode and name == "run_builtin_setup":
         callback = (setup_context or {}).get("run_builtin")
@@ -1125,7 +1287,8 @@ def run(prov: ApiProvider, ki, cfg, system: str, task: str,
         setup_mode: bool = False,
         setup_context: dict | None = None,
         project_mode: bool = False,
-        presentation: str = "chat") -> Iterator[str]:
+        presentation: str = "chat",
+        flow=None) -> Iterator[str]:
     """Drive one task to completion, yielding text as it is produced.
 
     ``approve`` is the seam the CLI driver cannot offer: it is called before
@@ -1145,7 +1308,7 @@ def run(prov: ApiProvider, ki, cfg, system: str, task: str,
     model_id = prov.models.get(want, want)
     tool_context = dict(setup_context or {})
     tool_context.setdefault("provider_id", f"api:{prov.name}")
-    tools = tool_schemas(ki, setup_mode=setup_mode, project_mode=project_mode)
+    tools = tool_schemas(ki, setup_mode=setup_mode, project_mode=project_mode, flow=flow)
     # Prior turns travel as REAL messages, not flattened into one user blob
     # with USER:/YOU: markers — the vendor's own multi-turn handling is the
     # thing that makes context work, and counterfeit markers cannot exist in a
@@ -1222,7 +1385,7 @@ def run(prov: ApiProvider, ki, cfg, system: str, task: str,
                 try:
                     out = execute_tool(name, args, ki, cfg, setup_mode=setup_mode,
                                        setup_context=tool_context,
-                                       project_mode=project_mode)
+                                       project_mode=project_mode, flow=flow)
                 except ToolError as e:
                     out = f"ERROR: {e}"
             results.append((call_id, out))
