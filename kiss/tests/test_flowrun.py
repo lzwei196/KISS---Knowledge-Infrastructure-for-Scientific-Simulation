@@ -310,4 +310,5 @@ def test_launcher_is_rewritten_when_the_executable_changes(monkeypatch, tmp_path
     w1 = flowrun.wrapper_commands()["run_tool"].rsplit(" run-tool", 1)[0]
     monkeypatch.setattr(sys, "executable", str(tmp_path / "GeoForge Desktop v2"))
     w2 = flowrun.wrapper_commands()["run_tool"].rsplit(" run-tool", 1)[0]
-    assert w1 == w2 and "v2" in Path(w2).read_text() and "/tmp/" not in w2
+    assert w1 == w2 and "v2" in Path(w2).read_text()
+    assert Path(w2).is_relative_to(tmp_path / "home")          # user-owned dir, never $TMPDIR
