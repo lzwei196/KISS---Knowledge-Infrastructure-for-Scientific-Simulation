@@ -113,8 +113,11 @@ def _rel(p: Path | None, root: Path) -> str:
 
 
 def compose(ki, cfg=None, *, task: str = "", headless: bool = True,
-            execute: bool = True) -> str:
-    """Build the opening prompt for an agent about to operate ``ki``."""
+            execute: bool = True, strict: bool = False) -> str:
+    """Build the opening prompt for an agent about to operate ``ki``.
+
+    ``strict`` (flow-managed chats): an execute-mode contract that cannot be built raises
+    instead of falling back to pointers."""
     meta = ki.meta or {}
     root = ki.root
     parts: list[str] = []
@@ -149,6 +152,11 @@ def compose(ki, cfg=None, *, task: str = "", headless: bool = True,
         ki, execute=execute, python=(cfg.python if cfg is not None else None))
     if harness_text:
         parts.append(harness_text.rstrip() + "\n")
+    elif execute and strict:
+        # plan v3 B2: under the flow, a KI with no protocol is never given the run
+        # wording — the turn is refused instead of silently weakened
+        from .harness_runtime import KiContractUnavailable
+        raise KiContractUnavailable(f"{ki.name}: {why}")
     else:
         parts.append(
             "[KI USAGE CONTRACT UNAVAILABLE]\n"
@@ -205,7 +213,7 @@ def compose(ki, cfg=None, *, task: str = "", headless: bool = True,
 
 
 def compose_multi(kis, cfg=None, *, task: str = "", headless: bool = True,
-                  execute: bool = True) -> str:
+                  execute: bool = True, strict: bool = False) -> str:
     """One task, several models: each toggled KI contributes its own contract.
 
     The single-model prompt stays the default; this exists for the compare/
@@ -218,7 +226,7 @@ def compose_multi(kis, cfg=None, *, task: str = "", headless: bool = True,
     turn's inspect contract (read, plan, never run); True = the run contract.
     """
     if len(kis) == 1:
-        return compose(kis[0], cfg, task=task, headless=headless, execute=execute)
+        return compose(kis[0], cfg, task=task, headless=headless, execute=execute, strict=strict)
 
     names = ", ".join(k.name for k in kis)
     parts = [
@@ -237,6 +245,9 @@ def compose_multi(kis, cfg=None, *, task: str = "", headless: bool = True,
         parts.append(f"===== {ki.name} " + "=" * max(4, 60 - len(ki.name)))
         contract, why = _harness_contract(
             ki, execute=execute, python=(cfg.python if cfg is not None else None))
+        if not contract and execute and strict:
+            from .harness_runtime import KiContractUnavailable
+            raise KiContractUnavailable(f"{ki.name}: {why}")
         parts.append(contract if contract else
                      f"[contract unavailable: {why}] Read {ki.root}/SKILL.md first.")
         parts.append("")

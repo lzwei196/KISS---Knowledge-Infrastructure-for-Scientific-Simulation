@@ -186,8 +186,11 @@ def execution_block(kis: dict[str, Path], plan: dict, approval: dict, project: P
     if wrappers:
         lines.append(
             "[RECEIPTS — HOW A RUN BECOMES REAL]\n"
-            f"  model / KI tool runs : {wrappers.get('run_tool', 'run-tool')} <KI> <tool.py> [args]\n"
-            f"  downloads            : {wrappers.get('fetch', 'fetch')} <url> --item <inventory id>\n"
+            f"  model / KI tool runs : {wrappers.get('run_tool', 'run-tool')} --step <plan step id> "
+            f"<KI> <tools/xxx.py> -- [tool args]\n"
+            f"  downloads            : {wrappers.get('fetch', 'fetch')} --item <inventory id> "
+            f"--step <plan step id> <url>\n"
+            "  (options BEFORE the positional arguments; tool arguments after `--`)\n"
             "  These write a signed receipt (command, binary hash, exit code, input/output hashes). "
             "A model run or download done any other way has NO receipt and can never make the "
             "project 'done' — the app lists it as an unreceipted artifact.\n")

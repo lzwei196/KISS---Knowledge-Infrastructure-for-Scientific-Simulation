@@ -171,7 +171,7 @@ def turn(project: Path, resolved, cfg, provider_kind: str, provider_name: str,
     fs = flowgate.FlowSession.open(project, ki_roots, python=str(getattr(cfg, "python", "") or "python3"))
     state = fs.state
     provider = "api" if provider_kind == "api" else provider_name
-    wrappers = {"run_tool": "kiss run-tool", "fetch": "kiss fetch"} if provider != "api" else None
+    wrappers = wrapper_commands() if provider != "api" else None
 
     if state in (S.PLANNING, S.REPLAN_REQUIRED):
         # the app derives the draft plan; the agent corrects it
@@ -379,6 +379,18 @@ def after(project: Path, t: Turn | None, reply: str, provider_note: str = "",
 # ---------------------------------------------------------------------------
 # small helpers gui.py calls
 # ---------------------------------------------------------------------------
+
+def wrapper_commands() -> dict:
+    """The receipt wrappers a CLI agent must use (plan v3 B7 / 06 §3.6). They are the app
+    itself: the frozen binary accepts CLI sub-commands; from source it is `python -m kiss_cli`.
+    The exact string is also what the Claude Bash allow-list grants — nothing else runs."""
+    import sys as _sys
+    if getattr(_sys, "frozen", False):
+        base = _sys.executable
+    else:
+        base = f"{_sys.executable} -m kiss_cli"
+    return {"run_tool": f"{base} run-tool", "fetch": f"{base} fetch"}
+
 
 def couplings_dir() -> Path | None:
     """Where the coupling configs live: the bundled flow/data copy, else the server tree."""

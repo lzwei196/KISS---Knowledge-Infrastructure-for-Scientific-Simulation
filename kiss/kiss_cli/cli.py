@@ -306,6 +306,88 @@ def cmd_run(args) -> int:
     os.execvp(argv[0], argv)
 
 
+def _flow_project(explicit: str | None) -> Path:
+    """The chat project a receipt wrapper acts on: --project, $KISS_PROJECT, or the nearest
+    ancestor of the cwd that carries runs/flow-state.json (the agent runs inside the project)."""
+    if explicit:
+        return Path(explicit).expanduser().resolve()
+    env = os.environ.get("KISS_PROJECT")
+    if env:
+        return Path(env).expanduser().resolve()
+    here = Path.cwd().resolve()
+    for cand in (here, *here.parents):
+        if (cand / "runs" / "flow-state.json").is_file():
+            return cand
+    raise FileNotFoundError("no flow-managed project here: pass --project or run inside the project")
+
+
+def _flow_ki_root(project: Path, name: str, args) -> Path:
+    live = project / "models" / name / "ki"
+    if live.is_dir():
+        return live
+    return Path(_catalog(args).get(name).root)
+
+
+def cmd_run_tool(args) -> int:
+    """Run one KI tool for an APPROVED plan step and write the signed receipt (plan v3 B7).
+    This is the only way a CLI agent's run can count; anything run outside it has no receipt."""
+    from . import flowgate
+    import subprocess, time as _time
+    project = _flow_project(args.project)
+    ki_root = _flow_ki_root(project, args.ki, args)
+    cfg = paths.KissConfig.load(project)
+    fs = flowgate.FlowSession.open(project, {args.ki: ki_root}, python=str(cfg.python))
+    if fs.state.value != "EXECUTING":
+        print(f"run-tool refused: project is in {fs.state.value}, not EXECUTING", file=sys.stderr)
+        return 3
+    if fs.approval_status() != "OK":
+        print("run-tool refused: no valid approval (plan changed or never approved)", file=sys.stderr)
+        return 3
+    tool = (ki_root / args.tool).resolve() if not Path(args.tool).is_absolute() else Path(args.tool).resolve()
+    if (ki_root / "tools").resolve() not in tool.parents or not tool.is_file():
+        print(f"run-tool refused: {args.tool} is not a tool under {ki_root / 'tools'}", file=sys.stderr)
+        return 3
+    argv = list(args.argv)
+    if argv and argv[0] == "--":
+        argv = argv[1:]
+    command = ([str(cfg.python), str(tool)] if tool.suffix == ".py" else [str(tool)]) + argv
+    before = flowgate._snapshot(project)
+    started = _time.time()
+    proc = subprocess.run(command, cwd=str(project), capture_output=True, text=True, errors="replace")
+    finished = _time.time()
+    out = (proc.stdout + proc.stderr)[-80000:]
+    try:
+        summary = fs.record_tool_run(ki=args.ki, ki_root=ki_root, command=command, cwd=project,
+                                     started_at=started, finished_at=finished, exit_code=proc.returncode,
+                                     before=before, plan_step_id=args.step, stdout_tail=out[-20000:])
+    except flowgate.FlowDenied as e:
+        print(out); print(f"[receipt NOT written: {e}]", file=sys.stderr)
+        return 3
+    print(out)
+    print("[RECEIPT] " + json.dumps(summary, ensure_ascii=False))
+    return proc.returncode
+
+
+def cmd_fetch(args) -> int:
+    """Download one public file for an APPROVED plan and write the signed download receipt."""
+    from . import flowgate
+    project = _flow_project(args.project)
+    fs = flowgate.FlowSession.open(project, {})
+    if fs.state.value != "EXECUTING":
+        print(f"fetch refused: project is in {fs.state.value}, not EXECUTING", file=sys.stderr)
+        return 3
+    try:
+        info = fs.fetch(args.url, args.item, filename=args.filename, plan_step_id=args.step)
+    except flowgate.FlowDenied as e:
+        print(f"fetch refused: {e}", file=sys.stderr)
+        return 3
+    except OSError as e:
+        print(f"fetch failed: {e}", file=sys.stderr)
+        return 1
+    print("[RECEIPT] " + json.dumps(info, ensure_ascii=False))
+    return 0
+
+
 def cmd_calibration_status(args) -> int:
     """Prove that the fixed engine and required optimizers are in this runtime."""
     from . import calibration
@@ -444,6 +526,22 @@ def build_parser() -> argparse.ArgumentParser:
     q.add_argument("-w", "--workdir")
     q.add_argument("argv", nargs=argparse.REMAINDER)
     q.set_defaults(fn=cmd_run)
+
+    q = sub.add_parser("run-tool", help="run one KI tool for an approved plan step and write its receipt")
+    q.add_argument("ki", help="the selected KI the tool belongs to")
+    q.add_argument("tool", help="tool path relative to the KI root (tools/...)")
+    q.add_argument("--step", required=True, help="the approved plan step id (runs/plan.json steps[].id)")
+    q.add_argument("--project", help="the chat project (default: $KISS_PROJECT or the cwd's project)")
+    q.add_argument("argv", nargs=argparse.REMAINDER, help="arguments for the tool (after --)")
+    q.set_defaults(fn=cmd_run_tool)
+
+    q = sub.add_parser("fetch", help="download one public file for an approved plan and write its receipt")
+    q.add_argument("url")
+    q.add_argument("--item", required=True, help="the data-inventory item id")
+    q.add_argument("--filename")
+    q.add_argument("--step")
+    q.add_argument("--project")
+    q.set_defaults(fn=cmd_fetch)
 
     q = sub.add_parser(
         "calibration-status",
