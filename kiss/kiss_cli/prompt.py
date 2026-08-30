@@ -204,7 +204,8 @@ def compose(ki, cfg=None, *, task: str = "", headless: bool = True,
     return "\n".join(parts)
 
 
-def compose_multi(kis, cfg=None, *, task: str = "", headless: bool = True) -> str:
+def compose_multi(kis, cfg=None, *, task: str = "", headless: bool = True,
+                  execute: bool = True) -> str:
     """One task, several models: each toggled KI contributes its own contract.
 
     The single-model prompt stays the default; this exists for the compare/
@@ -212,9 +213,12 @@ def compose_multi(kis, cfg=None, *, task: str = "", headless: bool = True) -> st
     first-class participant rather than picking a favourite and narrating the
     rest. Contracts are the same per-KI harness text as the single case, so a
     model behaves identically whether toggled alone or with others.
+
+    ``execute`` selects the contract wording (plan v3 B2): False = the planning
+    turn's inspect contract (read, plan, never run); True = the run contract.
     """
     if len(kis) == 1:
-        return compose(kis[0], cfg, task=task, headless=headless)
+        return compose(kis[0], cfg, task=task, headless=headless, execute=execute)
 
     names = ", ".join(k.name for k in kis)
     parts = [
@@ -232,7 +236,7 @@ def compose_multi(kis, cfg=None, *, task: str = "", headless: bool = True) -> st
     for ki in kis:
         parts.append(f"===== {ki.name} " + "=" * max(4, 60 - len(ki.name)))
         contract, why = _harness_contract(
-            ki, execute=True, python=(cfg.python if cfg is not None else None))
+            ki, execute=execute, python=(cfg.python if cfg is not None else None))
         parts.append(contract if contract else
                      f"[contract unavailable: {why}] Read {ki.root}/SKILL.md first.")
         parts.append("")

@@ -114,6 +114,7 @@ _MOVES: dict[tuple[State, str], tuple[State, str | None]] = {
     (State.PLAN_REVIEW, "drift"): (State.REPLAN_REQUIRED, None),
     (State.APPROVED, "drift"): (State.REPLAN_REQUIRED, None),
     (State.WAITING_FOR_USER, "answered"): (State.PLANNING, None),
+    (State.WAITING_FOR_USER, "modify"): (State.PLANNING, None),      # "Modify the plan" on the card
     (State.WAITING_FOR_USER, "kis_resolved"): (State.PLANNING, "selected_kis"),
     (State.WAITING_FOR_USER, "approved"): (State.APPROVED, "approval"),
     (State.APPROVED, "execution_started"): (State.EXECUTING, "setup_verified"),

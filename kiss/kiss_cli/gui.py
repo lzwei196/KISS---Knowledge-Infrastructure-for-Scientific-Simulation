@@ -30,7 +30,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, quote, unquote, urlparse
 
-from . import api, calibration, clipboard, doctor, handoff, harness_runtime, install, install_locations, kdtstudio, ki_updates, mcp, paths, policy, port, preparation, projectrun, projectview, prompt, providers, recipe, sessions, settings, setup as setup_flow, skilllib, tls
+from . import api, calibration, clipboard, doctor, flowrun, handoff, harness_runtime, install, install_locations, kdtstudio, ki_updates, mcp, paths, policy, port, preparation, projectrun, projectview, prompt, providers, recipe, sessions, settings, setup as setup_flow, skilllib, tls
 from .catalog import Catalog, KI
 from .manifest import Manifest
 
@@ -2484,6 +2484,12 @@ class Handler(BaseHTTPRequestHandler):
             pending = setup_flow.request(project)
             action = req.get("action") if isinstance(req.get("action"), dict) else None
             resolved_action = None
+            # The plan-approval card is the flow's request: flowrun.pre() consumes the
+            # click (approve / modify) and moves the state; the generic handler below
+            # must not mark it "ready" first.
+            flow_pending = None
+            if pending and str(pending.get("id", "")).startswith(flowrun.APPROVAL_REQUEST_ID_PREFIX):
+                flow_pending, pending = pending, None
             if pending and pending.get("status") == "waiting":
                 options = {str(item.get("id")): item
                            for item in pending.get("options") or []
@@ -2551,6 +2557,50 @@ class Handler(BaseHTTPRequestHandler):
         skill_names = s.get("skills") or []
         mcp_names = s.get("mcps") or []
 
+        # ── the flow decides what this turn may be (plan v3 B1) ──────────────────
+        # resolve the KIs from the ticks AND the text (never guess), consume an
+        # approval click, or answer with a question instead of starting an agent.
+        flow_pre = None
+
+        def _setup_ok(kis_names) -> bool:
+            try:
+                return all(self._status_for(self._ki(n)).get("can_run") for n in kis_names)
+            except KeyError:
+                return False
+
+        try:
+            flow_pre = flowrun.pre(
+                project, text, names, self.catalog,
+                action, flow_pending,
+                note=str((action or {}).get("note") or ""),
+                couplings_dir=flowrun.couplings_dir(),
+                setup_ok=_setup_ok(names))
+        except Exception as e:  # noqa: BLE001 — a flow failure must be visible, not silent
+            flow_pre = None
+            self._open_stream()
+            self._chunk(f"[GeoForge flow error: {type(e).__name__}: {e}]")
+            projectrun.finish_turn(project, failed=str(e))
+            self._end_stream()
+            return
+        if flow_pre is not None and flow_pre.message:
+            self._open_stream()
+            self._chunk(flow_pre.message)
+            with sessions.lock(sid):
+                cur = sessions.load(self.workroot, sid) or s
+                sessions.append_message(self.workroot, cur, {"role": "assistant", "text": flow_pre.message})
+                sessions.save(self.workroot, cur)
+            projectrun.finish_turn(project, request=None)
+            self._end_stream()
+            return
+        if flow_pre is not None and flow_pre.gated and flow_pre.names:
+            if list(flow_pre.names) != list(names):
+                names = list(flow_pre.names)
+                with sessions.lock(sid):
+                    cur = sessions.load(self.workroot, sid) or s
+                    cur["models"] = names
+                    sessions.save(self.workroot, cur)
+                    s = cur
+
         # Collect the streamed reply so the transcript survives the turn.
         buf: list[str] = []
         self._open_stream()
@@ -2567,25 +2617,52 @@ class Handler(BaseHTTPRequestHandler):
 
         failure = None
         cli_state: dict = {}
+        flow_turn = None
         try:
             prior = [dict(message, text=sessions.message_text(message))
                      for message in s["messages"][:-1][-20:]]
             if names:
-                self._chat_with_models(names, want, history + "\nUSER: " + agent_text,
-                                       out, project, llm, prior=prior, bare_task=agent_text,
-                                       skill_names=skill_names, mcp_names=mcp_names,
-                                       session=s, cli_state=cli_state,
-                                       runtime_events=runtime_events)
+                flow_turn = self._chat_with_models(
+                    names, want, history + "\nUSER: " + agent_text,
+                    out, project, llm, prior=prior, bare_task=agent_text,
+                    skill_names=skill_names, mcp_names=mcp_names,
+                    session=s, cli_state=cli_state,
+                    runtime_events=runtime_events, flow_pre=flow_pre)
             else:
                 self._chat_auto(want, history + "\nUSER: " + agent_text,
                                 out, project, llm, prior=prior, bare_task=agent_text,
                                 skill_names=skill_names, mcp_names=mcp_names,
                                 session=s, cli_state=cli_state,
-                                runtime_events=runtime_events)
+                                runtime_events=runtime_events, flow_pre=flow_pre)
         except Exception as e:
             failure = f"{type(e).__name__}: {e}"
             out(f"\n[GeoForge could not finish this turn: {failure}]")
         finally:
+            # close the flow turn: validate the plan / show the approval card / check
+            # receipts. Its request (if any) is picked up by setup_flow.request() below.
+            try:
+                if flow_turn is not None:
+                    res = flowrun.after(project, flow_turn, "".join(buf),
+                                        provider_note=flowrun.describe_policy(flow_turn),
+                                        setup_ok=_setup_ok(names))
+                    if res.continue_now and failure is None:
+                        # auto-approved (nothing needed the user): start the execution
+                        # turn now, in a FRESH agent session with the run contract
+                        out("\n\n---\n**Plan auto-approved** (no decision needed from you). "
+                            "Starting the run in a new session…\n\n")
+                        exec_turn = self._chat_with_models(
+                            names, want, history + "\nUSER: " + agent_text,
+                            out, project, llm, prior=prior, bare_task=agent_text,
+                            skill_names=skill_names, mcp_names=mcp_names,
+                            session=s, cli_state=cli_state,
+                            runtime_events=runtime_events,
+                            flow_pre=flowrun.Pre(names=list(names)))
+                        if exec_turn is not None:
+                            flowrun.after(project, exec_turn, "".join(buf),
+                                          provider_note=flowrun.describe_policy(exec_turn),
+                                          setup_ok=_setup_ok(names))
+            except Exception as e:  # noqa: BLE001
+                out(f"\n[GeoForge flow: could not close the turn — {type(e).__name__}: {e}]")
             generated = [rel for rel, state in _artifact_state(project).items()
                          if artifacts_before.get(rel) != state]
             existing_reply = "".join(buf)
@@ -2714,11 +2791,22 @@ class Handler(BaseHTTPRequestHandler):
 
     def _chat_auto(self, want: str, task: str, out, project: Path, llm=None,
                    prior=None, bare_task=None, skill_names=None, mcp_names=None,
-                   session=None, cli_state=None, runtime_events=None) -> None:
-        """No models pinned: hand the agent the catalogue and let it route."""
+                   session=None, cli_state=None, runtime_events=None, flow_pre=None) -> None:
+        """No models pinned: hand the agent the catalogue and let it route.
+
+        Under the flow (plan v3 B1 item 1) this turn only PICKS a model: flowrun.pre()
+        found no model name in the text, so the agent chooses one, says so, and reports
+        it via report_project_progress.selected_kis. The next turn is then a pinned
+        planning turn. Nothing runs here — the policy is read-only."""
         kind, _, pname = want.partition(":")
         if not pname:
             kind, pname = "cli", kind
+        gated = flow_pre is not None and flow_pre.gated
+        if gated:
+            task = task + ("\n\n[MODEL CHOICE ONLY] Choose the model(s) for this task from the "
+                           "catalogue, explain the choice in two sentences, and report it with "
+                           "report_project_progress(selected_kis=[...]). Do not download, prepare "
+                           "inputs, or run anything: GeoForge will plan the run with you next.")
         local_status = {ki.name: self._status_for(ki) for ki in self.catalog}
         project_rules = SESSION_PROJECT_RULES.format(project=project)
         run_rules = projectrun.prompt_block(project)
@@ -2803,7 +2891,8 @@ class Handler(BaseHTTPRequestHandler):
         pol = policy.Policy(
             model="Auto KI", posture=policy.Posture.WORKSPACE_WRITE)
         pol.add("read", project, "this chat's local project")
-        pol.add("write", project, "scenario inputs, outputs, runs and artifacts")
+        if not gated:
+            pol.add("write", project, "scenario inputs, outputs, runs and artifacts")
         pol.add("read", self.catalog.models_dir, "the bundled KI library")
         for skill_root in skill_roots:
             pol.add("read", skill_root, "installed agent skills")
@@ -2827,8 +2916,9 @@ class Handler(BaseHTTPRequestHandler):
     def _chat_with_models(self, names, want, task, out, project: Path, llm=None,
                           prior=None, bare_task=None, skill_names=None,
                           mcp_names=None, session=None, cli_state=None,
-                          runtime_events=None) -> None:
-        """Pinned models: same path the toggle flow used."""
+                          runtime_events=None, flow_pre=None):
+        """Pinned models: same path the toggle flow used. Returns the flowrun.Turn
+        (or None when the chat is not flow-gated) so the caller can close it."""
         try:
             kis = [self._ki(n) for n in names]
         except KeyError as e:
@@ -2881,14 +2971,29 @@ class Handler(BaseHTTPRequestHandler):
                          (("\n\n" + skill_rules) if skill_rules else "") +
                          (("\n\n" + mcp_rules) if mcp_rules else "") +
                          "\n\n" + SCOPE_FIRST_RULES)
+        # ── the flow's turn: contract wording, extra instructions, tool policy ──
+        flow_turn = None
+        task_extra = ""
+        execute_contract = True
+        if flow_pre is not None and flow_pre.gated and not needs_setup:
+            flow_turn = flowrun.turn(project, resolved, cfg, kind, pname, self.repo_root,
+                                     bare_task or task, flow_pre.replan_reason)
+            if flow_turn is not None:
+                execute_contract = flow_turn.execute
+                task_extra = "\n\n" + flow_turn.extra_prompt
+                if flow_turn.drop_scope_rules:
+                    session_rules = session_rules.replace("\n\n" + SCOPE_FIRST_RULES, "")
+        elif flow_pre is not None and flow_pre.gated and needs_setup:
+            flow_turn = flowrun.setup_turn(project, resolved, cfg, kind, pname)
         if kind == "api":
             prov = api.PROVIDERS.get(pname)
             if prov is None:
                 out(f"[unknown api provider {pname!r}]")
-                return
+                return flow_turn
             run_ki = resolved[0]
-            system = prompt.compose(run_ki, cfg, headless=False)
-            system += "\n\n" + session_rules
+            # every selected KI's contract, in this state's wording (no more resolved[0] only)
+            system = prompt.compose_multi(resolved, cfg, headless=False, execute=execute_contract)
+            system += "\n\n" + session_rules + task_extra
             if setup_contract:
                 system += ("\n\n[IF THIS TASK NEEDS THE SOFTWARE]\n"
                            "Own the setup and recovery loop below before running it.\n" +
@@ -2918,17 +3023,20 @@ class Handler(BaseHTTPRequestHandler):
                     # repairs software; otherwise a successful installation
                     # cannot publish the ensuing run, provenance, or plot to
                     # the session that requested it.
-                    project_mode=True),
+                    project_mode=True,
+                    flow=(flow_turn.session if flow_turn is not None else None)),
                 out,
             )
             if needs_setup:
-                self._record_agent_preflight(
+                ok = self._record_agent_preflight(
                     ki, run_ki, cfg, setup_wd, lambda _piece: True)
-            return
+                if ok and flow_turn is not None:
+                    flowrun.setup_verified(project, resolved, cfg)
+            return flow_turn
         avail = providers.available()
         if not avail:
             out("No signed-in agent CLI is ready. Open AI Settings to recheck a local CLI or add an API key.")
-            return
+            return flow_turn
         try:
             prov = providers.get(pname) if pname else avail[0]
         except KeyError:
@@ -2936,7 +3044,8 @@ class Handler(BaseHTTPRequestHandler):
         if not (wd / paths.CONFIG_NAME).exists():
             (wd / paths.CONFIG_NAME).write_text(cfg.dumps(), encoding="utf-8")
         full = prompt.compose_multi(
-            resolved, cfg, task=session_rules + "\n\n" + task)
+            resolved, cfg, execute=execute_contract,
+            task=session_rules + task_extra + "\n\n" + task)
         if setup_contract:
             full += ("\n\n[IF THIS TASK NEEDS THE SOFTWARE]\n"
                      "Own the setup and recovery loop below before running it.\n" +
@@ -2989,23 +3098,44 @@ class Handler(BaseHTTPRequestHandler):
         # The fingerprint covers everything that shapes the instruction block
         # for a pinned-model chat. Change any of it and a resumed session would
         # still be running under the old rules, so it has to be rebuilt.
+        # The flow state, plan hash and approval hash are part of the fingerprint: a
+        # state change (planning → execution) starts a FRESH CLI session, never a
+        # resume of the planning conversation (plan v3 B1 item 4).
+        flow_fp = flow_turn.fingerprint_extra if flow_turn is not None else ""
         fingerprint_src = "\x00".join([
             prov.name, str(llm or ""), *sorted(names or []),
             *sorted(skill_names or []), *sorted(mcp_names or []),
             str(getattr(cfg, "relocation", "")), setup_contract or "",
-            calibration_rules, session_rules,
+            calibration_rules, session_rules, flow_fp,
         ])
+        flow_policy = None
+        if flow_turn is not None:
+            flow_policy = flowrun.policy_for_cli(flow_turn, prov.name, pol)
+            if flow_turn.planning_worktree is not None:
+                wd = flow_turn.planning_worktree
+                grants = grants + [str(wd)]
         self._cli_turn(prov, fingerprint_src=fingerprint_src, replay_prompt=full,
                        bare_prompt=bare_task, wd=wd, out=out,
                        session=session, cli_state=cli_state,
                        extra_dirs=grants, cfg=cfg, ki_root=ki.root,
-                       pol=pol, model=llm, runtime_events=runtime_events)
+                       pol=pol, model=llm, runtime_events=runtime_events,
+                       flow_policy=flow_policy)
         if needs_setup:
-            self._record_agent_preflight(
+            ok = self._record_agent_preflight(
                 ki, resolved[0], cfg, setup_wd, lambda _piece: True)
+            if ok and flow_turn is not None:
+                flowrun.setup_verified(project, resolved, cfg)
+        return flow_turn
 
     # --- chat --------------------------------------------------------------
     def _stream_chat(self, req) -> None:
+        """RETIRED (plan v3 B1): this pre-session endpoint sent the run contract with no
+        session rules, no project and no flow gate. Every chat goes through
+        /api/session/<id>/chat now."""
+        return self._json({"error": "this endpoint is retired; use /api/session/<id>/chat",
+                           "hint": "create a session, then post the message to its chat endpoint"}, 410)
+
+    def _stream_chat_legacy_unreachable(self, req) -> None:
         # "models": [..] is the task-first shape; "model": "X" stays accepted.
         names = req.get("models") or ([req["model"]] if req.get("model") else [])
         if not names:

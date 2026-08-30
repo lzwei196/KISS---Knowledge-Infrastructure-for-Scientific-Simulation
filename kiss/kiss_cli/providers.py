@@ -557,6 +557,23 @@ def _session_id_from_stream_json(line: str) -> str | None:
     return sid if isinstance(sid, str) and sid else None
 
 
+def _strip_flags(argv: list[str], flags: tuple[str, ...]) -> list[str]:
+    """Remove ``--flag`` and, for value-taking flags, the value that follows it."""
+    valued = {"--allowedTools", "--permission-mode", "--sandbox", "--approval-mode"}
+    out: list[str] = []
+    skip = False
+    for tok in argv:
+        if skip:
+            skip = False
+            continue
+        if tok in flags:
+            if tok in valued:
+                skip = True
+            continue
+        out.append(tok)
+    return out
+
+
 def run(provider: Provider, prompt: str, cwd: Path,
         *, extra_dirs: list[str] | None = None,
         cfg=None, ki_root: Path | None = None, pol=None,
@@ -564,8 +581,15 @@ def run(provider: Provider, prompt: str, cwd: Path,
         timeout: int | None = None,
         resume: str | None = None,
         session_out: dict | None = None,
-        runtime_events: dict | None = None) -> Iterator[str]:
+        runtime_events: dict | None = None,
+        flow_policy=None) -> Iterator[str]:
     """Spawn the CLI and yield displayable text as it arrives.
+
+    ``flow_policy`` (kiss_cli.flowrun.Turn.policy, a ki_tools_common.flow ProviderPolicy)
+    makes the project's flow STATE own the tool policy: its ``argv_delta`` replaces the
+    base least-privilege mapping's argv (a second ``--allowedTools`` would not merge),
+    its ``drop_flags`` are removed from the argv, and its enforcement label is what the
+    user is told.
 
     When ``cfg`` is given the agent is started **inside the relocation
     namespace**, together with everything it goes on to spawn. This is not
@@ -662,9 +686,19 @@ def run(provider: Provider, prompt: str, cwd: Path,
         if not kimi_scoped:
             mapper = getattr(_pol, provider.policy_map, _pol.coarse_args)
             extra_args, enforcement = mapper(pol)
+            if flow_policy is not None:
+                # the flow state's argv replaces the base mapping (plan v3 B6/B7)
+                drop = tuple(getattr(flow_policy, "drop_flags", ()) or ())
+                base_kept = _strip_flags(extra_args, drop + ("--allowedTools",))
+                extra_args = base_kept + list(getattr(flow_policy, "argv_delta", []) or [])
+                argv = _strip_flags(argv, drop)
+                enforcement = _pol.Enforcement(getattr(flow_policy, "enforcement").value)
             argv = argv + extra_args
             if enforcement is not _pol.Enforcement.EXACT:
                 yield f"[{_pol.describe(enforcement, provider.label)}]\n\n"
+        elif flow_policy is not None:
+            drop = tuple(getattr(flow_policy, "drop_flags", ()) or ())
+            argv = _strip_flags(argv, drop)
 
     if cfg is not None and getattr(cfg, "relocation", "sandbox") == "sandbox":
         from .paths import have_sandbox, sandbox_command
