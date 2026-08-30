@@ -147,6 +147,30 @@ class FlowSession:
         return name, self.ki_roots[name]
 
     # ---------------------------------------------------------------- receipts (api.py B4)
+    def check_step_tool(self, plan_step_id: str | None, ki: str, tool_path: Path | None) -> dict:
+        """BEFORE anything runs (codex desktop R2 #4): the step must exist in the approved plan,
+        belong to `ki`, and — when it names a tool — that tool must be the one about to run."""
+        if self.approval_status() != "OK":
+            raise FlowDenied("no valid approval — runs happen only in an approved plan")
+        if not plan_step_id:
+            raise FlowDenied("plan_step_id is required: name the approved plan step this run executes")
+        step = next((s for s in (self.plan or {}).get("steps") or []
+                     if isinstance(s, dict) and str(s.get("id")) == str(plan_step_id)), None)
+        if step is None:
+            raise FlowDenied(f"plan_step_id {plan_step_id!r} is not a step of the approved plan")
+        if step.get("ki") != ki:
+            raise FlowDenied(f"step {plan_step_id!r} belongs to KI {step.get('ki')!r}, not {ki!r}")
+        want = step.get("tool")
+        if want and tool_path is not None:
+            try:
+                same = Path(want).resolve() == Path(tool_path).resolve()
+            except OSError:
+                same = str(want) == str(tool_path)
+            if not same:
+                raise FlowDenied(f"step {plan_step_id!r} is approved for tool {want!r}, not "
+                                 f"{str(tool_path)!r}")
+        return step
+
     def step_kind(self, plan_step_id: str | None) -> str:
         for st in (self.plan or {}).get("steps") or []:
             if isinstance(st, dict) and str(st.get("id")) == str(plan_step_id):

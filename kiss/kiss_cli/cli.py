@@ -350,6 +350,11 @@ def cmd_run_tool(args) -> int:
     argv = list(args.argv)
     if argv and argv[0] == "--":
         argv = argv[1:]
+    try:
+        fs.check_step_tool(args.step, args.ki, tool)          # KI + tool + step agree BEFORE running
+    except flowgate.FlowDenied as e:
+        print(f"run-tool refused: {e}", file=sys.stderr)
+        return 3
     command = ([str(cfg.python), str(tool)] if tool.suffix == ".py" else [str(tool)]) + argv
     before = flowgate._snapshot(project)
     started = _time.time()

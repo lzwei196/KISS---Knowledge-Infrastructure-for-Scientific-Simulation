@@ -2634,6 +2634,25 @@ class Handler(BaseHTTPRequestHandler):
                                 skill_names=skill_names, mcp_names=mcp_names,
                                 session=s, cli_state=cli_state,
                                 runtime_events=runtime_events, flow_pre=flow_pre)
+                if flow_pre is not None and flow_pre.gated:
+                    # codex R2 #3: the reported model choice becomes the flow's selection and the
+                    # session's pinned models; the planning turn starts right away
+                    chosen = flowrun.promote_auto_choice(project, self.catalog)
+                    if chosen:
+                        names = list(chosen)
+                        with sessions.lock(sid):
+                            cur = sessions.load(self.workroot, sid) or s
+                            cur["models"] = names
+                            sessions.save(self.workroot, cur)
+                            s = cur
+                        out(f"\n\n---\n**Model chosen: {', '.join(names)}.** Planning the run…\n\n")
+                        flow_turn = self._chat_with_models(
+                            names, want, history + "\nUSER: " + agent_text,
+                            out, project, llm, prior=prior, bare_task=agent_text,
+                            skill_names=skill_names, mcp_names=mcp_names,
+                            session=s, cli_state=cli_state,
+                            runtime_events=runtime_events,
+                            flow_pre=flowrun.Pre(names=names))
         except Exception as e:
             failure = f"{type(e).__name__}: {e}"
             out(f"\n[GeoForge could not finish this turn: {failure}]")
@@ -2801,6 +2820,9 @@ class Handler(BaseHTTPRequestHandler):
         kind, _, pname = want.partition(":")
         if not pname:
             kind, pname = "cli", kind
+        if kind == "cli" and not pname:
+            _avail0 = providers.available()
+            pname = _avail0[0].name if _avail0 else ""
         gated = flow_pre is not None and flow_pre.gated
         auto_turn = None
         if gated:
@@ -2937,6 +2959,10 @@ class Handler(BaseHTTPRequestHandler):
         kind, _, pname = want.partition(":")
         if not pname:
             kind, pname = "cli", kind
+        if kind == "cli" and not pname:
+            # codex R2 #1: know the ACTUAL CLI before refusal / policy, not after avail[0] below
+            _avail0 = providers.available()
+            pname = _avail0[0].name if _avail0 else ""
         if flow_pre is not None and flow_pre.gated:
             why = flowrun.provider_refusal(kind, pname)
             if why:

@@ -530,6 +530,16 @@ def tool_schemas(ki, *, setup_mode: bool = False,
     if flow is not None:
         allowed = flow.api_tools()
         out = [t for t in out if t["name"] in allowed]
+        for tool in out:
+            if tool["name"] == "report_project_progress":
+                # under the flow the stage is GeoForge's; the agent reports status/summary only
+                schema = json.loads(json.dumps(tool["input_schema"]))
+                schema["properties"].pop("stage", None)
+                schema["required"] = [k for k in schema.get("required", []) if k != "stage"] or ["status", "summary"]
+                tool["input_schema"] = schema
+                tool["description"] = ("Update GeoForge's project-status display (status + summary; the stage "
+                                       "is tracked by GeoForge from the plan, approval and receipts). Report "
+                                       "selected_kis when you choose a model.")
     return out
 
 
@@ -771,11 +781,12 @@ def execute_tool(name: str, args: dict, ki, cfg, *, setup_mode: bool = False,
         before = None
         if flow is not None:
             from . import flowgate as _fg
-            # the receipt must be bindable BEFORE anything runs
-            if flow.approval_status() != "OK":
-                raise ToolError("no valid approval — runs happen only in an approved plan")
-            if not args.get("plan_step_id"):
-                raise ToolError("plan_step_id is required: name the approved plan step this run executes")
+            from .flowgate import FlowDenied
+            # the step, its KI and its tool are checked BEFORE anything runs (codex R2 #4)
+            try:
+                flow.check_step_tool(args.get("plan_step_id"), tool_ki_name, script)
+            except FlowDenied as e:
+                raise ToolError(str(e)) from None
             before = _fg._snapshot(project_root)
         started = time.time()
         try:
@@ -817,10 +828,11 @@ def execute_tool(name: str, args: dict, ki, cfg, *, setup_mode: bool = False,
         calib_started = time.time()
         if flow is not None:
             from . import flowgate as _fg
-            if flow.approval_status() != "OK":
-                raise ToolError("no valid approval — calibration is a scientific run and needs an approved plan")
-            if not args.get("plan_step_id"):
-                raise ToolError("plan_step_id is required: name the approved 'calibrate' plan step")
+            from .flowgate import FlowDenied
+            try:
+                flow.check_step_tool(args.get("plan_step_id"), getattr(ki, "name", root.name), None)
+            except FlowDenied as e:
+                raise ToolError(str(e)) from None
             calib_before = _fg._snapshot(project_root, subs=("inputs", "outputs", "artifacts", "calibration"))
         # Ensure the adapter copy exists before building the generated runtime
         # KI. `ki` is already the session-materialised package in pinned chats.

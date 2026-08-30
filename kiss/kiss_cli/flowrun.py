@@ -160,6 +160,7 @@ class Turn:
     fingerprint_extra: str                 # forces a fresh CLI session when the state changes
     planning_worktree: Path | None = None  # codex/kimi PLANNING: run here, harvest plan files
     wrappers: dict = field(default_factory=dict)
+    kind: str = "planning"                 # planning | execution | setup | readonly | auto
 
 
 def turn(project: Path, resolved, cfg, provider_kind: str, provider_name: str,
@@ -212,19 +213,20 @@ def turn(project: Path, resolved, cfg, provider_kind: str, provider_name: str,
                                    python=str(getattr(cfg, "python", "") or "python3"),
                                    base_allowed_tools=base_allowed_tools, wrappers=wrappers)
         fs.ctx.enforcement = flow.states.Enforcement(pp.enforcement.value); fs.ctx.save()
-        return Turn(fs, True, extra, True, pp, f"flow:{state.value}:{fs.approval_id}", None, wrappers or {})
+        return Turn(fs, True, extra, True, pp, f"flow:{state.value}:{fs.approval_id}", None, wrappers or {},
+                    kind="execution")
 
     if state in (S.SETUP_REQUIRED, S.SETUP_RUNNING):
         pp = flow.policy.for_state(state, provider, project, ki_roots)
         return Turn(fs, False, "[SETUP] The KI software is not verified yet. Finish setup; the "
                     "approved plan runs afterwards in a new session.", False, pp,
-                    f"flow:{state.value}", None, {})
+                    f"flow:{state.value}", None, {}, kind="setup")
 
     # PLAN_REVIEW / WAITING_FOR_USER / APPROVED / VERIFYING / COMPLETED / FAILED*: read-only turn
     pp = flow.policy.for_state(state, provider, project, ki_roots)
     extra = (f"[FLOW STATE: {state.value}] Answer the user's question from the project files. Do not "
              f"run, download, or write inputs; " + flowgate._hint(state))
-    return Turn(fs, False, extra, True, pp, f"flow:{state.value}:{fs.approval_id}", None, {})
+    return Turn(fs, False, extra, True, pp, f"flow:{state.value}:{fs.approval_id}", None, {}, kind="readonly")
 
 
 def _intent_from_goal(goal: str) -> dict:
@@ -318,6 +320,8 @@ def after(project: Path, t: Turn | None, reply: str, provider_note: str = "",
     if t.planning_worktree:
         _harvest_worktree(project, t.planning_worktree)
     fs.reload_artifacts()
+    if t.kind in ("setup", "auto") and state is S.EXECUTING:
+        return Result(continue_now=True)          # setup verified → run the approved plan now
 
     if state in (S.PLANNING, S.REPLAN_REQUIRED):
         pj, inv = fs.plan, fs.inventory
@@ -454,7 +458,7 @@ def setup_turn(project: Path, resolved, cfg, provider_kind: str, provider_name: 
     provider = "api" if provider_kind == "api" else provider_name
     pp = flow.policy.for_state(fs.state, provider, project, ki_roots)
     projectrun.set_stage(project, display_stage(flow, fs.state), "Setting up the scientific software")
-    return Turn(fs, False, "", False, pp, f"flow:{fs.state.value}", None, {})
+    return Turn(fs, False, "", False, pp, f"flow:{fs.state.value}", None, {}, kind="setup")
 
 
 def setup_verified(project: Path, resolved, cfg) -> None:
@@ -465,8 +469,9 @@ def setup_verified(project: Path, resolved, cfg) -> None:
     fs = flowgate.FlowSession.open(project, ki_roots)
     if fs.state is S.SETUP_RUNNING:
         fs.move("setup_verified", {"preflight_ok": True})
-        fs.move("resume")
-        projectrun.set_stage(project, display_stage(flow, fs.state), "Software verified — the approved plan can run")
+        fs.move("resume")                                   # → APPROVED
+        _start_execution(flow, fs.ctx, project, True)      # → EXECUTING (codex R2 #2)
+        projectrun.set_stage(project, display_stage(flow, fs.state), "Software verified — running the approved plan")
 
 
 def policy_for_cli(t: Turn, provider_name: str, pol) -> object:
@@ -506,7 +511,7 @@ def auto_turn(project: Path, provider_kind: str, provider_name: str) -> Turn | N
             f"{provider} cannot be held to the planning gate; choose Claude Code, Codex, Kimi or "
             f"an API provider for scientific projects")
     pp = flow.policy.for_state(fs.state, provider, project, {})
-    return Turn(fs, False, "", False, pp, f"flow:{fs.state.value}", None, {})
+    return Turn(fs, False, "", False, pp, f"flow:{fs.state.value}", None, {}, kind="auto")
 
 
 def setup_allowed(project: Path) -> bool:
@@ -532,3 +537,25 @@ def provider_refusal(provider_kind: str, provider_name: str) -> str | None:
         return (f"{provider} cannot be held to the planning gate (no per-tool policy); for scientific "
                 f"projects use Claude Code, Codex, Kimi or an API provider.")
     return None
+
+
+def promote_auto_choice(project: Path, catalog) -> list[str]:
+    """After an auto-mode turn (codex R2 #3): the model the agent reported via
+    report_project_progress(selected_kis) becomes the flow's selection — validated against
+    the catalogue, never trusted blindly — and the state moves to PLANNING. Returns the names
+    (empty = nothing usable was reported)."""
+    flow = _flow()
+    S = flow.states.State
+    ctx = flow.states.FlowContext.load(project)
+    if ctx.state is not S.RESOLVING_KIS:
+        return list(ctx.selected_kis)
+    reported = [str(n) for n in (projectrun.load(project).get("selected_kis") or [])]
+    known = {ki.name for ki in catalog}
+    names = [n for n in reported if n in known]
+    if not names:
+        return []
+    ctx.selected_kis = names
+    ctx.move("kis_resolved", {"selected_kis": names})
+    projectrun.select_kis(project, names)
+    projectrun.set_stage(project, display_stage(flow, ctx.state), "Planning the run")
+    return names

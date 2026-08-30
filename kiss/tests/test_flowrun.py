@@ -157,7 +157,8 @@ def test_approval_without_verified_software_goes_to_setup(tmp_path):
     st = flowrun.setup_turn(project, [ki], _cfg(project), "cli", "claude")
     assert json.loads((project / "runs" / "flow-state.json").read_text())["state"] == "SETUP_RUNNING"
     flowrun.setup_verified(project, [ki], _cfg(project))
-    assert json.loads((project / "runs" / "flow-state.json").read_text())["state"] == "APPROVED"
+    # codex R2 #2: verification resumes straight into EXECUTING (APPROVED is passed through)
+    assert json.loads((project / "runs" / "flow-state.json").read_text())["state"] == "EXECUTING"
 
 
 def test_executing_turn_detects_drift_and_replan_marker(tmp_path):
@@ -246,3 +247,48 @@ def test_wrapper_commands_have_no_spaces_in_the_executable_path(monkeypatch, tmp
 def test_provider_refusal_for_gemini_and_qwen():
     assert flowrun.provider_refusal("cli", "gemini") and flowrun.provider_refusal("cli", "qwen")
     assert flowrun.provider_refusal("cli", "claude") is None and flowrun.provider_refusal("api", "deepseek") is None
+
+
+def test_setup_verified_resumes_into_executing_and_continues(tmp_path):
+    project = _project(tmp_path); ki = _ki(tmp_path, "M")
+    flowrun.pre(project, "run M for 2003", ["M"], [ki], None, None)
+    t = _drive_planning(tmp_path, ki, project)
+    flowrun.after(project, t, "planned", setup_ok=False)                 # SETUP_REQUIRED
+    st = flowrun.setup_turn(project, [ki], _cfg(project), "cli", "claude")
+    flowrun.setup_verified(project, [ki], _cfg(project))
+    assert json.loads((project / "runs" / "flow-state.json").read_text())["state"] == "EXECUTING"
+    assert flowrun.after(project, st, "installed", setup_ok=True).continue_now is True
+
+
+def test_auto_choice_is_promoted_into_the_flow(tmp_path):
+    project = _project(tmp_path); cat = [_ki(tmp_path, "VIC"), _ki(tmp_path, "DSSAT")]
+    flowrun.pre(project, "simulate the flood at Bengbu", [], cat, None, None)   # RESOLVING_KIS
+    projectrun.report(project, {"status": "working", "summary": "picked", "selected_kis": ["VIC", "Nope"]})
+    assert flowrun.promote_auto_choice(project, cat) == ["VIC"]
+    st = json.loads((project / "runs" / "flow-state.json").read_text())
+    assert st["state"] == "PLANNING" and st["selected_kis"] == ["VIC"]
+    assert flowrun.promote_auto_choice(project, cat) == ["VIC"]           # idempotent
+
+
+def test_run_ki_tool_checks_step_ki_and_tool_before_running(tmp_path):
+    project = _project(tmp_path); a, b = _ki(tmp_path, "A"), _ki(tmp_path, "B")
+    (a.root / "tools" / "other.py").write_text("print('x')")
+    flowrun.pre(project, "run A and B for 2003", ["A", "B"], [a, b], None, None)
+    t = flowrun.turn(project, [a, b], _cfg(project), "api", "deepseek", None, "run A and B")
+    pj, inv = t.session.flow.plan.read_artifacts(project)
+    pj["steps"] = [{"id": "A:run", "ki": "A", "tool": str(a.root / "tools" / "run.py"), "kind": "run",
+                    "inputs": [], "outputs": [], "status": "planned"}]
+    for it in inv["items"]:
+        it["status"] = "resolved"; it["needs_user"] = False
+    assert t.session.write_plan(pj, inv) == []
+    flowrun.after(project, t, "planned", setup_ok=True)
+    t2 = flowrun.turn(project, [a, b], _cfg(project), "api", "deepseek", None, "go")
+    with pytest.raises(api.ToolError, match="belongs to KI 'A'"):
+        api.execute_tool("run_ki_tool", {"tool_path": "tools/run.py", "ki": "B", "plan_step_id": "A:run",
+                                         "arguments": ["outputs/b.csv"]}, a, _cfg(project), project_mode=True, flow=t2.session)
+    with pytest.raises(api.ToolError, match="approved for tool"):
+        api.execute_tool("run_ki_tool", {"tool_path": "tools/other.py", "plan_step_id": "A:run",
+                                         "arguments": ["outputs/o.csv"]}, a, _cfg(project), project_mode=True, flow=t2.session)
+    assert not (project / "outputs").exists()                              # nothing ran
+    names = {t["name"]: t for t in api.tool_schemas(a, project_mode=True, flow=t2.session)}
+    assert "stage" not in names["report_project_progress"]["input_schema"]["properties"]
