@@ -177,3 +177,25 @@ def test_multi_ki_run_ki_tool_selects_by_name(tmp_path):
     with pytest.raises(api.ToolError, match="not one of the selected KIs"):
         api.execute_tool("run_ki_tool", {"tool_path": "tools/run.py", "ki": "C", "plan_step_id": "A:run"},
                          a, _cfg(project), project_mode=True, flow=fs)
+
+
+def test_read_and_list_ki_files_reach_every_selected_ki(tmp_path):
+    a, b = _ki(tmp_path, "A"), _ki(tmp_path, "B")
+    (b.root / "docs").mkdir(); (b.root / "docs" / "note.md").write_text("B doc")
+    project = tmp_path / "project"; (project / "runs").mkdir(parents=True)
+    fs = flowgate.FlowSession.open(project, {"A": a.root, "B": b.root}, python=sys.executable)
+    fs.move("task_received"); fs.move("kis_resolved", {"selected_kis": ["A", "B"]})
+    assert api.execute_tool("read_ki_file", {"path": "docs/note.md", "ki": "B"}, a, _cfg(project),
+                            project_mode=True, flow=fs) == "B doc"
+    assert "docs/note.md" in api.execute_tool("list_ki_files", {"ki": "B"}, a, _cfg(project), project_mode=True, flow=fs)
+    with pytest.raises(api.ToolError, match="not one of the selected KIs"):
+        api.execute_tool("read_ki_file", {"path": "SKILL.md", "ki": "C"}, a, _cfg(project), project_mode=True, flow=fs)
+    with pytest.raises(api.ToolError, match="escapes"):
+        api.execute_tool("read_ki_file", {"path": "../A/SKILL.md", "ki": "B"}, a, _cfg(project), project_mode=True, flow=fs)
+
+
+def test_progress_prompt_has_no_stage_under_the_flow(tmp_path):
+    project = tmp_path / "project"; (project / "runs").mkdir(parents=True)
+    assert '"stage":' in projectrun.prompt_block(project)
+    fs = flowgate.FlowSession.open(project, {}); fs.move("task_received")
+    assert '"stage":' not in projectrun.prompt_block(project) and "GEOFORGE TRACKS THE STAGE" in projectrun.prompt_block(project)

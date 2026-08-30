@@ -278,6 +278,19 @@ def finish_turn(project: Path, *, request: dict | None = None,
 def prompt_block(project: Path) -> str:
     status_path = _path(project, AGENT_FILE)
     request_path = Path(project) / "setup-request.json"
+    if flow_owned(project):
+        return f"""[PROJECT PROGRESS — REPORT WORK; GEOFORGE TRACKS THE STAGE]
+You are using the reusable general KI directly. GeoForge moves the project stage itself
+from the plan, the approval and the signed receipts — do NOT report a stage.
+At meaningful transitions, call `report_project_progress` when that tool is available
+(status + summary only). Otherwise write `{status_path}` as JSON with:
+  {{"status":"working|waiting_for_user|complete|failed",
+    "summary":"one short, plain-language description",
+    "selected_kis":["KI name"]}}
+If blocked by a download, login, licence, permission, or high-impact scientific choice,
+write `{request_path}` using the request_user_action fields (status=waiting, kind, title,
+message, optional url, `options` with id/label/description/response). One grouped action.
+"""
     return f"""[PROJECT PROGRESS — REPORT WORK, DO NOT INVENT A NEW KI]
 You are using the reusable general KI directly. There is no adaptive or
 project-specific KI harness in this version of GeoForge; never claim one was

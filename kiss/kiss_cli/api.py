@@ -130,6 +130,8 @@ def tool_schemas(ki, *, setup_mode: bool = False,
                 "properties": {
                     "path": {"type": "string",
                              "description": "path relative to the KI root, e.g. 'SKILL.md'"},
+                    "ki": {"type": "string",
+                           "description": "which selected KI to read (multi-model chats); default: the primary KI"},
                 },
                 "required": ["path"],
             },
@@ -139,7 +141,9 @@ def tool_schemas(ki, *, setup_mode: bool = False,
             "description": "List the files in this KI package, optionally under a subdirectory.",
             "input_schema": {
                 "type": "object",
-                "properties": {"subdir": {"type": "string"}},
+                "properties": {"subdir": {"type": "string"},
+                               "ki": {"type": "string",
+                                      "description": "which selected KI to list (multi-model chats)"}},
             },
         },
         {
@@ -599,16 +603,34 @@ def execute_tool(name: str, args: dict, ki, cfg, *, setup_mode: bool = False,
             raise ToolError(f"path escapes the chat project: {rel}")
         return p
 
+    def _ki_scoped(rel: str) -> tuple[Path, Path]:
+        """(path, ki_root) for read/list tools — another SELECTED KI may be named (kimi desktop
+        review #1: multi-KI chats must reach every selected KI through the typed tools)."""
+        ki_root = root
+        if flow is not None and args.get("ki"):
+            from .flowgate import FlowDenied
+            try:
+                _n, ki_root = flow.ki_root_for(args.get("ki"), root)
+            except FlowDenied as e:
+                raise ToolError(str(e)) from None
+            ki_root = Path(ki_root).resolve()
+        if Path(rel).is_absolute():
+            raise ToolError(f"absolute paths are not accepted: {rel}")
+        p = (ki_root / rel).resolve()
+        if p != ki_root and ki_root not in p.parents:
+            raise ToolError(f"path escapes the KI package: {rel}")
+        return p, ki_root
+
     if name == "read_ki_file":
-        p = _inside(args.get("path", ""))
+        p, _r = _ki_scoped(args.get("path", ""))
         if not p.is_file():
             raise ToolError(f"no such file in this KI: {args.get('path')}")
         text = p.read_text(encoding="utf-8", errors="replace")
         return text[:60000]
 
     if name == "list_ki_files":
-        base = _inside(args.get("subdir") or ".")
-        names = sorted(str(f.relative_to(root)) for f in base.rglob("*") if f.is_file())
+        base, ki_root = _ki_scoped(args.get("subdir") or ".")
+        names = sorted(str(f.relative_to(ki_root)) for f in base.rglob("*") if f.is_file())
         return "\n".join(names[:400]) or "(empty)"
 
     if name == "run_preflight":

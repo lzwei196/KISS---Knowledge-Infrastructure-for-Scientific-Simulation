@@ -206,3 +206,43 @@ def test_project_view_labels_unvalidated_artifacts_under_the_flow(tmp_path):
     view = projectview._automatic(project)
     by = {p["path"]: p["evidence"] for p in view["panels"]}
     assert by["artifacts/q.csv"] == "verified" and by["artifacts/handmade.svg"] == "unvalidated"
+
+
+def test_auto_turn_is_read_only_and_refuses_ungateable_providers(tmp_path):
+    project = _project(tmp_path)
+    flowrun.pre(project, "simulate the flood at Bengbu", [], [], None, None)   # nothing resolved
+    assert json.loads((project / "runs" / "flow-state.json").read_text())["state"] == "RESOLVING_KIS"
+    t = flowrun.auto_turn(project, "api", "deepseek")
+    assert "run_ki_tool" not in t.session.api_tools() and "write_plan" not in t.session.api_tools()
+    assert "report_project_progress" in t.session.api_tools()
+    tc = flowrun.auto_turn(project, "cli", "claude")
+    assert tc.policy.argv_delta[0] == "--allowedTools" and "Write(" not in tc.policy.argv_delta[1]
+    assert not tc.planning_worktree and not tc.policy.planning_worktree
+    with pytest.raises(Exception, match="cannot be held to the planning gate"):
+        flowrun.auto_turn(project, "cli", "gemini")
+
+
+def test_setup_is_deferred_until_approval(tmp_path):
+    project = _project(tmp_path); ki = _ki(tmp_path, "M")
+    assert flowrun.setup_allowed(project)                        # no flow yet: old behaviour
+    flowrun.pre(project, "run M for 2003", ["M"], [ki], None, None)
+    assert not flowrun.setup_allowed(project)                    # PLANNING: no compile grants
+    t = _drive_planning(tmp_path, ki, project)
+    flowrun.after(project, t, "planned", setup_ok=False)          # auto-approved, software missing
+    assert flowrun.setup_allowed(project)                        # SETUP_REQUIRED
+
+
+def test_wrapper_commands_have_no_spaces_in_the_executable_path(monkeypatch, tmp_path):
+    monkeypatch.setattr(sys, "frozen", True, raising=False)
+    monkeypatch.setattr(sys, "executable", str(tmp_path / "GeoForge Desktop"))
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    w = flowrun.wrapper_commands()
+    base = w["run_tool"].rsplit(" run-tool", 1)[0]
+    assert " " not in base or base.startswith("'"), w
+    if " " not in base:
+        assert Path(base).is_file() and "GeoForge Desktop" in Path(base).read_text()
+
+
+def test_provider_refusal_for_gemini_and_qwen():
+    assert flowrun.provider_refusal("cli", "gemini") and flowrun.provider_refusal("cli", "qwen")
+    assert flowrun.provider_refusal("cli", "claude") is None and flowrun.provider_refusal("api", "deepseek") is None

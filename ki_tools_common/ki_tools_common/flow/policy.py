@@ -237,8 +237,10 @@ def for_state(state: State, provider: str, project: Path, ki_roots: dict[str, Pa
         return ProviderPolicy(provider, state, [], (), Enforcement.NONE, False,
                               f"unknown provider {provider!r}")
 
-    planning = state in (State.PLANNING, State.REPLAN_REQUIRED, State.RESOLVING_KIS,
-                         State.PLAN_REVIEW, State.WAITING_FOR_USER, State.NEW)
+    # Only PLANNING / REPLAN_REQUIRED may write the two plan files. NEW / RESOLVING_KIS /
+    # PLAN_REVIEW / WAITING_FOR_USER are read-only turns (codex desktop review #2: the
+    # auto-mode "choose a model" turn must not get a worktree or any write).
+    planning = state in (State.PLANNING, State.REPLAN_REQUIRED)
     if provider == "api":
         return ProviderPolicy(provider, state, [], (), Enforcement.EXACT, False,
                               "tool proxy filters the schema list by state and re-checks each call")

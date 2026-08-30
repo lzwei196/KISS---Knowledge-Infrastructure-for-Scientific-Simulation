@@ -2548,7 +2548,6 @@ class Handler(BaseHTTPRequestHandler):
                     # itself is the handoff. Requests with options stay open
                     # when the user clicks “Ask me”, instead of being cleared.
                     setup_flow.resume(project, "The user replied in the project chat.")
-            projectrun.begin_turn(project, text, s.get("models") or [])
             agent_text = sessions.message_text({"text": text,
                                                 "attachments": attachments})
         want = s.get("provider") or settings.load().get("default_provider") or ""
@@ -2600,6 +2599,7 @@ class Handler(BaseHTTPRequestHandler):
                     cur["models"] = names
                     sessions.save(self.workroot, cur)
                     s = cur
+        projectrun.begin_turn(project, text, names)
 
         # Collect the streamed reply so the transcript survives the turn.
         buf: list[str] = []
@@ -2802,7 +2802,13 @@ class Handler(BaseHTTPRequestHandler):
         if not pname:
             kind, pname = "cli", kind
         gated = flow_pre is not None and flow_pre.gated
+        auto_turn = None
         if gated:
+            try:
+                auto_turn = flowrun.auto_turn(project, kind, pname)
+            except Exception as e:  # noqa: BLE001 — FlowDenied or a flow failure: say so, run nothing
+                out(f"[GeoForge: {e}]")
+                return
             task = task + ("\n\n[MODEL CHOICE ONLY] Choose the model(s) for this task from the "
                            "catalogue, explain the choice in two sentences, and report it with "
                            "report_project_progress(selected_kis=[...]). Do not download, prepare "
@@ -2869,7 +2875,8 @@ class Handler(BaseHTTPRequestHandler):
             _forward_chat_stream(
                 api.run(prov, ki, cfg, system, bare_task or task,
                         model=llm, history=prior,
-                        project_mode=True),
+                        project_mode=True,
+                        flow=(auto_turn.session if auto_turn is not None else None)),
                 out,
             )
             return
@@ -2904,14 +2911,16 @@ class Handler(BaseHTTPRequestHandler):
         pol.approved = approved
         for path in (session or {}).get("temporary_read_grants") or []:
             pol.approve("read", path, "approved once by the user for this turn")
-        self._cli_turn(prov, fingerprint_src=system, replay_prompt=full,
+        self._cli_turn(prov, fingerprint_src=system + (auto_turn.fingerprint_extra if auto_turn else ""),
+                       replay_prompt=full,
                        bare_prompt=bare_task, wd=wd, out=out,
                        session=session, cli_state=cli_state,
                        extra_dirs=[str(self.catalog.models_dir), *skill_roots,
                                    *skill_dirs,
                                    *([str(framework)] if framework else [])],
                        cfg=cfg, pol=pol, model=llm,
-                       runtime_events=runtime_events)
+                       runtime_events=runtime_events,
+                       flow_policy=(auto_turn.policy if auto_turn is not None else None))
 
     def _chat_with_models(self, names, want, task, out, project: Path, llm=None,
                           prior=None, bare_task=None, skill_names=None,
@@ -2928,9 +2937,20 @@ class Handler(BaseHTTPRequestHandler):
         kind, _, pname = want.partition(":")
         if not pname:
             kind, pname = "cli", kind
+        if flow_pre is not None and flow_pre.gated:
+            why = flowrun.provider_refusal(kind, pname)
+            if why:
+                out(f"[GeoForge: {why}]")
+                return None
         setup_wd = self._workdir(ki)
         setup_wd.mkdir(parents=True, exist_ok=True)
         needs_setup = not self._status_for(ki).get("can_run")
+        setup_deferred = False
+        if flow_pre is not None and flow_pre.gated and needs_setup and not flowrun.setup_allowed(project):
+            # codex desktop review #3: under the flow the software is set up AFTER the plan is
+            # approved (APPROVED → SETUP_REQUIRED), never during planning — no compile grants now
+            needs_setup = False
+            setup_deferred = True
         setup_contract = ""
         if needs_setup:
             try:
@@ -2981,8 +3001,15 @@ class Handler(BaseHTTPRequestHandler):
             if flow_turn is not None:
                 execute_contract = flow_turn.execute
                 task_extra = "\n\n" + flow_turn.extra_prompt
+                if setup_deferred:
+                    task_extra += ("\n\n[SOFTWARE NOT VERIFIED YET] This KI's software is not installed/"
+                                   "verified on this machine. Plan anyway; GeoForge runs the setup after "
+                                   "the plan is approved. Do not try to build or install now.")
                 if flow_turn.drop_scope_rules:
                     session_rules = session_rules.replace("\n\n" + SCOPE_FIRST_RULES, "")
+                    session_rules = session_rules.replace(
+                        "- For direct API chat, use the project tools to write inputs/configuration and\n"
+                        "  run shipped KI preparation tools. Do not stop at an explanation or plan.\n", "")
         elif flow_pre is not None and flow_pre.gated and needs_setup:
             flow_turn = flowrun.setup_turn(project, resolved, cfg, kind, pname)
         if kind == "api":

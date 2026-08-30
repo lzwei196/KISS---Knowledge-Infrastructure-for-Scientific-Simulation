@@ -93,8 +93,9 @@ def pre(project: Path, text: str, names: list[str], catalog, action: dict | None
         projectrun.set_stage(project, display_stage(flow, ctx.state), "Revising the plan")
         return Pre(names=list(ctx.selected_kis or names), replan_reason=note or "user asked for changes")
 
-    # 2. ordinary chat stays ungated until a scientific task starts a flow
-    if ctx.state is S.NEW and not flow.resolve.is_scientific_task(text) and not names:
+    # 2. ordinary chat stays ungated until a scientific task starts a flow — with or
+    #    without a pinned KI ("thanks" in a VIC chat is not a run request)
+    if ctx.state is S.NEW and not flow.resolve.is_scientific_task(text):
         return Pre(names=list(names), gated=False)
 
     # 3. resolve which KIs the task involves — never guess
@@ -382,14 +383,52 @@ def after(project: Path, t: Turn | None, reply: str, provider_note: str = "",
 
 def wrapper_commands() -> dict:
     """The receipt wrappers a CLI agent must use (plan v3 B7 / 06 §3.6). They are the app
-    itself: the frozen binary accepts CLI sub-commands; from source it is `python -m kiss_cli`.
-    The exact string is also what the Claude Bash allow-list grants — nothing else runs."""
+    itself — the frozen binary accepts CLI sub-commands; from source `python -m kiss_cli`.
+    The exact string is also what the Claude Bash allow-list grants — nothing else runs.
+
+    codex desktop review #4: the frozen binary is "GeoForge Desktop" (a space), which is
+    neither shell-safe nor a stable allow-list prefix. So the wrapper is a tiny launcher
+    script at a space-free path (``~/.kiss/bin/geoforge-flow``) that execs the real binary."""
+    import os as _os
+    import shlex
     import sys as _sys
-    if getattr(_sys, "frozen", False):
-        base = _sys.executable
-    else:
+    if not getattr(_sys, "frozen", False):
         base = f"{_sys.executable} -m kiss_cli"
+        if " " in _sys.executable:
+            base = f"{shlex.quote(_sys.executable)} -m kiss_cli"
+        return {"run_tool": f"{base} run-tool", "fetch": f"{base} fetch"}
+    launcher = _launcher_path()
+    if launcher is None:
+        base = shlex.quote(_sys.executable)
+    else:
+        base = str(launcher)
     return {"run_tool": f"{base} run-tool", "fetch": f"{base} fetch"}
+
+
+def _launcher_path() -> Path | None:
+    """Create (once) a launcher for the frozen binary at a path without spaces."""
+    import os as _os
+    import stat
+    import sys as _sys
+    exe = Path(_sys.executable)
+    home = Path.home()
+    candidates = [home / ".kiss" / "bin", Path(_os.environ.get("TMPDIR", "/tmp")) / "geoforge-bin"]
+    for d in candidates:
+        if " " in str(d):
+            continue
+        try:
+            d.mkdir(parents=True, exist_ok=True)
+            if _os.name == "nt":
+                p = d / "geoforge-flow.cmd"
+                p.write_text(f'@echo off\r\n"{exe}" %*\r\n', encoding="utf-8")
+            else:
+                p = d / "geoforge-flow"
+                p.write_text(f'#!/bin/sh\nexec "{exe}" "$@"\n', encoding="utf-8")
+                p.chmod(p.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
+            return p
+        except OSError:
+            continue
+    return None
 
 
 def couplings_dir() -> Path | None:
@@ -452,3 +491,44 @@ def describe_policy(t: Turn) -> str:
         return t.session.flow.policy.describe(t.policy)
     except Exception:  # noqa: BLE001
         return ""
+
+
+def auto_turn(project: Path, provider_kind: str, provider_name: str) -> Turn | None:
+    """The 'choose a model' turn when nothing resolved (codex desktop review #1/#2): a real
+    FlowSession in RESOLVING_KIS (API tools filtered to read-only + report/request; CLI argv
+    read-only), never project writes, never a worktree. Providers that cannot be gated are
+    refused for scientific projects."""
+    flow = _flow()
+    fs = flowgate.FlowSession.open(project, {})
+    provider = "api" if provider_kind == "api" else provider_name
+    if provider in flow.policy.NOT_OFFERED:
+        raise flowgate.FlowDenied(
+            f"{provider} cannot be held to the planning gate; choose Claude Code, Codex, Kimi or "
+            f"an API provider for scientific projects")
+    pp = flow.policy.for_state(fs.state, provider, project, {})
+    return Turn(fs, False, "", False, pp, f"flow:{fs.state.value}", None, {})
+
+
+def setup_allowed(project: Path) -> bool:
+    """Scientific-software setup may run only after the plan is approved (APPROVED →
+    SETUP_REQUIRED → SETUP_RUNNING), or in a project with no flow at all."""
+    if not (Path(project) / "runs" / "flow-state.json").is_file():
+        return True
+    flow = _flow()
+    S = flow.states.State
+    st = flow.states.FlowContext.load(project).state
+    return st in (S.APPROVED, S.SETUP_REQUIRED, S.SETUP_RUNNING, S.SETUP_VERIFIED)
+
+
+def provider_refusal(provider_kind: str, provider_name: str) -> str | None:
+    """Why a provider may not drive a flow-managed (scientific) chat, or None (kimi desktop
+    review #2: NOT_OFFERED providers must be refused, not merely labelled)."""
+    provider = "api" if provider_kind == "api" else (provider_name or "")
+    try:
+        flow = _flow()
+    except Exception:  # noqa: BLE001
+        return None
+    if provider in flow.policy.NOT_OFFERED:
+        return (f"{provider} cannot be held to the planning gate (no per-tool policy); for scientific "
+                f"projects use Claude Code, Codex, Kimi or an API provider.")
+    return None
