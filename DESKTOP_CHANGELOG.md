@@ -6,6 +6,21 @@ Desktop update agents should read the JSON manifest first and use this file to e
 这是 `release-manifest.json` 的用户版说明。Windows、macOS 和 Linux 的更新 Agent
 应先读取 JSON，再用本文件向用户解释更新内容。
 
+## v0.6.52 — 2026-09-03
+
+### 中文
+
+- 修复干净 Linux/Windows 环境没有安装 GeoPandas 时，可选地理空间能力名称未初始化，
+  导致发布测试无法注入替身的问题。运行时仍由显式能力标志控制，不会假装依赖可用。
+- 延续 v0.6.51 的失败关闭发布闸门和 v0.6.50 的完整 Desktop 功能集。
+
+### English
+
+- Define optional geospatial dependency handles consistently when GeoPandas is absent, allowing
+  clean Linux/Windows environments to probe and test the capability without pretending it is
+  installed.
+- Retains v0.6.51's fail-closed release gate and the complete v0.6.50 Desktop feature set.
+
 ## v0.6.51 — 2026-09-03
 
 ### 中文

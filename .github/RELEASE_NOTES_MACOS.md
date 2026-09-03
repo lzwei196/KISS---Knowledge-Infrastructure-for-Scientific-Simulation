@@ -1,13 +1,14 @@
 GeoForge Desktop — 127 Earth-system models with their KISS Knowledge
 Infrastructures, driven by the GeoForge agent.
 
-## What is new in v0.6.51
+## What is new in v0.6.52
 
-v0.6.51 is the complete cross-platform reissue of v0.6.50. The first v0.6.50
+v0.6.52 is the complete cross-platform reissue of v0.6.50. The first v0.6.50
 workflow stopped during tests but mistakenly published a KI-only release with no
 Desktop application. The release gate now fails closed unless the macOS arm64,
 Windows x86_64 and Linux x86_64 Desktop archives all build, pass frozen-runtime
-smoke tests and reach the release job.
+smoke tests and reach the release job. It also makes optional geospatial capability
+probing deterministic on clean machines where GeoPandas is not installed.
 
 - The KI harness now has a real plan → user approval → execute → verify gate.
   Downloads and model tools remain unavailable until the recorded data inventory

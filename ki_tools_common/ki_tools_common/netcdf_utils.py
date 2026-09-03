@@ -40,6 +40,11 @@ try:
 except ImportError:
     _HAS_NETCDF4 = False
 
+# Keep the optional names defined even when the dependency is absent.  This
+# makes capability probing and dependency-injection tests deterministic on a
+# clean machine, while `_HAS_GEO` remains the authoritative runtime guard.
+gpd = None
+Point = None
 try:
     import geopandas as gpd
     from shapely.geometry import Point
