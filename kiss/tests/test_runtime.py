@@ -381,7 +381,8 @@ class ProviderHealthTests(unittest.TestCase):
              mock.patch.object(provider, "health", return_value=providers.ProviderHealth(
                  True, True, "signed in")), \
              mock.patch.object(provider, "path", return_value="/bin/kimi"), \
-            mock.patch.object(paths, "have_sandbox", return_value=False), \
+             mock.patch.object(paths, "have_sandbox", return_value=False), \
+             mock.patch.object(settings, "kimi_security_mode", return_value="full"), \
              mock.patch.object(providers.subprocess, "Popen") as popen:
             proc = popen.return_value
             proc.stdout = io.StringIO("")
@@ -990,11 +991,16 @@ class KimiSecurityTests(unittest.TestCase):
     def test_scoped_kimi_uses_explicit_skills_instead_of_watching_home(self):
         with tempfile.TemporaryDirectory() as td:
             cwd = Path(td)
+            user_skills = cwd / "user-skills"
+            user_skills.mkdir()
             project_skills = cwd / ".agents" / "skills"
             project_skills.mkdir(parents=True)
-            dirs = kimi_security.explicit_skill_dirs(cwd)
+            with mock.patch.object(
+                    kimi_security, "runtime_read_roots",
+                    return_value=[cwd / ".kimi-code", user_skills]):
+                dirs = kimi_security.explicit_skill_dirs(cwd)
 
-            self.assertIn((Path.home() / ".agents" / "skills").resolve(), dirs)
+            self.assertIn(user_skills.resolve(), dirs)
             self.assertIn(project_skills.resolve(), dirs)
             self.assertNotIn(Path.home().resolve(), dirs)
 
