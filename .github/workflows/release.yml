@@ -407,7 +407,10 @@ jobs:
           shopt -s nullglob
           ASSETS=(GeoForge-Desktop-* kiss-macos-*.tar.gz kiss-linux-*.tar.gz
                   kiss-windows-*.zip kiss-ki-packages.tar.gz)
-          APPS=(GeoForge-Desktop-*)
+          # Require the primary Apple-Silicon application specifically.  The
+          # broader GeoForge-Desktop-* pattern also matches Linux and Windows
+          # archives and previously could publish after the macOS build failed.
+          APPS=(GeoForge-Desktop-macos-arm64.app.zip)
           if [ ${#APPS[@]} -eq 0 ]; then
             echo "::error::no .app was built — refusing to publish a release with no application"
             exit 1
