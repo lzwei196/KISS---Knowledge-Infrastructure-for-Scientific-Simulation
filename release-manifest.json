@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "product": "GeoForge Desktop",
-  "version": "0.6.50",
+  "version": "0.6.51",
   "release_date": "2026-09-03",
   "source": {
     "branch": "mac-version",

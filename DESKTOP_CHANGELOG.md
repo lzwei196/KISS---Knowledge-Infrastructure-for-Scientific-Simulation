@@ -6,6 +6,32 @@ Desktop update agents should read the JSON manifest first and use this file to e
 这是 `release-manifest.json` 的用户版说明。Windows、macOS 和 Linux 的更新 Agent
 应先读取 JSON，再用本文件向用户解释更新内容。
 
+## v0.6.51 — 2026-09-03
+
+### 中文
+
+- **完整重发 v0.6.50 的功能**：首次 `v0.6.50` CI 因两项依赖开发机环境的测试而停止，
+  但旧发布脚本仍错误地公开了一个只有 KI 包、没有 Desktop App 的不完整 Release。
+- **发布闸门已修复**：只有 macOS Apple Silicon、Windows x86_64 和 Linux x86_64
+  三个平台均构建、冻结运行检查并上传成功，GitHub 才能公开 Release；精确文件检查不再
+  使用会把不存在文件误判为存在的 Bash 数组长度。
+- **测试可跨机器复现**：Kimi 路径权限测试不再依赖开发机的安全模式或用户主目录。
+
+除上述发布工程修复外，Desktop 功能与下面完整记录的 v0.6.50 相同。
+
+### English
+
+- **Complete reissue of the v0.6.50 feature set:** the first v0.6.50 CI run stopped on two
+  tests that accidentally depended on the developer machine, while the old release job still
+  published an incomplete metadata/KI-only release with no Desktop application.
+- **Fail-closed release gate:** a public release now requires successful builds, frozen-runtime
+  smoke tests and uploaded Desktop archives for macOS Apple Silicon, Windows x86_64 and Linux
+  x86_64. Exact file checks replace the Bash-array test that misclassified a missing file.
+- **Host-independent tests:** Kimi path-permission tests no longer depend on a developer's security
+  setting or home-directory layout.
+
+Desktop behavior is otherwise the v0.6.50 feature set documented in full below.
+
 ## v0.6.50 — 2026-09-03
 
 ### 中文
