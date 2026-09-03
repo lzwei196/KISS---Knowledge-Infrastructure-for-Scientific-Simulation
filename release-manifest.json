@@ -5,7 +5,7 @@
   "release_date": "2026-09-03",
   "source": {
     "branch": "mac-version",
-    "code_commit": "699b5fe4db2fe5e8d1e41d85fbd122bf6ee6bc66",
+    "code_commit": "ecb6e0eb761e74e426db18c1e4617985667baf3c",
     "repository": "https://github.com/lzwei196/KISS---Knowledge-Infrastructure-for-Scientific-Simulation"
   },
   "ki_library": {
