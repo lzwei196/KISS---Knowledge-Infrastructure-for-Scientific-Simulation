@@ -375,12 +375,10 @@ jobs:
 
   release:
     needs: [build, build-linux, build-windows]
-    # Publish whatever actually built. GitHub's Intel runners (macos-13) are
-    # scarce enough that the x86_64 job sat queued for six hours while arm64
-    # finished in one minute, and a strict `needs` held every release hostage
-    # to a machine that never arrived. Apple Silicon users should not wait on
-    # an Intel runner; the missing architecture is reported, not pretended away.
-    if: always()
+    # A public release is a cross-platform deliverable, not a metadata-only
+    # fallback. Intel macOS remains best effort, but arm64 macOS, Linux and
+    # Windows must all build successfully before this job is allowed to run.
+    if: ${{ always() && needs.build.result == 'success' && needs.build-linux.result == 'success' && needs.build-windows.result == 'success' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -407,14 +405,20 @@ jobs:
           shopt -s nullglob
           ASSETS=(GeoForge-Desktop-* kiss-macos-*.tar.gz kiss-linux-*.tar.gz
                   kiss-windows-*.zip kiss-ki-packages.tar.gz)
-          # Require the primary Apple-Silicon application specifically.  The
-          # broader GeoForge-Desktop-* pattern also matches Linux and Windows
-          # archives and previously could publish after the macOS build failed.
-          APPS=(GeoForge-Desktop-macos-arm64.app.zip)
-          if [ ${#APPS[@]} -eq 0 ]; then
-            echo "::error::no .app was built — refusing to publish a release with no application"
-            exit 1
-          fi
+          # Check exact paths with `-f`. An exact word in a Bash array is still
+          # present when the file is absent; array length therefore cannot be
+          # used as an existence check here.
+          REQUIRED_ASSETS=(
+            GeoForge-Desktop-macos-arm64.app.zip
+            GeoForge-Desktop-linux-x86_64.tar.gz
+            GeoForge-Desktop-windows-x86_64.zip
+          )
+          for required in "${REQUIRED_ASSETS[@]}"; do
+            if [ ! -f "$required" ]; then
+              echo "::error::required release asset is missing: $required"
+              exit 1
+            fi
+          done
           # A release whose tag was deleted and re-pushed survives as a DRAFT,
           # invisible to everyone but the repository owner and easily mistaken
           # for "the build never shipped". Clear any draft on this tag first.
