@@ -1,0 +1,130 @@
+# Coupling Config v2: PyPSA -> CWatM
+# Hand-authored 2026-05-22 — electricity price/availability → irrigation pumping energy constraint
+
+coupling_config_version: '2.0'
+generated: '2026-05-22'
+generator: hand_authored
+metadata:
+  edge_id: PyPSA_to_CWatM
+  source_model: PyPSA
+  target_model: CWatM
+  source_domain: energy
+  target_domain: hydrology
+  edge_type: type3b_cross_domain
+  n_forward_variables: 1
+  n_combine_variables: 0
+  n_plausible_feedback: 1
+  n_review_feedback: 0
+  is_feedback: false
+forward_edges:
+- canonical_id: electricity_price
+  source_canonical_id: electricity_price
+  target_canonical_id: electricity_price
+  match_type: transform_semantic
+  source_local_name: buses_marginal_price
+  source_unit: CNY/MWh
+  target_local_name: irrigation_energy_cost
+  target_unit: CNY/m3_water_pumped
+combine_edges: []
+plausible_feedback:
+- canonical_id: discharge
+  source_canonical_id: discharge
+  target_canonical_id: hydro_inflow
+  match_type: review_feedback
+  note: CWatM reservoir discharge → PyPSA hydro power availability. Declare as SCC
+    for energy-water feedback.
+compatibility:
+- canonical_id: electricity_price
+  source_canonical_id: electricity_price
+  target_canonical_id: electricity_price
+  match_type: transform_semantic
+  primitives_needed:
+  - transform_semantic
+  - convert_units
+  - exchange_data
+  - validate_boundary
+  details:
+    transform_semantic: &t1
+      type: electricity_to_pumping_cost
+      transform: "cost_CNY_m3 = elec_price_CNYMWh * pump_energy_kWh_m3 / 1000.0"
+      requires:
+      - electricity_price
+      source_canonical: electricity_price
+      target_canonical: electricity_price
+      note: "PyPSA marginal electricity price (CNY/MWh) × specific pumping energy\n\
+        (kWh/m3 lifted) = pumping cost per m3 water.\n\
+        Typical values for Huaihe irrigation:\n\
+        - shallow well pumping (10-30m lift): 0.3-0.8 kWh/m3\n\
+        - deep well pumping (50-100m): 1.0-2.5 kWh/m3\n\
+        - surface diversion (no pump): 0 kWh/m3\n\
+        CWatM uses this to constrain irrigation demand: if cost > threshold,\n\
+        farmers reduce irrigation application."
+      canonical_id: electricity_price
+    convert_units: &c1
+      status: explicit
+      formula: cost_CNY_m3 = elec_CNYMWh * pump_kWhm3 / 1000
+      from_unit: CNY/MWh
+      to_unit: CNY/m3
+      canonical_id: electricity_price
+    exchange_data: &e1
+      status: scalar_per_timestep
+      variable_mapping:
+        source_name: buses_marginal_price
+        target_name: irrigation_energy_cost
+      note: PyPSA produces hourly electricity prices. Aggregate to daily mean for
+        CWatM daily time step. Write to CWatM's economic_input/ directory as a
+        time series (date, cost_CNY_m3).
+      canonical_id: electricity_price
+    validate_boundary: &v1
+      checks:
+      - no_nan
+      - 'range: [0.0, 5.0]'
+      note: Pumping cost > 5 CNY/m3 is prohibitive for most crops; triggers irrigation
+        cutoff in CWatM demand module.
+      canonical_id: electricity_price
+primitives_needed:
+- transform_semantic
+- convert_units
+- exchange_data
+- validate_boundary
+execution_order:
+- transform_semantic
+- convert_units
+- exchange_data
+- validate_boundary
+primitive_configs:
+  transform_semantic:
+  - *t1
+  convert_units:
+  - *c1
+  exchange_data:
+  - *e1
+  validate_boundary:
+  - *v1
+risks:
+  total_traps: 2
+  automatable: 1
+  judgment_required: 1
+  traps:
+  - canonical_var: electricity_price
+    model: PyPSA->CWatM
+    trap_id: pumping_energy_assumption
+    description: The specific pumping energy (kWh/m3) varies widely by aquifer depth,
+      pump efficiency, and local lift. Using a single default value ignores spatial
+      heterogeneity. Deep well districts (e.g. North Anhui) need 2× more energy
+      than shallow Shandong wells.
+    detection: CWatM irrigation demand insensitive to electricity price spike
+    fix: Use depth-stratified pumping energy based on Fan WTD and GLHYMPS K maps.
+      Assign pump_kWhm3 = 0.3 for WTD < 5m, 1.0 for 5-20m, 2.0 for > 20m.
+    is_unit_trap: false
+    automatable: false
+  - canonical_var: electricity_price
+    model: PyPSA->CWatM
+    trap_id: currency_unit_CNY_not_EUR
+    description: PyPSA-Eur default pricing is in EUR/MWh. If running a European
+      template network for China, electricity prices are in EUR but CWatM expects
+      CNY. Off by ~8× at 2024 EUR/CNY exchange rate.
+    detection: Irrigation cost > 20 CNY/m3 (prohibitive for all crops)
+    fix: Confirm PyPSA network uses CNY/MWh; if EUR, multiply by 8.0 (2024 rate)
+    is_unit_trap: true
+    automatable: true

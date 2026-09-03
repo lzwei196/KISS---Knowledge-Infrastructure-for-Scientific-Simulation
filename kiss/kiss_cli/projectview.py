@@ -198,7 +198,7 @@ def _normalize(project: Path, raw: dict, *, source: str) -> dict:
     raw_panels = raw.get("panels") or []
     if not isinstance(raw_panels, list) or len(raw_panels) > MAX_PANELS:
         raise ProjectViewError(f"project view supports at most {MAX_PANELS} panels")
-    panels = [_normalize_panel(project, item, index) for index, item in enumerate(raw_panels)]
+    panels = _label_panels(project, [_normalize_panel(project, item, index) for index, item in enumerate(raw_panels)])
     identifiers = [item["id"] for item in panels]
     if len(set(identifiers)) != len(identifiers):
         raise ProjectViewError("project view panel ids must be unique")
@@ -222,6 +222,53 @@ def _normalize(project: Path, raw: dict, *, source: str) -> dict:
     }
     result["revision"] = _revision(project, result)
     return result
+
+
+# --- evidence labels (plan v3 B1 item 8 / issue §D) -----------------------------------
+# In a flow-managed project a panel is "verified" only when its file is named by a signed
+# run/download receipt bound to the current approval whose validation passed; every other
+# artifact is shown as experimental / unvalidated. Non-flow projects get no label.
+
+def _receipted_outputs(project: Path) -> dict | None:
+    """{rel_path: validation_status} from verified receipts, or None when not flow-managed."""
+    if not (project / "runs" / "flow-state.json").is_file():
+        return None
+    try:
+        from . import flowgate
+        flow = flowgate.load()
+        plan, _inv = flow.plan.read_artifacts(project)
+        approval = flow.approval.read(project)
+        cur = flow.approval.approval_id(approval or {})
+        out: dict = {}
+        for sub in (flow.receipts.RUNS_SUB, flow.receipts.DATA_SUB):
+            for _p, doc, ok in flow.receipts._read_all(project, sub):
+                if not ok or not cur or doc.get("approval_sha256") != cur:
+                    continue
+                status = (doc.get("validation") or {}).get("status", "passed" if doc.get("kind") == "download" else "not_run")
+                for entry in (doc.get("outputs") or []) + (doc.get("raw_files") or []) + (doc.get("processed_files") or []):
+                    rel = str(entry.get("path") or "")
+                    if rel:
+                        out[rel] = status
+        return out
+    except Exception:  # noqa: BLE001 — labelling must never break publishing; unknown = unvalidated
+        return {}
+
+
+def _label_panels(project: Path, panels: list[dict]) -> list[dict]:
+    receipted = _receipted_outputs(project)
+    if receipted is None:
+        return panels
+    for panel in panels:
+        rel = str(panel.get("path") or "")
+        status = receipted.get(rel)
+        if status == "passed":
+            panel["evidence"] = "verified"
+        else:
+            panel["evidence"] = "unvalidated"
+            title = str(panel.get("title") or "")
+            if "unvalidated" not in title.casefold():
+                panel["title"] = (title + " — experimental / unvalidated")[:160]
+    return panels
 
 
 def publish(project: Path, spec: dict, *, source: str = "agent") -> dict:
@@ -280,7 +327,7 @@ def _automatic(project: Path) -> dict:
                 continue
             if len(paths) >= MAX_PANELS:
                 break
-    panels = [_auto_panel(project, path, index) for index, path in enumerate(paths)]
+    panels = _label_panels(project, [_auto_panel(project, path, index) for index, path in enumerate(paths)])
     state = {
         "version": 1,
         "title": "Project view",

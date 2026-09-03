@@ -1,0 +1,511 @@
+ata_card_version: '1.0'
+generated: '2026-04-17'
+generator: ata_pipeline1_card_gen.py
+identity:
+  model_id: SWMM
+  model_name: EPA SWMM 5.2
+  domain: urban_drainage
+  secondary_domains:
+  - stormwater
+  - water_quality
+  language: C (engine) / Python (API)
+  binary_path: pip install pyswmm
+inputs:
+- canonical_id: precipitation_rate
+  local_name: rainfall
+  unit: mm/hr (INTENSITY) or mm/interval (VOLUME)
+  valid_range:
+  - 0.0
+  - 300.0
+  format: ascii_text
+  semantic_type: flux_density
+  unit_confidence: documented
+  mapping_confidence: exact_alias
+  input_category: forcing
+  conversion_notes:
+    conversion_from_cmfd: CMFD mm/3hr -> depends on FORMAT in [RAINGAGES]
+- canonical_id: evapotranspiration
+  local_name: evaporation
+  unit: mm/day
+  valid_range:
+  - 0.0
+  - 15.0
+  format: ascii_text
+  semantic_type: flux_density
+  unit_confidence: documented
+  mapping_confidence: exact_alias
+  input_category: forcing
+- canonical_id: water_surface_elevation
+  local_name: outfall_water_level
+  unit: m
+  valid_range:
+  - 0.0
+  - 100.0
+  format: fortran_free
+  semantic_type: state
+  unit_confidence: documented
+  mapping_confidence: exact_alias
+  input_category: boundary_conditions
+  conversion_notes:
+    conversion_from_cama: 'CaMa sfcelv (m) → SWMM outfall stage (m): direct, same
+      unit. Must match datum.'
+- canonical_id: surface_runoff
+  local_name: subcatchment_inflow
+  unit: m3/s
+  valid_range:
+  - 0.0
+  - null
+  format: 'inp file: external inflow time series at'
+  semantic_type: flux_density
+  unit_confidence: documented
+  mapping_confidence: exact_alias
+  input_category: boundary_conditions
+- canonical_id: impervious_fraction
+  local_name: imperv
+  unit: fraction
+  semantic_type: ratio
+  mapping_confidence: inferred
+  origin: coupled_model
+  origin_confidence: high
+  format: unspecified
+- canonical_id: land_use_fraction
+  local_name: land_use
+  unit: fraction
+  semantic_type: ratio
+  mapping_confidence: inferred
+  origin: coupled_model
+  origin_confidence: high
+  format: unspecified
+outputs:
+- canonical_id: discharge
+  local_name: outfall_discharge
+  unit: m3/s (for CMS units)
+  valid_range:
+  - 0.0
+  - null
+  format: ascii_text
+  semantic_type: volumetric_flow
+  unit_confidence: documented
+  mapping_confidence: exact_alias
+  output_section: primary
+  origin: simulated
+  origin_confidence: high
+- canonical_id: floodplain_depth
+  local_name: node_flooding
+  unit: m3
+  valid_range:
+  - 0.0
+  - null
+  format: unspecified
+  semantic_type: unknown
+  unit_confidence: documented
+  mapping_confidence: exact_alias
+  output_section: primary
+  origin: simulated
+  origin_confidence: high
+- canonical_id: river_depth
+  local_name: node_depth
+  unit: m (for CMS units)
+  valid_range:
+  - 0.0
+  - null
+  format: unspecified
+  semantic_type: unknown
+  unit_confidence: documented
+  mapping_confidence: substring
+  output_section: primary
+  origin: simulated
+  origin_confidence: high
+- canonical_id: discharge
+  local_name: conduit_flow
+  unit: m3/s (for CMS units)
+  valid_range: null
+  format: unspecified
+  semantic_type: volumetric_flow
+  unit_confidence: documented
+  mapping_confidence: exact_alias
+  output_section: primary
+  origin: simulated
+  origin_confidence: high
+- canonical_id: surface_runoff
+  local_name: runoff
+  unit: m3/s
+  semantic_type: volumetric_flow
+  mapping_confidence: inferred
+  origin: simulated
+  origin_confidence: high
+  output_section: primary
+  format: unspecified
+  valid_range:
+  - 0
+  - null
+spatial:
+  type: regular_grid
+  resolution: unspecified
+  crs: EPSG:4326
+  source: skill_md
+temporal:
+  resolution: daily
+  calendar: standard
+  source: format_spec
+risks:
+  known_traps:
+  - canonical_var: discharge
+    trap_id: unstable_oscillation
+    description: Unstable oscillating flow in conduits with adverse slopes
+    detection: Flow values alternate sign or oscillate
+    fix: Use KINWAVE for systems with adverse slopes, or fix slopes
+    is_unit_trap: false
+    automatable: true
+    severity: medium
+  - canonical_var: discharge
+    trap_id: unit_system_mismatch
+    description: FLOW_UNITS vs input dimensions mismatch — silent wrong results
+    detection: Results off by ~3 (ft/m) or ~10 (acres/ha)
+    fix: Verify ALL dimensions match FLOW_UNITS system
+    is_unit_trap: true
+    automatable: true
+    severity: high
+  - canonical_var: discharge
+    trap_id: vic_inflow_conversion
+    description: VIC mm/day to m3/s conversion error — missing /1000 or /86400
+    detection: Inflow magnitude unrealistic
+    fix: Q (m3/s) = runoff (mm/day) * area (m2) / 86400000
+    is_unit_trap: true
+    automatable: true
+    severity: high
+  - canonical_var: discharge
+    trap_id: dt_001
+    description: '{''description'': ''SWMM simulation completes but the routing continuity
+      error reported in the RPT file exceeds 5%. Results are numerically unreliable.'',
+      ''error_pattern'': ''Routing Continuity Error.*[5-9]'
+    detection: '{''root_cause'': ''The routing timestep is too large for the dynamic
+      wave solver to resolve flow transitions in the pipe network.'', ''explanation'':
+      ''Dynamic wave routing solves the full Saint-Venant equat'
+    fix: '{''action'': ''Reduce ROUTING_STEP and WET_STEP in [OPTIONS]. Start with
+      15s, then try 10s, then 5s. Each reduction approximately halves the continuity
+      error at the cost of doubling runtime.'', ''tool_to_r'
+    is_unit_trap: false
+    automatable: true
+    severity: medium
+  - canonical_var: discharge
+    trap_id: dt_002
+    description: '{''description'': ''Dynamic wave routing produces oscillating flow
+      directions in some conduits. Link flow alternates between positive and negative
+      values every timestep. Continuity error may be very high'
+    detection: '{''root_cause'': ''One or more conduits have adverse slopes (outlet
+      invert higher than inlet invert), causing the dynamic wave solver to oscillate
+      between forward and reverse flow.'', ''explanation'': ''An a'
+    fix: '{''action'': ''Identify conduits with adverse slopes and correct invert
+      elevations. Use the validate_network_connectivity tool to find all adverse slopes.'',
+      ''tool_to_run'': ''validate_network_connectivity'''
+    is_unit_trap: false
+    automatable: false
+    severity: medium
+  - canonical_var: discharge
+    trap_id: dt_007
+    description: '{''description'': "SWMM crashes during simulation with a division
+      by zero or produces NaN flow values. The RPT file may show ''ERROR 141: conduit
+      [name] has zero length'' or the simulation produces NaN/In'
+    detection: '{''root_cause'': ''A conduit has length = 0, which causes division
+      by zero when computing conduit slope, velocity, or friction losses.'', ''explanation'':
+      ''Conduit hydraulic computations require dividing by'
+    fix: '{''action'': ''Find and fix zero-length conduits. Either merge the connected
+      junctions into one, remove the conduit, or assign a minimum length (1 meter).'',
+      ''tool_to_run'': ''validate_network_connectivity'''
+    is_unit_trap: false
+    automatable: true
+    severity: medium
+  - canonical_var: discharge
+    trap_id: dt_012
+    description: '{''description'': ''Combined sewer model shows zero flow during
+      dry weather periods. Pipes that should carry sanitary flow are empty. Overflow
+      frequency at CSO structures is underestimated.'', ''error_patt'
+    detection: '{''root_cause'': ''The [DWF] (Dry Weather Flow) section is missing
+      or empty for a combined sewer system model.'', ''explanation'': ''Combined sewers
+      carry both stormwater and sanitary wastewater. During dry '
+    fix: '{''action'': ''Add [DWF] entries for junctions receiving sanitary flow.
+      Specify average dry weather flow rate and optional time patterns (hourly, daily,
+      monthly variation).'', ''tool_to_run'': '''', ''manual_s'
+    is_unit_trap: false
+    automatable: true
+    severity: medium
+  - canonical_var: discharge
+    trap_id: dt_014
+    description: '{''description'': ''Simulated velocities are unreasonably fast or
+      slow. Flow reaches the outfall much faster or slower than expected. Peak flow
+      timing is off but magnitude may be reasonable.'', ''error_pat'
+    detection: '{''root_cause'': "Manning''s roughness coefficient (n) is wrong —
+      too low (smooth, fast) or too high (rough, slow) for the pipe material and condition.",
+      ''explanation'': "Manning''s equation relates flow v'
+    fix: '{''action'': "Verify Manning''s n values against standard tables for the
+      pipe material. Typical range for pipes: 0.009-0.025.", ''tool_to_run'': ''validate_network_connectivity'',
+      ''manual_steps'': ["Review al'
+    is_unit_trap: true
+    automatable: true
+    severity: high
+  - canonical_var: precipitation_rate
+    trap_id: dt_004
+    description: '{''description'': ''SWMM simulation runs to completion without errors,
+      but flow magnitudes, velocities, or water depths are wrong by orders of magnitude.
+      Pipe capacities seem impossibly large or small. N'
+    detection: '{''root_cause'': ''FLOW_UNITS setting (CFS vs CMS) does not match
+      the units used for pipe dimensions, subcatchment areas, rainfall depths, or
+      invert elevations.'', ''explanation'': "FLOW_UNITS=CMS means ALL'
+    fix: '{''action'': ''Verify every dimensional input matches the FLOW_UNITS convention.
+      Check pipe diameters (m for CMS), areas (ha for CMS), elevations (m for CMS),
+      rainfall (mm for CMS).'', ''tool_to_run'': ''val'
+    is_unit_trap: true
+    automatable: true
+    severity: high
+  - canonical_var: precipitation_rate
+    trap_id: dt_008
+    description: '{''description'': "SWMM reports ''ERROR 143: no outfall node defined''
+      or simulation runs but all nodes flood because water has no exit from the system.",
+      ''error_pattern'': ''ERROR 143|no outfall'', ''detecti'
+    detection: '{''root_cause'': ''The [OUTFALLS] section is missing or empty. Without
+      an outfall, water entering the drainage system has nowhere to exit.'', ''explanation'':
+      ''Every SWMM model must have at least one outfal'
+    fix: '{''action'': ''Add at least one outfall node to the [OUTFALLS] section.
+      Connect it to the downstream end of the drainage network via a conduit.'', ''tool_to_run'':
+      ''create_drainage_network'', ''manual_steps'':'
+    is_unit_trap: false
+    automatable: false
+    severity: medium
+  - canonical_var: precipitation_rate
+    trap_id: dt_009
+    description: '{''description'': ''SWMM simulation runs successfully but runoff
+      volumes are wrong by a factor equal to the number of intervals per hour. For
+      5-minute data, runoff is 12x too high (FORMAT=INTENSITY with '
+    detection: '{''root_cause'': ''The RAINGAGE FORMAT field (INTENSITY or VOLUME)
+      does not match how the rainfall data values are encoded.'', ''explanation'':
+      ''If data records depth per interval (e.g., 2.5 mm fell in this'
+    fix: '{''action'': ''Verify the data convention by checking the original data
+      source documentation. Most automated gauges record VOLUME (depth per interval).
+      Most gridded model forcing provides INTENSITY (rate'
+    is_unit_trap: true
+    automatable: true
+    severity: high
+  - canonical_var: precipitation_rate
+    trap_id: dt_011
+    description: '{''description'': ''LID controls appear to have no soil water retention.
+      Bioretention cells produce runoff immediately without storing water in the soil
+      layer. Or soil never drains — stays permanently sa'
+    detection: '{''root_cause'': ''LID soil layer parameters violate the physical
+      constraint: Wilting Point < Field Capacity < Porosity.'', ''explanation'': ''Available
+      water capacity = Field Capacity - Wilting Point. If WP'
+    fix: '{''action'': ''Verify soil parameters satisfy WP < FC < Porosity. Typical
+      values: WP=0.10, FC=0.20, Porosity=0.50.'', ''tool_to_run'': ''validate_lid_params'',
+      ''manual_steps'': [''For each LID control with a So'
+    is_unit_trap: false
+    automatable: true
+    severity: medium
+  - canonical_var: water_surface_elevation
+    trap_id: dt_015
+    description: '{''description'': ''CaMa-Flood boundary condition is applied to
+      SWMM outfall, but backwater effects occur at the wrong river stage. Urban flooding
+      is triggered too early (datum offset too low) or too lat'
+    detection: '{''root_cause'': "The elevation datum used in SWMM does not match
+      CaMa-Flood''s global MSL datum. The datum_offset_m parameter is missing, wrong,
+      or has wrong sign.", ''explanation'': ''CaMa-Flood reports w'
+    fix: '{''action'': ''Determine the correct datum offset by comparing the DEM elevation
+      at the outfall with the SWMM outfall invert elevation.'', ''tool_to_run'': ''convert_cama_stage_to_outfall_bc'',
+      ''manual_steps'''
+    is_unit_trap: true
+    automatable: true
+    severity: high
+  - canonical_var: water_surface_elevation
+    trap_id: dt_020
+    description: '{''description'': "SWMM crashes at startup with ''ERROR: undefined
+      time series [name]'' or runs but uses a constant boundary condition instead
+      of the time-varying series. Outfall stage does not change dur'
+    detection: '{''root_cause'': ''An outfall with type TIMESERIES references a time
+      series name that is not defined in the [TIMESERIES] section, or the time series
+      does not cover the simulation period.'', ''explanation'':'
+    fix: '{''action'': ''Verify the time series name in [OUTFALLS] matches exactly
+      (case-sensitive) a name in [TIMESERIES]. Verify the time series covers the simulation
+      period.'', ''tool_to_run'': ''validate_inp_file'''
+    is_unit_trap: true
+    automatable: true
+    severity: high
+  - canonical_var: surface_runoff
+    trap_id: rainfall_format_mismatch
+    description: INTENSITY vs VOLUME format mismatch — 12x error for 5-min data
+    detection: Runoff coefficient > 1.0 or unrealistic peak flows
+    fix: Match FORMAT to actual data type in RAINGAGES
+    is_unit_trap: false
+    automatable: true
+    severity: medium
+  - canonical_var: surface_runoff
+    trap_id: subcatchment_width_wrong
+    description: Subcatchment width too large produces too-peaked hydrograph
+    detection: Runoff response much faster than expected
+    fix: Width = Area / longest_overland_flow_path
+    is_unit_trap: false
+    automatable: true
+    severity: medium
+  - canonical_var: surface_runoff
+    trap_id: dt_006
+    description: '{''description'': ''Simulation runs but infiltration behavior is
+      wrong — either excessive infiltration in clay soils or no infiltration in sandy
+      soils. Runoff volumes do not match expectations. No error '
+    detection: '{''root_cause'': ''The [INFILTRATION] parameters do not match the
+      infiltration method set in [OPTIONS]. SWMM reads different columns depending
+      on the method.'', ''explanation'': ''If [OPTIONS] INFILTRATION=H'
+    fix: '{''action'': ''Verify that [INFILTRATION] parameters match the method in
+      [OPTIONS]. Check column meanings for the chosen method.'', ''tool_to_run'':
+      ''validate_subcatchments'', ''manual_steps'': [''Check [OPTION'
+    is_unit_trap: true
+    automatable: true
+    severity: high
+  - canonical_var: surface_runoff
+    trap_id: dt_010
+    description: '{''description'': ''VIC runoff is successfully converted to SWMM
+      inflow, but the flow magnitude is wrong by 3-5 orders of magnitude. Either flooding
+      occurs immediately at all boundary nodes, or external '
+    detection: '{''root_cause'': ''The unit conversion from VIC runoff (mm/day per
+      grid cell) to SWMM flow (m3/s) has a missing or wrong conversion factor.'',
+      ''explanation'': ''The correct conversion is Q(m3/s) = runoff(mm'
+    fix: '{''action'': ''Validate the conversion by computing the expected flow independently.
+      For a 0.25-degree cell at 30N with 5 mm/day runoff: Q = 5 * 6.25e8 / 86400000
+      = 36.2 m3/s. Compare with the tool outpu'
+    is_unit_trap: true
+    automatable: true
+    severity: high
+  - canonical_var: surface_runoff
+    trap_id: dt_016
+    description: '{''description'': ''Runoff hydrograph is too peaked and too fast
+      — time to peak is much shorter than expected. Total volume may be correct but
+      the hydrograph shape is wrong. No error message.'', ''error_pa'
+    detection: '{''root_cause'': ''Subcatchment width is too large, causing overland
+      flow to reach the outlet too quickly.'', ''explanation'': "SWMM models subcatchment
+      runoff using the nonlinear reservoir equation with Ma'
+    fix: '{''action'': ''Recompute width as Area / longest_overland_flow_path for
+      each subcatchment.'', ''tool_to_run'': ''compute_subcatchment_params'', ''manual_steps'':
+      [''For each subcatchment, estimate the longest fl'
+    is_unit_trap: true
+    automatable: true
+    severity: high
+  - canonical_var: surface_runoff
+    trap_id: dt_019
+    description: '{''description'': ''SWMM warns or silently clips LID area. Reported
+      LID performance (volume captured, runoff reduced) is lower than expected for
+      the specified LID area. Or the remaining non-LID subcatchm'
+    detection: '{''root_cause'': "The total LID area assigned to a subcatchment (Number
+      * Area across all LID types) exceeds the subcatchment''s total area.", ''explanation'':
+      ''In [LID_USAGE], each entry specifies Number '
+    fix: '{''action'': ''Verify total LID area per subcatchment does not exceed subcatchment
+      area. Reduce LID Number or Area if needed.'', ''tool_to_run'': ''validate_lid_params'',
+      ''manual_steps'': [''For each subcatchme'
+    is_unit_trap: true
+    automatable: true
+    severity: high
+  - canonical_var: surface_runoff
+    trap_id: dt_021
+    description: '{''description'': ''After SWMM simulation completes successfully
+      via pyswmm, accessing Simulation.routing_error or Simulation.runoff_error raises
+      AttributeError. The simulation itself ran fine — only pos'
+    detection: '{''root_cause'': ''pyswmm v2.1.0 removed the .routing_error and .runoff_error
+      attributes from the Simulation object. These were available in pyswmm 1.x but
+      silently dropped in the v2 API refactor.'', ''exp'
+    fix: '{''action'': "Parse the .rpt file for continuity errors instead of accessing
+      Simulation attributes. Use check_continuity_errors.py or manually grep the RPT
+      file for ''Continuity Error''.", ''tool_to_run'': '
+    is_unit_trap: true
+    automatable: false
+    severity: high
+  - trap_id: high_continuity_error
+    triplet_ref: dt_001
+    description: Routing continuity error > 5% — timestep too large for DYNWAVE
+    affected_output: All flow routing results
+    detection: Check model.rpt for % routing continuity error
+    fix: Reduce ROUTING_STEP to 5-10 seconds
+    is_unit_trap: false
+    automatable: true
+    severity: medium
+    source: format_spec
+  - trap_id: unstable_oscillation
+    triplet_ref: dt_002
+    description: Unstable oscillating flow in conduits with adverse slopes
+    affected_output: Conduit flow oscillates wildly
+    detection: Flow values alternate sign or oscillate
+    fix: Use KINWAVE for systems with adverse slopes, or fix slopes
+    is_unit_trap: false
+    automatable: true
+    severity: medium
+    source: format_spec
+  - trap_id: water_loss_no_ponding
+    triplet_ref: dt_003
+    description: ALLOW_PONDING=NO causes permanent water loss at flooded nodes
+    affected_output: Negative routing continuity error
+    detection: Routing error negative (water leaving system)
+    fix: Set ALLOW_PONDING=YES with non-zero Aponded
+    is_unit_trap: false
+    automatable: true
+    severity: medium
+    source: format_spec
+  - trap_id: unit_system_mismatch
+    triplet_ref: dt_004
+    description: FLOW_UNITS vs input dimensions mismatch — silent wrong results
+    affected_output: All results wrong by orders of magnitude
+    detection: Results off by ~3 (ft/m) or ~10 (acres/ha)
+    fix: Verify ALL dimensions match FLOW_UNITS system
+    is_unit_trap: true
+    automatable: true
+    severity: high
+    source: format_spec
+  - trap_id: rainfall_format_mismatch
+    triplet_ref: dt_009
+    description: INTENSITY vs VOLUME format mismatch — 12x error for 5-min data
+    affected_output: Peak flows wildly wrong
+    detection: Runoff coefficient > 1.0 or unrealistic peak flows
+    fix: Match FORMAT to actual data type in RAINGAGES
+    is_unit_trap: false
+    automatable: true
+    severity: medium
+    source: format_spec
+  - trap_id: vic_inflow_conversion
+    triplet_ref: dt_010
+    description: VIC mm/day to m3/s conversion error — missing /1000 or /86400
+    affected_output: External inflows 1000x or 86400x wrong
+    detection: Inflow magnitude unrealistic
+    fix: Q (m3/s) = runoff (mm/day) * area (m2) / 86400000
+    is_unit_trap: true
+    automatable: true
+    severity: high
+    source: format_spec
+  - trap_id: subcatchment_width_wrong
+    triplet_ref: dt_016
+    description: Subcatchment width too large produces too-peaked hydrograph
+    affected_output: Hydrograph shape (timing and peak)
+    detection: Runoff response much faster than expected
+    fix: Width = Area / longest_overland_flow_path
+    is_unit_trap: false
+    automatable: true
+    severity: medium
+    source: format_spec
+  unit_conversions: []
+coupling:
+  chain_position: upstream_producer
+  native_formats:
+  - ascii_text
+  - fortran_free
+  - 'inp file: external inflow time series at'
+  exchange_format: ascii_text
+  coupling_role: earth_system
+quality:
+  has_format_spec: true
+  has_skill_md: true
+  has_triplets: true
+  n_inputs: 4
+  n_outputs: 4
+  n_inputs_canonical: 4
+  n_outputs_canonical: 4
+  n_unmapped: 0
+  n_traps: 28
+  n_conversions: 0
+  spatial_complete: true
+  temporal_complete: true
+  unmapped_variables: []
+  validation_issues: []
+  card_status: complete

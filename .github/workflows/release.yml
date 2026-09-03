@@ -33,8 +33,17 @@ jobs:
           python-version: "3.12"
       - name: Test
         run: |
-          python -m pip install --quiet pyyaml pytest
-          python -m pytest kiss/tests -q
+          python -m pip install --quiet pyyaml pytest numpy scipy spotpy pymoo xarray
+          PYTHONPATH=kiss:ki_tools_common python -m pytest -q --import-mode=importlib \
+            kiss/tests ki_tools_common/tests/flow
+          PYTHONPATH=ki_tools_common python -m pytest -q --import-mode=importlib \
+            ki_tools_common/ki_tools_common/tests
+          PYTHONPATH=ki_tools_common:ki_tools_common/ki_tools_common \
+            python -m pytest -q --import-mode=importlib \
+            ki_tools_common/tests/test_climate_scenarios.py \
+            ki_tools_common/tests/test_units.py
+          PYTHONPATH=ki_tools_common/ki_tools_common \
+            python ki_tools_common/tests/test_debug_framework.py
 
   # Apple Silicon builds in about a minute and gates the release. Intel is a
   # separate best-effort job: `needs` waits for a job to COMPLETE, and a queued
@@ -69,36 +78,10 @@ jobs:
             --paths kiss \
             kiss/kiss_entry.py
           ./dist/kiss --help
-          # The double-clickable application: same engine, its own window and
-          # Dock icon. --windowed on macOS produces KISS.app; pywebview gives
-          # it a native WKWebView instead of shipping a browser.
-          # Self-contained: the 127 KI packages, the shared library and the
-          # verified manifests travel INSIDE the app. One download, no sidecar
-          # tarball, no first-run network. The bundle is read-only, which is
-          # fine — installing a model materialises a copy into the workdir.
-          pyinstaller --windowed --name "GeoForge Desktop" \
-            --icon assets/logo.icns \
-            --osx-bundle-identifier com.geoforge.desktop \
-            --collect-all truststore \
-            --collect-data certifi \
-            --hidden-import spotpy \
-            --hidden-import pymoo.core.problem --hidden-import pymoo.optimize \
-            --hidden-import pymoo.algorithms.moo.nsga2 \
-            --hidden-import pymoo.algorithms.moo.nsga3 \
-            --hidden-import pymoo.algorithms.moo.moead \
-            --hidden-import pymoo.util.ref_dirs \
-            --collect-binaries pymoo \
-            --copy-metadata numpy --copy-metadata PyYAML \
-            --copy-metadata spotpy --copy-metadata pymoo --copy-metadata moocore \
-            --exclude-module torch --exclude-module pandas \
-            --exclude-module matplotlib --exclude-module pyarrow \
-            --add-data "kiss/kiss_cli/web:kiss_cli/web" \
-            --add-data "models:models" \
-            --add-data "ki_tools_common:ki_tools_common" \
-            --add-data "kiss/vendor/agent-calibration-framework:agent-calibration-framework" \
-            --add-data "kiss/manifests:kiss/manifests" \
-            --paths kiss \
-            kiss/kiss_entry.py
+          # The checked-in spec is the executable build contract.  It freezes
+          # the harness and all nine flow modules as Python code and also
+          # embeds the complete KI library, web UI and manifests.
+          pyinstaller --clean --noconfirm kiss/GeoForgeDesktop.spec
           APP_VERSION="$(python -c 'import tomllib; print(tomllib.load(open("kiss/pyproject.toml", "rb"))["project"]["version"])')"
           plutil -replace CFBundleShortVersionString -string "$APP_VERSION" "dist/GeoForge Desktop.app/Contents/Info.plist"
           plutil -replace CFBundleVersion -string "$APP_VERSION" "dist/GeoForge Desktop.app/Contents/Info.plist"
@@ -134,6 +117,8 @@ jobs:
           grep -q 'KI HARNESS v1' <<< "$PROMPT" \
             || { echo "::error::the frozen build lost the KI usage contract"; \
                  grep -A1 'CONTRACT UNAVAILABLE' <<< "$PROMPT"; exit 1; }
+          curl -fsS http://127.0.0.1:18777/api/flow-status \
+            | grep -q '"ready": true'
           REPORT="$(curl -fsS 'http://127.0.0.1:18777/api/selfcheck?provider=api%3Adeepseek')"
           ! grep -q CERTIFICATE_VERIFY_FAILED <<< "$REPORT"
           grep -Eq 'HTTP (401|403)' <<< "$REPORT"
@@ -188,36 +173,7 @@ jobs:
             --paths kiss \
             kiss/kiss_entry.py
           ./dist/kiss --help
-          # The double-clickable application: same engine, its own window and
-          # Dock icon. --windowed on macOS produces KISS.app; pywebview gives
-          # it a native WKWebView instead of shipping a browser.
-          # Self-contained: the 127 KI packages, the shared library and the
-          # verified manifests travel INSIDE the app. One download, no sidecar
-          # tarball, no first-run network. The bundle is read-only, which is
-          # fine — installing a model materialises a copy into the workdir.
-          pyinstaller --windowed --name "GeoForge Desktop" \
-            --icon assets/logo.icns \
-            --osx-bundle-identifier com.geoforge.desktop \
-            --collect-all truststore \
-            --collect-data certifi \
-            --hidden-import spotpy \
-            --hidden-import pymoo.core.problem --hidden-import pymoo.optimize \
-            --hidden-import pymoo.algorithms.moo.nsga2 \
-            --hidden-import pymoo.algorithms.moo.nsga3 \
-            --hidden-import pymoo.algorithms.moo.moead \
-            --hidden-import pymoo.util.ref_dirs \
-            --collect-binaries pymoo \
-            --copy-metadata numpy --copy-metadata PyYAML \
-            --copy-metadata spotpy --copy-metadata pymoo --copy-metadata moocore \
-            --exclude-module torch --exclude-module pandas \
-            --exclude-module matplotlib --exclude-module pyarrow \
-            --add-data "kiss/kiss_cli/web:kiss_cli/web" \
-            --add-data "models:models" \
-            --add-data "ki_tools_common:ki_tools_common" \
-            --add-data "kiss/vendor/agent-calibration-framework:agent-calibration-framework" \
-            --add-data "kiss/manifests:kiss/manifests" \
-            --paths kiss \
-            kiss/kiss_entry.py
+          pyinstaller --clean --noconfirm kiss/GeoForgeDesktop.spec
           APP_VERSION="$(python -c 'import tomllib; print(tomllib.load(open("kiss/pyproject.toml", "rb"))["project"]["version"])')"
           plutil -replace CFBundleShortVersionString -string "$APP_VERSION" "dist/GeoForge Desktop.app/Contents/Info.plist"
           plutil -replace CFBundleVersion -string "$APP_VERSION" "dist/GeoForge Desktop.app/Contents/Info.plist"
@@ -276,29 +232,9 @@ jobs:
             --paths kiss \
             kiss/kiss_entry.py
           ./dist/kiss --help
-          # The self-contained desktop build: KI packages travel inside it, as
-          # on macOS, so one download is the whole product.
-          pyinstaller --onefile --name "GeoForge-Desktop" \
-            --collect-all truststore \
-            --collect-data certifi \
-            --hidden-import spotpy \
-            --hidden-import pymoo.core.problem --hidden-import pymoo.optimize \
-            --hidden-import pymoo.algorithms.moo.nsga2 \
-            --hidden-import pymoo.algorithms.moo.nsga3 \
-            --hidden-import pymoo.algorithms.moo.moead \
-            --hidden-import pymoo.util.ref_dirs \
-            --collect-binaries pymoo \
-            --copy-metadata numpy --copy-metadata PyYAML \
-            --copy-metadata spotpy --copy-metadata pymoo --copy-metadata moocore \
-            --exclude-module torch --exclude-module pandas \
-            --exclude-module matplotlib --exclude-module pyarrow \
-            --add-data "kiss/kiss_cli/web:kiss_cli/web" \
-            --add-data "models:models" \
-            --add-data "ki_tools_common:ki_tools_common" \
-            --add-data "kiss/vendor/agent-calibration-framework:agent-calibration-framework" \
-            --add-data "kiss/manifests:kiss/manifests" \
-            --paths kiss \
-            kiss/kiss_entry.py
+          # The generic spec shares the same harness/flow build contract as
+          # macOS while producing a portable one-file executable.
+          pyinstaller --clean --noconfirm kiss/KISS.spec
           ./dist/GeoForge-Desktop list | tail -2
           ./dist/GeoForge-Desktop calibration-status | grep -q '"ready": true'
 
@@ -317,7 +253,7 @@ jobs:
           # Every page the app can navigate to must exist in the bundle. A
           # missing library.html shipped once and answered the Library button
           # with a dead connection.
-          for page in / /setup /library /i18n.js /clipboard.js; do
+          for page in / /setup /library /studio /observatory /i18n.js /clipboard.js; do
             curl -fsS "http://127.0.0.1:18777$page" >/dev/null
           done
           # The KI usage contract must survive freezing. ki_tools_common is
@@ -330,6 +266,8 @@ jobs:
           grep -q 'KI HARNESS v1' <<< "$PROMPT" \
             || { echo "::error::the frozen build lost the KI usage contract"; \
                  grep -A1 'CONTRACT UNAVAILABLE' <<< "$PROMPT"; exit 1; }
+          curl -fsS http://127.0.0.1:18777/api/flow-status \
+            | grep -q '"ready": true'
           REPORT="$(curl -fsS 'http://127.0.0.1:18777/api/selfcheck?provider=api%3Adeepseek')"
           ! grep -q CERTIFICATE_VERIFY_FAILED <<< "$REPORT"
           grep -Eq 'HTTP (401|403)' <<< "$REPORT"
@@ -380,38 +318,14 @@ jobs:
             --paths kiss \
             kiss/kiss_entry.py
           ./dist/kiss.exe --help
-          # --windowed gives it no console; pywebview drives the WebView2
-          # runtime that ships with Windows 10 and 11. If that runtime is
-          # missing on a user's machine, app.py falls back to the browser.
-          pyinstaller --onefile --windowed --name "GeoForge Desktop" \
-            --icon assets/logo.ico \
-            --collect-all truststore \
-            --collect-data certifi \
-            --hidden-import spotpy \
-            --hidden-import pymoo.core.problem --hidden-import pymoo.optimize \
-            --hidden-import pymoo.algorithms.moo.nsga2 \
-            --hidden-import pymoo.algorithms.moo.nsga3 \
-            --hidden-import pymoo.algorithms.moo.moead \
-            --hidden-import pymoo.util.ref_dirs \
-            --collect-binaries pymoo \
-            --copy-metadata numpy --copy-metadata PyYAML \
-            --copy-metadata spotpy --copy-metadata pymoo --copy-metadata moocore \
-            --exclude-module torch --exclude-module pandas \
-            --exclude-module matplotlib --exclude-module pyarrow \
-            --add-data "kiss/kiss_cli/web;kiss_cli/web" \
-            --add-data "models;models" \
-            --add-data "ki_tools_common;ki_tools_common" \
-            --add-data "kiss/vendor/agent-calibration-framework;agent-calibration-framework" \
-            --add-data "kiss/manifests;kiss/manifests" \
-            --paths kiss \
-            kiss/kiss_entry.py
+          pyinstaller --clean --noconfirm kiss/KISS.spec
           test -f "dist/GeoForge Desktop.exe"
 
       - name: Smoke test the frozen HTTPS stack
         shell: bash
         run: |
           DEEPSEEK_API_KEY=definitely-invalid \
-            ./dist/kiss.exe gui --no-browser -p 18777 \
+            "./dist/GeoForge Desktop.exe" gui --no-browser -p 18777 \
             -w "$RUNNER_TEMP/geoforge-smoke" \
             > "$RUNNER_TEMP/geoforge-smoke.log" 2>&1 &
           APP_PID=$!
@@ -419,7 +333,7 @@ jobs:
             curl -fsS http://127.0.0.1:18777/api/providers >/dev/null && break
             sleep 0.5
           done
-          for page in / /setup /library /i18n.js /clipboard.js; do
+          for page in / /setup /library /studio /observatory /i18n.js /clipboard.js; do
             curl -fsS "http://127.0.0.1:18777$page" >/dev/null
           done
           # The KI usage contract must survive freezing. ki_tools_common is
@@ -432,6 +346,8 @@ jobs:
           grep -q 'KI HARNESS v1' <<< "$PROMPT" \
             || { echo "::error::the frozen build lost the KI usage contract"; \
                  grep -A1 'CONTRACT UNAVAILABLE' <<< "$PROMPT"; exit 1; }
+          curl -fsS http://127.0.0.1:18777/api/flow-status \
+            | grep -q '"ready": true'
           REPORT="$(curl -fsS 'http://127.0.0.1:18777/api/selfcheck?provider=api%3Adeepseek')"
           ! grep -q CERTIFICATE_VERIFY_FAILED <<< "$REPORT"
           grep -Eq 'HTTP (401|403)' <<< "$REPORT"

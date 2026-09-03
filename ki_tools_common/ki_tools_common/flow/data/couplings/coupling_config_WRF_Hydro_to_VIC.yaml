@@ -1,0 +1,130 @@
+# Coupling Config v2: WRF_Hydro -> VIC
+
+coupling_config_version: '2.0'
+generated: '2026-05-23'
+generator: ata_pipeline2_coupling_gen.py v2
+metadata:
+  edge_id: WRF_Hydro_to_VIC
+  source_model: WRF_Hydro
+  target_model: VIC
+  source_domain: hydrology
+  target_domain: hydrology
+  edge_type: type1_same_domain
+  n_forward_variables: 2
+  n_combine_variables: 0
+  n_plausible_feedback: 0
+  n_review_feedback: 1
+  is_feedback: false
+forward_edges:
+- canonical_id: soil_moisture
+  source_canonical_id: soil_moisture
+  target_canonical_id: soil_moisture
+  match_type: exact_canonical
+  source_local_name: soil_moisture
+  source_unit: m3/m3
+  target_local_name: sm_init
+  target_unit: mm
+- canonical_id: snow_water_equivalent
+  source_canonical_id: snow_water_equivalent
+  target_canonical_id: snow_water_equivalent
+  match_type: exact_canonical
+  source_local_name: snow_water_equivalent
+  source_unit: mm
+  target_local_name: swe_init
+  target_unit: mm
+combine_edges: []
+plausible_feedback: []
+review_feedback:
+- canonical_id: precipitation_rate
+  source_local_name: precipitation
+  target_local_name: precipitation
+  note: Flagged for review — physical plausibility uncertain
+compatibility:
+- canonical_id: soil_moisture
+  source_canonical_id: soil_moisture
+  target_canonical_id: soil_moisture
+  match_type: exact_canonical
+  primitives_needed:
+  - convert_units
+  - align_time
+  - validate_boundary
+  details:
+    convert_units: &id001
+      from_unit: m3/m3
+      to_unit: mm
+      known: false
+      canonical_id: soil_moisture
+    exchange_data:
+      status: not_needed
+      variable_mapping:
+        source_name: soil_moisture
+        target_name: sm_init
+    align_time: &id002
+      from_resolution: hourly
+      to_resolution: 3-hourly
+      direction: aggregate
+      aggregation_method: mean
+      semantic_type: state
+      canonical_id: soil_moisture
+    validate_boundary: &id004
+      checks:
+      - no_nan
+      canonical_id: soil_moisture
+- canonical_id: snow_water_equivalent
+  source_canonical_id: snow_water_equivalent
+  target_canonical_id: snow_water_equivalent
+  match_type: exact_canonical
+  primitives_needed:
+  - align_time
+  - validate_boundary
+  details:
+    convert_units:
+      status: not_needed
+      units_match: true
+    exchange_data:
+      status: not_needed
+      variable_mapping:
+        source_name: snow_water_equivalent
+        target_name: swe_init
+    align_time: &id003
+      from_resolution: hourly
+      to_resolution: 3-hourly
+      direction: aggregate
+      aggregation_method: mean
+      semantic_type: state
+      canonical_id: snow_water_equivalent
+    validate_boundary: &id005
+      checks:
+      - no_nan
+      canonical_id: snow_water_equivalent
+primitives_needed:
+- align_time
+- convert_units
+- validate_boundary
+execution_order:
+- align_time
+- convert_units
+- validate_boundary
+primitive_configs:
+  convert_units:
+  - *id001
+  exchange_data: []
+  align_time:
+  - *id002
+  - *id003
+  validate_boundary:
+  - *id004
+  - *id005
+risks:
+  total_traps: 1
+  automatable: 1
+  judgment_required: 0
+  traps:
+  - canonical_var: soil_moisture
+    model: WRF_Hydro->VIC
+    trap_id: unit_mismatch_soil_moisture
+    description: 'Unit mismatch: source [m3/m3] vs target [mm]'
+    detection: Check soil_moisture units at coupling boundary
+    fix: Convert m3/m3 -> mm
+    is_unit_trap: true
+    automatable: true

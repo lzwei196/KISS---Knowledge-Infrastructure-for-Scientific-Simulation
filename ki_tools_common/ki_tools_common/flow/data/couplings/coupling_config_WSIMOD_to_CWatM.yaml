@@ -1,0 +1,118 @@
+# Coupling Config v2: WSIMOD -> CWatM
+
+coupling_config_version: '2.0'
+generated: '2026-05-23'
+generator: ata_pipeline2_coupling_gen.py v2
+metadata:
+  edge_id: WSIMOD_to_CWatM
+  source_model: WSIMOD
+  target_model: CWatM
+  source_domain: urban_drainage
+  target_domain: hydrology
+  edge_type: type5_cross_scale_cross_domain
+  n_forward_variables: 1
+  n_combine_variables: 0
+  n_plausible_feedback: 0
+  n_review_feedback: 1
+  is_feedback: false
+forward_edges:
+- canonical_id: discharge
+  source_canonical_id: discharge
+  target_canonical_id: discharge
+  match_type: exact_canonical
+  source_local_name: discharge
+  source_unit: m3/s
+  target_local_name: upstream_discharge
+  target_unit: m3/s
+combine_edges: []
+plausible_feedback: []
+review_feedback:
+- canonical_id: discharge
+  source_local_name: discharge
+  target_local_name: '[from_skill_md:discharge]'
+  note: Flagged for review — physical plausibility uncertain
+compatibility:
+- canonical_id: discharge
+  source_canonical_id: discharge
+  target_canonical_id: discharge
+  match_type: exact_canonical
+  primitives_needed:
+  - exchange_data
+  - map_space
+  - validate_boundary
+  details:
+    convert_units:
+      status: not_needed
+      units_match: true
+    exchange_data: &id001
+      from_format: unspecified
+      to_format: netcdf
+      conversion_needed: true
+      source: card_level_format_check
+      variable_mapping:
+        source_name: discharge
+        target_name: upstream_discharge
+      canonical_id: discharge
+    map_space: &id002
+      from_type: network
+      to_type: regular_grid
+      method: unknown
+      canonical_id: discharge
+    validate_boundary: &id003
+      checks:
+      - no_nan
+      canonical_id: discharge
+primitives_needed:
+- exchange_data
+- map_space
+- validate_boundary
+execution_order:
+- map_space
+- exchange_data
+- validate_boundary
+primitive_configs:
+  convert_units: []
+  exchange_data:
+  - *id001
+  map_space:
+  - *id002
+  validate_boundary:
+  - *id003
+risks:
+  total_traps: 3
+  automatable: 1
+  judgment_required: 2
+  traps:
+  - canonical_var: discharge
+    model: CWatM
+    trap_id: dt_016
+    description: '{''description'': ''Discharge unrealistically high for first few years, then stabilizes.'', ''error_pattern'':
+      '''', ''detection_method'': ''value_comparison''}'
+    detection: '{''root_cause'': ''Insufficient spinup period. Initial conditions not equilibrated.'', ''explanation'': ''CWatM
+      starts with default initial conditions (all storage = 0 or default values). The model needs 3-5'
+    fix: '{''action'': ''Increase spinup period to 3-5 years'', ''manual_steps'': [''Set SpinUp date at least 3 years after
+      StepStart'', ''Or use saved initial conditions from a previous long run'', ''Exclude spinup perio'
+    is_unit_trap: false
+    automatable: false
+  - canonical_var: discharge
+    model: WSIMOD
+    trap_id: dt_009
+    description: '{''description'': ''Mass balance violations occur but are not reported — errors silently masked.'', ''error_pattern'':
+      '''', ''detection_method'': ''value_comparison''}'
+    detection: '{''root_cause'': ''FLOAT_ACCURACY = 1e-11 tolerance masks small but accumulating errors.'', ''explanation'':
+      ''WSIMOD checks mass balance at each node with tolerance 1e-11. Floating-point arithmetic can accu'
+    fix: '{''action'': ''Monitor cumulative mass balance over the full simulation period'', ''tool_to_run'': ''parse_wsimod_output'',
+      ''manual_steps'': [''Compare total inflow vs total outflow + storage change'', ''If cumul'
+    is_unit_trap: false
+    automatable: true
+  - canonical_var: discharge
+    model: WSIMOD
+    trap_id: dt_018
+    description: '{''description'': ''River flow values are 86400× too high or too low.'', ''error_pattern'': '''', ''detection_method'':
+      ''value_comparison''}'
+    detection: '{''root_cause'': ''Flow rate in m³/s not converted to m³/d — missing × M3_S_TO_M3_DT (86400).'', ''explanation'':
+      "If flow data is in m³/s and used directly as m³/timestep (where timestep is 1 day), the flo'
+    fix: '{''action'': ''Apply M3_S_TO_M3_DT (86400) conversion only if source is in m³/s'', ''tool_to_run'': ''convert_forcing_data'',
+      ''manual_steps'': [''Check source flow units: m³/s, m³/d, ML/d?'', ''m³/s × 86400 = m³/'
+    is_unit_trap: true
+    automatable: false

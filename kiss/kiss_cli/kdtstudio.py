@@ -39,7 +39,8 @@ from pathlib import Path
 from typing import Callable, Iterator
 from urllib.parse import urlparse
 
-from . import firstrun
+from . import doctor, firstrun
+from .catalog import KI
 
 try:
     import yaml
@@ -296,6 +297,25 @@ def _write_meta(root: Path, doc: dict) -> None:
     tmp.replace(root / "studio.json")
 
 
+def _bump_revision(doc: dict) -> int:
+    """Invalidate any verification snapshot after an authoring change."""
+    revision = int(doc.get("authoring_revision") or 0) + 1
+    doc["authoring_revision"] = revision
+    return revision
+
+
+def _write_readonly_json(path: Path, value: dict) -> None:
+    """Atomically replace a report and make the published copy read-only."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    if path.exists():
+        path.chmod(0o600)
+    temporary = path.with_suffix(path.suffix + ".tmp")
+    temporary.write_text(
+        json.dumps(value, indent=2, ensure_ascii=False), encoding="utf-8")
+    temporary.replace(path)
+    path.chmod(0o444)
+
+
 def _user_evidence_path(root: Path) -> Path:
     return root / "runs" / "user-evidence.json"
 
@@ -464,7 +484,7 @@ def _evidence_tree_size(path: Path) -> tuple[int, int]:
 def add_evidence(job_id: str, *, kind: str, source_type: str,
                  value: str, label: str = "") -> dict:
     """Attach user-authorised evidence without editing the original source."""
-    root, _doc = _meta(job_id)
+    root, doc = _meta(job_id)
     kind = str(kind or "").strip()
     if kind not in EVIDENCE_KINDS:
         raise ValueError("unknown evidence category")
@@ -522,6 +542,10 @@ def add_evidence(job_id: str, *, kind: str, source_type: str,
     rows.append(record)
     _user_evidence_path(root).write_text(
         json.dumps(rows, indent=2, ensure_ascii=False), encoding="utf-8")
+    _bump_revision(doc)
+    if doc.get("status") in {"verified", "verify_failed", "kdt_passed"}:
+        doc["status"] = "editing"
+    _write_meta(root, doc)
     return evidence_inventory(job_id)
 
 
@@ -558,6 +582,13 @@ def deliverable_inventory(job_id: str) -> dict:
             ("preflight", "Preflight checker", ["preflight_check.py"], True),
             ("example", "Safe example or test", files("examples/**/*") + files("tests/**/*"), True),
         )
+    specs = specs + ((
+        "visualization", "Visualization functions and preview contract",
+        files("tools/**/*plot*.py") + files("tools/**/*visual*.py") +
+        (["docs/visualization_contract.yaml"]
+         if (candidate / "docs" / "visualization_contract.yaml").is_file() else []),
+        False,
+    ),)
     items = []
     for key, label, paths_found, required in specs:
         # Literal paths are checked here; glob results were already filtered.
@@ -575,6 +606,163 @@ def deliverable_inventory(job_id: str) -> dict:
         "present": present,
         "items": items,
         "acceptance_report": report.is_file(),
+    }
+
+
+def _as_named_rows(value) -> list[dict]:
+    """Normalise the several list/mapping shapes used by historical KIs."""
+    if isinstance(value, list):
+        return [item if isinstance(item, dict) else {"name": str(item)}
+                for item in value]
+    if isinstance(value, dict):
+        rows = []
+        for key, item in value.items():
+            row = dict(item) if isinstance(item, dict) else {"value": item}
+            row.setdefault("id", str(key))
+            row.setdefault("name", str(key))
+            rows.append(row)
+        return rows
+    return []
+
+
+def _yaml_mapping(path: Path) -> dict:
+    if yaml is None or not path.is_file():
+        return {}
+    try:
+        value = yaml.safe_load(path.read_text(
+            encoding="utf-8", errors="replace")) or {}
+    except Exception:
+        return {}
+    return value if isinstance(value, dict) else {}
+
+
+def visualization_inventory(job_id: str) -> dict:
+    """Describe what the candidate can visualise without running its code."""
+    root, _doc = _meta(job_id)
+    candidate = root / "candidate"
+    contract_path = candidate / "docs" / "visualization_contract.yaml"
+    contract = _yaml_mapping(contract_path)
+    declared = contract.get("visualizations") or contract.get("views") or []
+    items: list[dict] = []
+    if isinstance(declared, dict):
+        declared = [dict(value, id=key) if isinstance(value, dict)
+                    else {"id": key, "title": str(value)}
+                    for key, value in declared.items()]
+    if isinstance(declared, list):
+        for index, raw in enumerate(declared[:48]):
+            if not isinstance(raw, dict):
+                continue
+            ident = str(raw.get("id") or f"view-{index + 1}")[:80]
+            title = str(raw.get("title") or raw.get("name") or ident)[:160]
+            items.append({
+                "id": ident,
+                "title": title,
+                "kind": str(raw.get("kind") or raw.get("renderer") or "plot")[:40],
+                "description": str(raw.get("description") or raw.get("caption") or "")[:500],
+                "tool": str(raw.get("tool") or raw.get("function") or "")[:240],
+                "inputs": [str(item)[:160] for item in (raw.get("inputs") or [])[:20]],
+                "outputs": [str(item)[:160] for item in (raw.get("outputs") or [])[:20]],
+                "declared": True,
+            })
+
+    terms = re.compile(
+        r"(?:plot|visual|render|figure|chart|map|animation|dashboard)", re.I)
+    discovered: list[str] = []
+    tools = candidate / "tools"
+    if tools.is_dir():
+        for path in sorted(tools.rglob("*.py")):
+            relative = path.relative_to(candidate).as_posix()
+            if not terms.search(relative):
+                continue
+            discovered.append(relative)
+            if any(item.get("tool") == relative for item in items):
+                continue
+            items.append({
+                "id": re.sub(r"[^A-Za-z0-9_-]+", "-", path.stem).strip("-")[:80],
+                "title": path.stem.replace("_", " ").title(),
+                "kind": "map" if "map" in path.stem.lower() else "plot",
+                "description": ("Discovered visualization tool; add it to the "
+                                "visualization contract to describe inputs and outputs."),
+                "tool": relative,
+                "inputs": [],
+                "outputs": [],
+                "declared": False,
+            })
+    return {
+        "contract_path": (contract_path.relative_to(candidate).as_posix()
+                          if contract_path.is_file() else None),
+        "contract_present": contract_path.is_file(),
+        "items": items[:48],
+        "declared": sum(bool(item.get("declared")) for item in items),
+        "discovered_tools": discovered[:48],
+        "safe_preview": True,
+        "note": "Preview is declarative; candidate Python is not executed.",
+    }
+
+
+def workbench_inventory(job_id: str) -> dict:
+    """Project the candidate into the four author-facing Workbench lanes."""
+    root, _doc = _meta(job_id)
+    candidate = root / "candidate"
+    dag = _yaml_mapping(candidate / "dag.yaml")
+    manifest = _yaml_mapping(candidate / "knowledge_infrastructure.yaml")
+    processes = dag.get("processes") or {}
+    nodes = _as_named_rows(processes.get("nodes") if isinstance(processes, dict)
+                           else processes)
+    edges = []
+    if isinstance(processes, dict):
+        edges = processes.get("internal_edges") or processes.get("edges") or []
+    pipeline = manifest.get("pipeline") or {}
+    stages = _as_named_rows(pipeline.get("stages")
+                            if isinstance(pipeline, dict) else [])
+    graph_nodes = nodes or stages
+    graph_edges = []
+    if isinstance(edges, list):
+        for edge in edges[:120]:
+            if isinstance(edge, dict):
+                graph_edges.append({
+                    "from": str(edge.get("from") or edge.get("source") or "")[:100],
+                    "to": str(edge.get("to") or edge.get("target") or "")[:100],
+                })
+    if not graph_edges and stages:
+        for stage in stages:
+            target = str(stage.get("id") or stage.get("name") or "")
+            for source in stage.get("depends_on") or []:
+                graph_edges.append({"from": str(source)[:100], "to": target[:100]})
+    tools_dir = candidate / "tools"
+    tool_paths = ([path.relative_to(candidate).as_posix()
+                   for path in sorted(tools_dir.rglob("*.py"))]
+                  if tools_dir.is_dir() else [])
+    triplets = candidate / "diagnostics" / "triplets.yaml"
+    diagnostic_count = 0
+    if yaml is not None and triplets.is_file():
+        try:
+            raw_triplets = yaml.safe_load(triplets.read_text(
+                encoding="utf-8", errors="replace")) or []
+            diagnostic_count = len(raw_triplets) if isinstance(raw_triplets, list) else 0
+        except Exception:
+            pass
+    return {
+        "dag": {
+            "present": (candidate / "dag.yaml").is_file() or bool(stages),
+            "nodes": [{
+                "id": str(row.get("id") or row.get("name") or f"node-{index + 1}")[:100],
+                "label": str(row.get("name") or row.get("label") or row.get("id") or f"Stage {index + 1}")[:160],
+            } for index, row in enumerate(graph_nodes[:80])],
+            "edges": graph_edges,
+        },
+        "io_tools": {
+            "tools": tool_paths[:120],
+            "inputs": [str(row.get("name") or row.get("id") or "input")[:160]
+                       for row in _as_named_rows(dag.get("inputs"))[:80]],
+            "outputs": [str(row.get("name") or row.get("id") or "output")[:160]
+                        for row in _as_named_rows(dag.get("outputs"))[:80]],
+        },
+        "diagnostics": {
+            "triplets": diagnostic_count,
+            "preflight": (candidate / "preflight_check.py").is_file(),
+        },
+        "visualizations": visualization_inventory(job_id),
     }
 
 
@@ -623,6 +811,7 @@ def create_job(*, model_name: str, domain: str, source_type: str,
         "provider": str(provider or ""),
         "llm_model": str(llm_model or ""),
         "status": "created",
+        "authoring_revision": 0,
         "created_at": time.time(),
         "updated_at": time.time(),
         "root": str(root),
@@ -666,6 +855,12 @@ def job(job_id: str) -> dict:
         acceptance = json.loads((root / "runs" / "ki-acceptance.json").read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
         pass
+    verification = None
+    try:
+        verification = json.loads(
+            (root / "runs" / "geoforge-ki-verify.json").read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        pass
     probe = None
     try:
         stage = json.loads((root / "probe" / "stage_log.json").read_text(encoding="utf-8"))
@@ -678,19 +873,32 @@ def job(job_id: str) -> dict:
         pass
     out = dict(doc)
     out.setdefault("ki_kind", "process_model")
+    out.setdefault("authoring_revision", 0)
+    signature = tree_signature(root / "candidate")
+    bare_current = bool(acceptance and acceptance.get("ok") and
+                        acceptance.get("signature") == signature)
+    verification_current = bool(
+        verification and verification.get("ok") and
+        verification.get("candidate_signature") == signature and
+        int(verification.get("authoring_revision", -1)) ==
+        int(out["authoring_revision"])
+    )
     out.update({
         "root": str(root),
         "candidate": str(root / "candidate"),
         "probe": probe,
         "acceptance": acceptance,
+        "verification": verification,
+        "verification_current": verification_current,
         # Listing and opening Studio jobs must stay instant even if a user
         # accidentally placed a large binary in candidate/. A cheap metadata
         # signature controls the button; export/import still recomputes the
         # full cryptographic digest before trusting the package.
-        "can_import": bool(acceptance and acceptance.get("ok") and
-                           acceptance.get("signature") == tree_signature(root / "candidate")),
+        "can_export_bare": bare_current,
+        "can_import": verification_current,
         "evidence": evidence_inventory(job_id),
         "deliverables": deliverable_inventory(job_id),
+        "workbench": workbench_inventory(job_id),
     })
     return out
 
@@ -872,6 +1080,8 @@ def run_probe(job_id: str, emit: Callable[[str], object] | None = None) -> dict:
                  for name in ("s0_acquire", "s1_pipeline_map"))
         if ok and str(doc.get("ki_kind") or "process_model") == "task_workflow":
             _write_task_scaffold(root, doc)
+        if ok:
+            _bump_revision(doc)
         doc["status"] = "probed" if ok else "probe_failed"
         _write_meta(root, doc)
         if not ok:
@@ -1008,7 +1218,12 @@ separate +1 acceptance report after the deterministic gate; you must not fabrica
 1. SKILL.md, beginning with the MANDATORY EXECUTION POLICY and then a clear
    user/agent protocol grounded in this model's own documentation.
 2. tools/*.py: the smallest real preparation/run/parse/plot toolchain needed
-   to operate the actual model. Do not substitute a toy equation.
+   to operate the actual model. Do not substitute a toy equation. Put plotting,
+   map, animation and dashboard capabilities in real visualization tools. Also
+   create docs/visualization_contract.yaml with a top-level `visualizations`
+   list. Each entry declares id, title, kind, tool, inputs, outputs and an honest
+   description. If this KI cannot yet draw anything, use an empty list and say
+   why; never invent a visual result merely to make the preview look complete.
 3. At least three stage documents under docs/, each explaining inputs,
    outputs, procedure, verification, traps, and an example.
 4. diagnostics/triplets.yaml: top-level YAML list, at least 15 unique
@@ -1050,6 +1265,7 @@ def mark_building(job_id: str, *, provider: str | None = None,
         doc["provider"] = str(provider)
     if llm_model is not None:
         doc["llm_model"] = str(llm_model)
+    _bump_revision(doc)
     doc["status"] = "building"
     _write_meta(root, doc)
     return root, doc
@@ -1172,9 +1388,75 @@ def verify(job_id: str) -> dict:
     }
     (root / "runs" / "ki-acceptance.json").write_text(
         json.dumps(acceptance, indent=2, ensure_ascii=False), encoding="utf-8")
-    doc["status"] = "accepted" if acceptance["ok"] else "needs_revision"
+    doc["status"] = "kdt_passed" if acceptance["ok"] else "needs_revision"
     _write_meta(root, doc)
     return acceptance
+
+
+def geoforge_verify(job_id: str) -> dict:
+    """Finish one authoring snapshot and run the independent Desktop gate.
+
+    KDT judges the portable KI contract. GeoForge then adapts a separate copy
+    and runs the same package doctor used by manual imports. Candidate Python
+    is never executed by either authoring gate.
+    """
+    root, doc = _meta(job_id)
+    kdt_result = verify(job_id)
+    signature = tree_signature(root / "candidate")
+    report: dict = {
+        "report_version": 1,
+        "report_id": uuid.uuid4().hex[:16],
+        "checked_at": time.time(),
+        "read_only": True,
+        "model_name": doc["model_name"],
+        "authoring_revision": int(doc.get("authoring_revision") or 0),
+        "candidate_digest": tree_digest(root / "candidate"),
+        "candidate_signature": signature,
+        "kdt": {
+            "ok": bool(kdt_result.get("ok")),
+            "engine_commit": kdt_result.get("engine_commit"),
+            "failures": list(kdt_result.get("failures") or []),
+            "warnings": list(kdt_result.get("warnings") or []),
+        },
+        "desktop": {"ok": False, "findings": [], "blocking": 0},
+        "software_execution": "not_run_during_authoring_verification",
+    }
+    if kdt_result.get("ok"):
+        adaptation = adapt_for_desktop(job_id)
+        desktop = Path(adaptation["path"])
+        findings = [{
+            "severity": finding.severity,
+            "check": finding.check,
+            "detail": finding.detail[:1000],
+        } for finding in doctor.check_ki(KI(name=doc["model_name"], root=desktop))]
+        blockers = [item for item in findings if item["severity"] == doctor.BLOCK]
+        report["desktop"] = {
+            "ok": not blockers,
+            "blocking": len(blockers),
+            "findings": findings,
+            "adaptation": adaptation,
+            "digest": tree_digest(desktop),
+        }
+    report["ok"] = bool(report["kdt"]["ok"] and report["desktop"]["ok"])
+    report["decision"] = "awaiting_user" if report["ok"] else "return_to_workbench"
+    report_path = root / "runs" / "geoforge-ki-verify.json"
+    report["report_path"] = str(report_path)
+    _write_readonly_json(report_path, report)
+    # verify() refreshed metadata, so reopen before writing the final phase.
+    root, latest = _meta(job_id)
+    latest["status"] = "verified" if report["ok"] else "verify_failed"
+    _write_meta(root, latest)
+    return report
+
+
+def continue_modifying(job_id: str) -> dict:
+    """Return a finished snapshot to the editable Workbench."""
+    root, doc = _meta(job_id)
+    _bump_revision(doc)
+    doc["status"] = "editing"
+    doc["user_decision"] = "continue_modifying"
+    _write_meta(root, doc)
+    return job(job_id)
 
 
 def export_zip(job_id: str) -> tuple[Path, bytes]:
@@ -1182,7 +1464,7 @@ def export_zip(job_id: str) -> tuple[Path, bytes]:
     root, doc = _meta(job_id)
     state = job(job_id)
     acceptance = state.get("acceptance") or {}
-    if (not state["can_import"] or
+    if (not state["can_export_bare"] or
             acceptance.get("digest") != tree_digest(root / "candidate")):
         raise ValueError("verify the unchanged candidate before exporting it")
     name = _slug(doc["model_name"])
@@ -1206,7 +1488,7 @@ def adapt_for_desktop(job_id: str) -> dict:
     state = job(job_id)
     acceptance = state.get("acceptance") or {}
     candidate = root / "candidate"
-    if (not state["can_import"] or
+    if (not state["can_export_bare"] or
             acceptance.get("digest") != tree_digest(candidate)):
         raise ValueError("verify the unchanged bare KI before Desktop adaptation")
     _reject_symlinks(candidate)
@@ -1276,6 +1558,8 @@ def adapt_for_desktop(job_id: str) -> dict:
 def export_desktop_zip(job_id: str) -> tuple[Path, bytes, dict]:
     """Create and export GeoForge's projection without altering the bare KI."""
     root, doc = _meta(job_id)
+    if not job(job_id).get("can_import"):
+        raise ValueError("finish KI_verify on the unchanged candidate before importing it")
     adaptation = adapt_for_desktop(job_id)
     desktop = Path(adaptation["path"])
     name = _slug(doc["model_name"])

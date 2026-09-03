@@ -1,0 +1,186 @@
+# Coupling Config v2: CaMa_Flood -> Delft3D
+
+coupling_config_version: '2.0'
+generated: '2026-04-27'
+generator: ata_pipeline2_coupling_gen.py v2
+metadata:
+  edge_id: CaMa_Flood_to_Delft3D
+  source_model: CaMa_Flood
+  target_model: Delft3D
+  source_domain: routing
+  target_domain: ocean
+  edge_type: type6_cross_domain_feedback
+  n_forward_variables: 2
+  n_combine_variables: 0
+  n_plausible_feedback: 1
+  n_review_feedback: 0
+  is_feedback: true
+forward_edges:
+- canonical_id: discharge
+  source_canonical_id: discharge
+  target_canonical_id: discharge
+  match_type: exact_canonical
+  source_local_name: discharge
+  source_unit: m3/s
+  target_local_name: river_discharge
+  target_unit: m3/s
+- canonical_id: water_surface_elevation
+  source_canonical_id: water_surface_elevation
+  target_canonical_id: water_surface_elevation
+  match_type: exact_canonical
+  source_local_name: water_surface_elevation
+  source_unit: m ASL
+  target_local_name: water_level_boundary
+  target_unit: m (MSL)
+combine_edges: []
+plausible_feedback:
+- canonical_id: surface_runoff
+  source_local_name: discharge
+  target_local_name: runoff
+review_feedback: []
+compatibility:
+- canonical_id: discharge
+  source_canonical_id: discharge
+  target_canonical_id: discharge
+  match_type: exact_canonical
+  primitives_needed:
+  - align_time
+  - validate_boundary
+  details:
+    convert_units:
+      status: not_needed
+      units_match: true
+    exchange_data:
+      status: not_needed
+      variable_mapping:
+        source_name: discharge
+        target_name: river_discharge
+    align_time: &id002
+      from_resolution: daily
+      to_resolution: sub-hourly
+      direction: disaggregate
+      aggregation_method: distribute_uniform
+      semantic_type: volumetric_flow
+      canonical_id: discharge
+    validate_boundary: &id004
+      checks:
+      - no_nan
+      - 'range: [0, 500000]'
+      canonical_id: discharge
+- canonical_id: water_surface_elevation
+  source_canonical_id: water_surface_elevation
+  target_canonical_id: water_surface_elevation
+  match_type: exact_canonical
+  primitives_needed:
+  - convert_units
+  - align_time
+  - validate_boundary
+  details:
+    convert_units: &id001
+      from_unit: m ASL
+      to_unit: m (MSL)
+      known: false
+      canonical_id: water_surface_elevation
+    exchange_data:
+      status: not_needed
+      variable_mapping:
+        source_name: water_surface_elevation
+        target_name: water_level_boundary
+    align_time: &id003
+      from_resolution: daily
+      to_resolution: sub-hourly
+      direction: disaggregate
+      aggregation_method: distribute_uniform
+      semantic_type: state
+      canonical_id: water_surface_elevation
+    validate_boundary: &id005
+      checks:
+      - no_nan
+      - 'range: [-10, 10]'
+      canonical_id: water_surface_elevation
+primitives_needed:
+- align_time
+- convert_units
+- validate_boundary
+execution_order:
+- align_time
+- convert_units
+- validate_boundary
+primitive_configs:
+  convert_units:
+  - *id001
+  exchange_data: []
+  align_time:
+  - *id002
+  - *id003
+  validate_boundary:
+  - *id004
+  - *id005
+risks:
+  total_traps: 6
+  automatable: 4
+  judgment_required: 2
+  traps:
+  - canonical_var: discharge
+    model: CaMa_Flood
+    trap_id: dt_cama_003
+    description: '{''description'': ''CaMa-Flood runs but river channel widths are unrealistically wide or narrow, causing
+      wrong water depths and discharge timing'', ''error_pattern'': '''', ''detection_method'': ''value_comparis'
+    detection: '{''root_cause'': ''calc_rivwth was run using the global diminfo file instead of the regional diminfo file'',
+      ''explanation'': ''The calc_rivwth tool reads the diminfo file to determine grid dimensions (nrows'
+    fix: '{''action'': ''Re-run calc_rivwth with the regional diminfo file'', ''tool_to_run'': '''', ''manual_steps'': [''cd
+      map/{basin}_15min'', ''Verify regional diminfo exists: cat diminfo_{basin}_025deg.txt'', ''Run: ./sr'
+    is_unit_trap: true
+    automatable: true
+  - canonical_var: discharge
+    model: CaMa_Flood
+    trap_id: dt_cama_005
+    description: '{''description'': ''CaMa-Flood produces discharge at completely wrong locations -- river network does not
+      match the basin'', ''error_pattern'': '''', ''detection_method'': ''value_comparison''}'
+    detection: '{''root_cause'': ''CaMa map files from a previous basin were reused instead of regenerating for the new basin'',
+      ''explanation'': "Each basin requires its own set of CaMa-Flood map files because the river n'
+    fix: '{''action'': ''Regenerate all CaMa map files for the new basin'', ''tool_to_run'': ''tools/configure_simulation.py'',
+      ''manual_steps'': [''Create new map dir: mkdir map/{new_basin}_15min'', ''Run configure_simulat'
+    is_unit_trap: true
+    automatable: false
+  - canonical_var: discharge
+    model: Delft3D
+    trap_id: dt_005
+    description: '{''description'': ''Tidal boundary oscillates with wrong frequency. M2 period is 60x too fast or 60x too
+      slow.'', ''error_pattern'': '''', ''detection_method'': ''frequency_analysis''}'
+    detection: '{''root_cause'': ''Harmonic constituent period in hours instead of minutes (or vice versa)'', ''explanation'':
+      ''D-Flow FM .bc files expect the harmonic period in MINUTES. M2 period is 745.2 minutes (12.42 h'
+    fix: '{''action'': ''Ensure harmonic periods are in minutes: M2 = 745.2, S2 = 720.0, K1 = 1436.1'', ''tool_to_run'': ''convert_boundary_conditions'',
+      ''manual_steps'': ["Check the ''Unit'' field in .bc file — should be'
+    is_unit_trap: true
+    automatable: true
+  - canonical_var: discharge
+    model: Delft3D
+    trap_id: dt_007
+    description: '{''description'': ''Flow velocities are near zero everywhere. Water barely moves despite strong forcing.'',
+      ''error_pattern'': '''', ''detection_method'': ''value_comparison''}'
+    detection: '{''root_cause'': ''Friction type and value mismatch — Manning value used with Chezy type'', ''explanation'':
+      ''UnifFrictType=0 means Chezy (typical values 40-70 m^0.5/s). UnifFrictType=1 means Manning (typic'
+    fix: '{''action'': ''Verify UnifFrictType matches UnifFrictCoef: Chezy=40-70, Manning=0.01-0.05'', ''manual_steps'': [''Check
+      UnifFrictType in MDU: 0=Chezy, 1=Manning, 2=White-Colebrook'', ''If Type=0 (Chezy), ensur'
+    is_unit_trap: false
+    automatable: true
+  - canonical_var: discharge
+    model: Delft3D
+    trap_id: dt_013
+    description: '{''description'': ''Model runs but no output files are created. Output directory remains empty.'', ''error_pattern'':
+      '''', ''detection_method'': ''file_check''}'
+    detection: '{''root_cause'': ''Output directory does not exist — D-Flow FM does not create it automatically'', ''explanation'':
+      "The MDU parameter OutputDir specifies where output files are written. D-Flow FM does NOT '
+    fix: '{''action'': ''Create the output directory before running: mkdir -p dflowfm/output'', ''manual_steps'': [''Read
+      OutputDir from MDU file'', ''Create the directory: mkdir -p <workingDir>/<OutputDir>''], ''preventi'
+    is_unit_trap: false
+    automatable: false
+  - canonical_var: water_surface_elevation
+    model: CaMa_Flood->Delft3D
+    trap_id: unit_mismatch_water_surface_elevation
+    description: 'Unit mismatch: source [m ASL] vs target [m (MSL)]'
+    detection: Check water_surface_elevation units at coupling boundary
+    fix: Convert m ASL -> m (MSL)
+    is_unit_trap: true
+    automatable: true

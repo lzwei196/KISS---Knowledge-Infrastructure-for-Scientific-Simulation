@@ -113,8 +113,11 @@ def _rel(p: Path | None, root: Path) -> str:
 
 
 def compose(ki, cfg=None, *, task: str = "", headless: bool = True,
-            execute: bool = True) -> str:
-    """Build the opening prompt for an agent about to operate ``ki``."""
+            execute: bool = True, strict: bool = False) -> str:
+    """Build the opening prompt for an agent about to operate ``ki``.
+
+    ``strict`` (flow-managed chats): an execute-mode contract that cannot be built raises
+    instead of falling back to pointers."""
     meta = ki.meta or {}
     root = ki.root
     parts: list[str] = []
@@ -149,6 +152,11 @@ def compose(ki, cfg=None, *, task: str = "", headless: bool = True,
         ki, execute=execute, python=(cfg.python if cfg is not None else None))
     if harness_text:
         parts.append(harness_text.rstrip() + "\n")
+    elif execute and strict:
+        # plan v3 B2: under the flow, a KI with no protocol is never given the run
+        # wording — the turn is refused instead of silently weakened
+        from .harness_runtime import KiContractUnavailable
+        raise KiContractUnavailable(f"{ki.name}: {why}")
     else:
         parts.append(
             "[KI USAGE CONTRACT UNAVAILABLE]\n"
@@ -187,7 +195,7 @@ def compose(ki, cfg=None, *, task: str = "", headless: bool = True,
             f"  outputs    {cfg.roles.get('outputs')}\n"
         )
 
-    if headless:
+    if headless and execute:
         parts.append(HEADLESS_LONG_JOB_RULE)
 
     parts.append(
@@ -204,7 +212,8 @@ def compose(ki, cfg=None, *, task: str = "", headless: bool = True,
     return "\n".join(parts)
 
 
-def compose_multi(kis, cfg=None, *, task: str = "", headless: bool = True) -> str:
+def compose_multi(kis, cfg=None, *, task: str = "", headless: bool = True,
+                  execute: bool = True, strict: bool = False) -> str:
     """One task, several models: each toggled KI contributes its own contract.
 
     The single-model prompt stays the default; this exists for the compare/
@@ -212,9 +221,12 @@ def compose_multi(kis, cfg=None, *, task: str = "", headless: bool = True) -> st
     first-class participant rather than picking a favourite and narrating the
     rest. Contracts are the same per-KI harness text as the single case, so a
     model behaves identically whether toggled alone or with others.
+
+    ``execute`` selects the contract wording (plan v3 B2): False = the planning
+    turn's inspect contract (read, plan, never run); True = the run contract.
     """
     if len(kis) == 1:
-        return compose(kis[0], cfg, task=task, headless=headless)
+        return compose(kis[0], cfg, task=task, headless=headless, execute=execute, strict=strict)
 
     names = ", ".join(k.name for k in kis)
     parts = [
@@ -222,21 +234,26 @@ def compose_multi(kis, cfg=None, *, task: str = "", headless: bool = True) -> st
         f"{len(kis)} models through their Knowledge Infrastructure packages: {names}.",
         "",
         "[MULTI-MODEL RULES]",
-        "- Run EVERY selected model on the task; do not silently drop one.",
+        ("- Run EVERY selected model on the task; do not silently drop one." if execute else
+         "- Plan for EVERY selected model; do not silently drop one. Do not run any model in this turn."),
         "- Keep each model inside its own KI contract below; never mix tools "
         "across packages.",
-        "- Finish with a comparison table of the results, and say plainly if a "
-        "model could not run and why.",
+        ("- Finish with a comparison table of the results, and say plainly if a model could not run and why."
+         if execute else "- Explain the planned roles, inputs and missing requirements of each model; "
+         "do not present planned outputs as simulation results."),
         "",
     ]
     for ki in kis:
         parts.append(f"===== {ki.name} " + "=" * max(4, 60 - len(ki.name)))
         contract, why = _harness_contract(
-            ki, execute=True, python=(cfg.python if cfg is not None else None))
+            ki, execute=execute, python=(cfg.python if cfg is not None else None))
+        if not contract and execute and strict:
+            from .harness_runtime import KiContractUnavailable
+            raise KiContractUnavailable(f"{ki.name}: {why}")
         parts.append(contract if contract else
                      f"[contract unavailable: {why}] Read {ki.root}/SKILL.md first.")
         parts.append("")
-    if headless:
+    if headless and execute:
         parts.append(HEADLESS_LONG_JOB_RULE)
     if task:
         parts.append(f"[TASK]\n{task.strip()}")

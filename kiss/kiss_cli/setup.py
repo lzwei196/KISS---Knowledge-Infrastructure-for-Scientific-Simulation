@@ -406,7 +406,10 @@ def prepare(ki, man, root: Path, repo_root: Path, models_dir: Path):
     return live_ki, cfg
 
 
-def agent_task(ki, cfg, root: Path, *, resumed: dict | None = None) -> str:
+def agent_task(ki, cfg, root: Path, *, resumed: dict | None = None,
+               installation_mode: str = "new",
+               existing_paths: list[str] | None = None,
+               installation_only: bool = False) -> str:
     """Short task layered over the provider's auto-loaded setup instructions."""
     prior = ""
     if resumed:
@@ -416,6 +419,55 @@ def agent_task(ki, cfg, root: Path, *, resumed: dict | None = None) -> str:
             f"Files supplied: {json.dumps(uploads(root), ensure_ascii=False)}\n"
             f"Resume hint: {resumed.get('resume_hint') or '(inspect the workspace)'}\n"
         )
+    existing_paths = [str(path) for path in (existing_paths or [])]
+    if installation_mode == "existing":
+        existing = f"""
+The user chose **Use software already installed**. Do not download, clone,
+compile, upgrade, overwrite, or delete that external installation. Candidate
+locations are:
+
+{json.dumps(existing_paths, ensure_ascii=False, indent=2)}
+
+Inspect the candidates and identify the real {ki.name} executable and support
+tree. Create links or local configuration only inside `{root}` so the
+materialised KI resolves to the existing software, then run the KI's real
+preflight. If one candidate is used, write its canonical path to
+`{Path(root) / install_locations.RECORD_FILE}` as `resolved_existing_path`;
+preserve the other record fields. If none is valid, create one structured
+request asking the user for the installation or executable path. Do not fall
+back to a new installation unless the user explicitly switches modes.
+"""
+    else:
+        existing = """
+The user chose **Install or build a new copy**. Keep all model software inside
+the configured model installation workspace unless a structured user request
+is required.
+"""
+    if installation_only:
+        return f"""Install {ki.name} on this machine now.
+
+This is an **installation-only stress test**, not a scientific verification
+run. Install or build the official model software and its runtime dependencies
+inside the selected workspace. You may use a cheap startup probe such as
+`--version` or `--help` to prove that the executable loads, links, and responds.
+
+Do NOT run the KI preflight, examples, reference cases, simulations,
+calibration, data preparation, or result-generation tools. Do NOT download
+forcing, observation, parameter, initial-condition, boundary-condition, or
+reference-output datasets. Missing project/scientific data is not an
+installation failure in this test.
+
+Keep diagnosing build and runtime problems until the official executable or
+declared Python package responds. Do not substitute a toy implementation,
+launcher, or mock executable. If a licence, login, protected download, system
+privilege, or missing shared toolchain requires a person, create one structured
+setup request and stop. If you create or select a Python environment, record
+its real interpreter in `{Path(root) / 'kiss.toml'}` under `kiss.python`; do
+not leave GeoForge pointing at the system Python after the package was installed
+into a workspace venv.
+{existing}
+{prior}"""
+
     return f"""Finish setting up {ki.name} on this machine now.
 
 You own the complete KDT loop: inspect, act, run preflight, diagnose, repair,
@@ -426,6 +478,7 @@ The only successful outcome is a passing preflight.
 If a licence, login, protected download, system privilege, or user choice makes
 progress impossible, create one structured setup request exactly as described
 in the project instructions, then stop. Do not pretend that blocked work passed.
+{existing}
 {prior}"""
 
 

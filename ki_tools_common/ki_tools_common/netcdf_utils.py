@@ -50,9 +50,9 @@ except ImportError:
 
 
 # Common aliases that appear across the 97 models
-_LAT_NAMES = {"lat", "latitude", "Latitude", "LAT", "XLAT", "nav_lat", "y"}
-_LON_NAMES = {"lon", "longitude", "Longitude", "LON", "XLONG", "nav_lon", "x"}
-_TIME_NAMES = {"time", "Time", "TIME", "t", "date", "datetime"}
+_LAT_NAMES = ("lat", "latitude", "Latitude", "LAT", "XLAT", "nav_lat", "y")
+_LON_NAMES = ("lon", "longitude", "Longitude", "LON", "XLONG", "nav_lon", "x")
+_TIME_NAMES = ("time", "Time", "TIME", "t", "date", "datetime")
 
 
 def find_coords(dataset: Any) -> Dict[str, Optional[str]]:
@@ -82,7 +82,7 @@ def find_coords(dataset: Any) -> Dict[str, Optional[str]]:
             getattr(dataset, "variables", {}).keys()
         )
 
-    def _match(candidates: set) -> Optional[str]:
+    def _match(candidates) -> Optional[str]:
         for c in candidates:
             if c in names:
                 return c
@@ -166,18 +166,42 @@ def bbox_subset(
             f"Detected: {coords}"
         )
 
-    lat_vals = dataset[lat_name].values
-    lon_vals = dataset[lon_name].values
+    lat_vals = np.asarray(dataset[lat_name].values)
+    lon_vals = np.asarray(dataset[lon_name].values)
+    if lat_vals.ndim != 1 or lon_vals.ndim != 1:
+        raise ValueError(
+            "bbox_subset supports rectilinear one-dimensional latitude and "
+            "longitude coordinates only; curvilinear XLAT/XLONG grids need "
+            "an explicit two-dimensional mask"
+        )
+    if not np.isfinite(lat_vals).any() or not np.isfinite(lon_vals).any():
+        raise ValueError("latitude/longitude coordinates contain no finite values")
 
-    # Handle decreasing-latitude grids
-    if lat_vals[0] > lat_vals[-1]:
-        lat_slice = slice(lat_max, lat_min)
-    else:
-        lat_slice = slice(lat_min, lat_max)
+    south, north = sorted((float(lat_min), float(lat_max)))
+    lat_index = np.flatnonzero(
+        np.isfinite(lat_vals) & (lat_vals >= south) & (lat_vals <= north)
+    )
 
-    lon_slice = slice(lon_min, lon_max)
-
-    return dataset.sel({lat_name: lat_slice, lon_name: lon_slice})
+    # Interpret longitude bounds as the eastward arc from west to east.  This
+    # works for ascending or descending coordinates, both -180..180 and
+    # 0..360 conventions, western-hemisphere requests, and antimeridian
+    # windows such as 170..-170.  Keep the dataset's original coordinates in
+    # the returned object; normalisation is used for comparison only.
+    west = float(lon_min)
+    east = float(lon_max)
+    span = (east - west) % 360.0
+    if np.isclose(span, 0.0) and not np.isclose(east, west):
+        span = 360.0
+    delta = (lon_vals.astype(float) - west) % 360.0
+    lon_index = np.flatnonzero(
+        np.isfinite(lon_vals) & (delta <= span + 1e-10)
+    )
+    if lat_index.size == 0 or lon_index.size == 0:
+        raise ValueError(
+            "bounding box does not overlap the dataset grid "
+            f"(lat={lat_min}..{lat_max}, lon={lon_min}..{lon_max})"
+        )
+    return dataset.isel({lat_name: lat_index, lon_name: lon_index})
 
 
 def basin_mask_from_shapefile(
@@ -214,21 +238,87 @@ def basin_mask_from_shapefile(
         raise FileNotFoundError(f"Shapefile not found: {shapefile_path}")
 
     gdf = gpd.read_file(shapefile_path)
+    if getattr(gdf, "empty", False):
+        raise ValueError(f"Shapefile contains no features: {shapefile_path}")
+    if getattr(gdf, "crs", None) is None:
+        raise ValueError(
+            "Basin shapefile has no CRS. Define its real CRS before using it; "
+            "GeoForge will not guess spatial coordinates"
+        )
+    try:
+        if not bool(gdf.crs.equals("EPSG:4326")):
+            gdf = gdf.to_crs("EPSG:4326")
+    except AttributeError:
+        # Older/fake CRS objects do not expose ``equals``.  Comparing their
+        # textual form remains safe because any uncertainty triggers an
+        # explicit reprojection rather than silently assuming WGS84.
+        if str(gdf.crs).upper() not in {"EPSG:4326", "WGS84", "WGS 84"}:
+            gdf = gdf.to_crs("EPSG:4326")
     basin_geom = gdf.geometry.unary_union
 
     coords = find_coords(dataset)
-    lat_vals = dataset[coords["lat"]].values
-    lon_vals = dataset[coords["lon"]].values
+    if coords["lat"] is None or coords["lon"] is None:
+        raise ValueError(f"Could not detect lat/lon coordinates: {coords}")
+    lat_vals = np.asarray(dataset[coords["lat"]].values)
+    lon_vals = np.asarray(dataset[coords["lon"]].values)
+    if lat_vals.ndim != 1 or lon_vals.ndim != 1:
+        raise ValueError(
+            "basin_mask_from_shapefile supports rectilinear one-dimensional "
+            "latitude/longitude grids only"
+        )
 
-    lon2d, lat2d = np.meshgrid(lon_vals, lat_vals)
+    # Shapefiles are reprojected to geographic WGS84.  Convert a 0..360 grid
+    # to the equivalent -180..180 values before testing polygon membership.
+    point_lons = ((lon_vals.astype(float) + 180.0) % 360.0) - 180.0
+
+    lon2d, lat2d = np.meshgrid(point_lons, lat_vals)
     mask = np.zeros(lon2d.shape, dtype=bool)
 
     for i in range(lat2d.shape[0]):
         for j in range(lat2d.shape[1]):
             pt = Point(lon2d[i, j], lat2d[i, j])
-            mask[i, j] = basin_geom.contains(pt)
+            covers = getattr(basin_geom, "covers", None)
+            mask[i, j] = bool(covers(pt) if callable(covers)
+                              else basin_geom.contains(pt))
 
+    if not mask.any():
+        raise ValueError(
+            "Basin shapefile does not overlap any grid-cell centres after "
+            "reprojection to EPSG:4326"
+        )
     return mask
+
+
+def _spatial_mean(data: np.ndarray, mask: Optional[np.ndarray],
+                  *, source: str) -> np.ndarray:
+    """Return a finite spatial mean or fail loudly on an empty/bad domain."""
+    if data.ndim != 3:
+        return data.flatten()
+    if mask is not None:
+        if mask.shape != data.shape[-2:]:
+            raise ValueError(
+                f"Basin mask shape {mask.shape} does not match {source} grid "
+                f"{data.shape[-2:]}"
+            )
+        if not mask.any():
+            raise ValueError(f"Basin mask selects no cells in {source}")
+        spatial = data[:, mask]
+        if spatial.shape[1] == 0:
+            raise ValueError(f"Basin mask selects no cells in {source}")
+        if not np.isfinite(spatial).any():
+            raise ValueError(
+                f"Spatial extraction from {source} produced only missing values"
+            )
+        daily = np.nanmean(spatial, axis=1)
+    else:
+        if not np.isfinite(data).any():
+            raise ValueError(
+                f"Spatial extraction from {source} produced only missing values"
+            )
+        daily = np.nanmean(data, axis=(1, 2))
+    if daily.size == 0 or not np.isfinite(daily).any():
+        raise ValueError(f"Spatial extraction from {source} produced only missing values")
+    return daily
 
 
 def load_cmfd_forcing(
@@ -298,14 +388,7 @@ def load_cmfd_forcing(
             data = ds[var_name].values  # (time, lat, lon) typically
             time_vals = ds[coords["time"]].values if coords["time"] else None
 
-            if mask is not None and data.ndim == 3:
-                # Basin average: mean over masked spatial cells
-                spatial = data[:, mask]
-                daily_vals = np.nanmean(spatial, axis=1)
-            elif data.ndim == 3:
-                daily_vals = np.nanmean(data, axis=(1, 2))
-            else:
-                daily_vals = data.flatten()
+            daily_vals = _spatial_mean(data, mask, source=fpath)
 
             # Unit conversion
             if variable in ("prec", "pre", "precipitation"):
@@ -324,7 +407,12 @@ def load_cmfd_forcing(
             f"for years {years}."
         )
 
-    return np.array(all_dates), np.array(all_values, dtype=float)
+    values = np.array(all_values, dtype=float)
+    if not np.isfinite(values).any():
+        raise ValueError(
+            f"CMFD extraction for '{variable}' produced only missing values"
+        )
+    return np.array(all_dates), values
 
 
 def load_mswx_forcing(
@@ -391,13 +479,7 @@ def load_mswx_forcing(
             data = ds[var_name].values
             time_vals = ds[coords["time"]].values if coords["time"] else None
 
-            if mask is not None and data.ndim == 3:
-                spatial = data[:, mask]
-                daily_vals = np.nanmean(spatial, axis=1)
-            elif data.ndim == 3:
-                daily_vals = np.nanmean(data, axis=(1, 2))
-            else:
-                daily_vals = data.flatten()
+            daily_vals = _spatial_mean(data, mask, source=fpath)
 
             # MSWX-specific: precipitation P is in mm/3hr, need to aggregate
             # sub-daily to daily externally if needed; Tair is in K
@@ -415,4 +497,9 @@ def load_mswx_forcing(
             f"for years {years}."
         )
 
-    return np.array(all_dates), np.array(all_values, dtype=float)
+    values = np.array(all_values, dtype=float)
+    if not np.isfinite(values).any():
+        raise ValueError(
+            f"MSWX extraction for '{variable}' produced only missing values"
+        )
+    return np.array(all_dates), values

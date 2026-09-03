@@ -1,0 +1,75 @@
+# Coupling Config v2: SaltMod -> DSSAT
+
+coupling_config_version: '2.0'
+generated: '2026-05-23'
+generator: ata_pipeline2_coupling_gen.py v2
+metadata:
+  edge_id: SaltMod_to_DSSAT
+  source_model: SaltMod
+  target_model: DSSAT
+  source_domain: hydrology
+  target_domain: crop
+  edge_type: type5_cross_scale_cross_domain
+  n_forward_variables: 1
+  n_combine_variables: 0
+  n_plausible_feedback: 0
+  n_review_feedback: 0
+  is_feedback: false
+forward_edges:
+- canonical_id: soil_salinity
+  source_canonical_id: soil_salinity
+  target_canonical_id: soil_salinity
+  match_type: exact_canonical
+  source_local_name: CA
+  source_unit: dS/m
+  target_local_name: soil_salinity
+  target_unit: dS/m
+combine_edges: []
+plausible_feedback: []
+review_feedback: []
+compatibility:
+- canonical_id: soil_salinity
+  source_canonical_id: soil_salinity
+  target_canonical_id: soil_salinity
+  match_type: exact_canonical
+  primitives_needed:
+  - map_space
+  - validate_boundary
+  details:
+    convert_units:
+      status: not_needed
+      units_match: true
+    exchange_data: &id001
+      status: format_unspecified
+      variable_mapping:
+        source_name: CA
+        target_name: soil_salinity
+      canonical_id: soil_salinity
+    map_space: &id002
+      from_type: lumped
+      to_type: point
+      method: unknown
+      canonical_id: soil_salinity
+    validate_boundary: &id003
+      checks:
+      - no_nan
+      canonical_id: soil_salinity
+primitives_needed:
+- map_space
+- validate_boundary
+execution_order:
+- map_space
+- validate_boundary
+primitive_configs:
+  convert_units: []
+  exchange_data:
+  - *id001
+  map_space:
+  - *id002
+  validate_boundary:
+  - *id003
+risks:
+  total_traps: 0
+  automatable: 0
+  judgment_required: 0
+  traps: []

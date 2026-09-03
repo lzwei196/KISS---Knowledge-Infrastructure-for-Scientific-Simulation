@@ -5,13 +5,14 @@ editions. It follows one scientific-model case from project creation through
 KI selection, data preparation, user handoffs, model execution, results, and
 calibration.
 
-- [English manual](./GeoForge-Desktop-Manual-EN-v0.6.24.pdf)
-- [简体中文手册](./GeoForge-Desktop-Manual-ZH-CN-v0.6.24.pdf)
-- [Bilingual / 中英合订版](./GeoForge-Desktop-Manual-Bilingual-v0.6.24.pdf)
+- [English manual](./GeoForge-Desktop-Manual-EN-v0.6.47.pdf)
+- [简体中文手册](./GeoForge-Desktop-Manual-ZH-CN-v0.6.47.pdf)
+- [Bilingual / 中英合订版](./GeoForge-Desktop-Manual-Bilingual-v0.6.47.pdf)
 
-These PDFs document the v0.6.24 interface and remain applicable to v0.6.25.
-The v0.6.25 release additionally lets users expand and ask the agent about each
-individual data requirement, and improves live setup and permission handoffs.
+These PDFs document the v0.6.47 interface and remain the long-form guide for the current workflow.
+They include provider-specific proxy routing, Kimi project permissions, automatic
+KI updates from main, selectable model installation folders, KI Studio/KDT gates,
+live agent states, dynamic Project View, calibration, and the detailed APEX case.
 
 ## GeoForge 桌面版使用手册
 
@@ -19,5 +20,60 @@ individual data requirement, and improves live setup and permission handoffs.
 完整科学模型案例，逐步说明如何创建项目、选择 KI、准备数据、处理需要用户
 参与的步骤、运行模型、查看结果以及建立校准流程。
 
-这些 PDF 记录的是 v0.6.24 界面，仍适用于 v0.6.25。v0.6.25 另外增加了
-逐项展开数据需求、逐项询问 Agent，以及更清楚的安装进度与权限交接。
+这些 PDF 记录 v0.6.47 界面及当前 mac-version 工作流，新增了按服务商配置
+代理、Kimi 项目权限、从 main 自动更新 KI、模型安装目录、KI Studio/KDT
+三级门槛、实时 Agent 状态、动态项目视图、校准流程，以及完整 APEX 案例。
+
+## v0.6.50 addendum — governed Agent runs
+
+GeoForge now enforces the KI harness as a desktop workflow, not only as instructions in a prompt.
+Start with a natural scientific goal. The Agent first identifies the intended KI, study area, period,
+processes, outputs and material gaps. It then writes a data inventory and an executable plan. Downloads
+and model tools stay disabled until you review and approve that plan. Each approved tool or model run is
+recorded with its command, inputs, changed outputs, approval identity and validation result. Internal
+`GEOFORGE_INTAKE` metadata is not shown in chat. **Environment Check** reports whether both the bundled
+harness and the complete Flow runtime loaded from the installed application.
+
+## v0.6.50 补充说明——受控 Agent 运行
+
+GeoForge 现在把 KI harness 作为 Desktop 工作流真正执行，而不只是放进提示词。用户仍然可以
+直接描述自然语言科研目标；Agent 会先识别 KI、研究区、时段、过程、输出和关键缺口，再生成
+数据清单与可执行计划。只有用户审阅并批准计划后，下载和模型工具才会开放。每一次批准后的
+工具或模型运行都会记录命令、输入、变化的输出、批准标识和验证结果。内部
+`GEOFORGE_INTAKE` 元数据不会显示在聊天中。“环境检查”会同时报告当前 App 中的 harness
+与完整 Flow 运行时是否成功加载。
+
+## v0.6.49 addendum — KI Observatory
+
+Open **KI Observatory** from the Chat sidebar or the KI Library header. The atlas presents the
+local KI library using the 14 Earth-science domains in the KISS KI paper
+([arXiv:2605.17856](https://arxiv.org/abs/2605.17856)). The first view shows only the 14 domains;
+open a domain and select a KI to enter its animated scientific production line directly. Data moves
+from intake through the core processing stations and verification gate into results. Long descriptions,
+optional modules, and implementation helpers stay folded under **Full technical DAG**. Cross-KI
+relationships are optional and hidden by default. Choose **Ask Agent** on the KI
+or an individual node to create a new project chat pinned to that KI. GeoForge opens the new chat and
+sends the prepared question automatically; it never inserts an Observatory question into an old chat.
+The **Live project** tab reads the
+selected chat's recorded Agent and run state. The default workflow uses plain scientific phases rather
+than source-code identifiers. Open a phase to see its explanation; exact DAG terms are kept under
+**Technical evidence** and **Full technical DAG**. Chat activity now distinguishes a live process from
+confirmed tool events and growing project files, so a heartbeat alone is never described as a download
+or active computation. For structured Kimi Code and Claude Code events, the status card shows the latest
+redacted command, script, or file path rather than only `Bash`. Observatory views are read-only and never
+execute KI code.
+
+## v0.6.49 补充说明——KI 观测台
+
+从聊天侧栏或 KI 库顶部进入 **KI 观测台**。星图按照 KISS KI 论文
+（[arXiv:2605.17856](https://arxiv.org/abs/2605.17856)）的 14 个地球科学领域组织本地 KI。
+初始页面只显示 14 个领域；进入领域并选择 KI 后，会直接进入动态科学生产线。数据从入口
+流经核心处理站和验证闸门，再进入结果出口；处理站会依次点亮。长说明、可选模块和技术
+辅助节点默认折叠在“完整技术 DAG”中。跨 KI 关系是默认关闭的辅助视图。点击 KI 或单个
+节点的“询问 Agent”，会自动创建一个绑定当前 KI 的新项目对话、跳转并发送准备好的问题；
+不会把观测台的问题塞进旧对话。“实时项目”读取所选对话已经记录的 Agent
+与运行状态。默认工作流使用容易理解的科学阶段，不再把源码模块名当成主内容；点击阶段可看
+解释，原始 DAG 名称保留在“技术依据”和“完整技术 DAG”中。聊天状态也会区分“进程存活”、
+“真实工具事件”和“项目文件变化”，不会因为只有心跳就声称正在下载或计算。对于 Kimi Code
+和 Claude Code 的结构化工具事件，状态卡会显示经过脱敏的具体命令、脚本或文件路径，而不是
+只显示 `Bash`。观测台是只读界面，不会执行或导入 KI 代码。

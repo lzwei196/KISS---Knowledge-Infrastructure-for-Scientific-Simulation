@@ -1,0 +1,187 @@
+# ATA Card: PyPSA
+# Hand-authored 2026-05-22 for Huaihe 30-model system
+
+ata_card_version: '1.0'
+generated: '2026-05-22'
+generator: hand_authored
+identity:
+  model_id: PyPSA
+  model_name: PyPSA v1.2.1 (Python for Power System Analysis)
+  domain: energy
+  secondary_domains:
+  - water_energy_nexus
+  - socioeconomic
+  language: Python 3.11
+  binary_path: /home/server/micromamba/envs/pypsa_eur/bin/python
+inputs:
+- canonical_id: electricity_demand
+  local_name: load_p_set
+  unit: MW
+  valid_range:
+  - 0.0
+  - 1.0e6
+  format: csv
+  semantic_type: flux_density
+  unit_confidence: documented
+  mapping_confidence: exact_alias
+  input_category: forcing
+  conversion_notes:
+    from_irrigation_energy: 'Irrigation pump energy (kWh/day) / 24 → MW average load per bus'
+  silent_error: Mixing MW and GW in the same network — PyPSA does not check unit consistency
+    across components; capacities in GW with loads in MW produce nonsensical dispatch.
+- canonical_id: capacity_factor
+  local_name: generators_p_max_pu
+  unit: fraction (0-1)
+  valid_range:
+  - 0.0
+  - 1.0
+  format: csv
+  semantic_type: fraction
+  unit_confidence: documented
+  mapping_confidence: exact_alias
+  input_category: forcing
+  conversion_notes:
+    from_cmfd_solar: 'CMFD shortwave (W/m2) / panel_efficiency / 1000 → capacity_factor fraction'
+    from_wind: Weibull distribution of MSWX wind speed → capacity_factor via power curve
+- canonical_id: discharge
+  local_name: hydro_inflow
+  unit: m3/s
+  valid_range:
+  - 0.0
+  - 1.0e5
+  format: csv
+  semantic_type: volumetric_flow
+  unit_confidence: documented
+  mapping_confidence: exact_alias
+  input_category: boundary_conditions
+  conversion_notes:
+    from_cama: 'CaMa outflw (m3/s) at dam site → convert to MWh/day: energy = Q * head * eta_turbine * rho_water * g * 86400 / 3.6e9'
+- canonical_id: air_temperature
+  local_name: temperature_ambient
+  unit: degC
+  valid_range:
+  - -30.0
+  - 50.0
+  format: csv
+  semantic_type: temperature
+  unit_confidence: documented
+  mapping_confidence: exact_alias
+  input_category: forcing
+  conversion_notes:
+    from_cmfd: 'K → degC: subtract 273.15'
+outputs:
+- canonical_id: electricity_generation
+  local_name: generators_p
+  unit: MW
+  valid_range:
+  - 0.0
+  - 1.0e6
+  format: netcdf
+  semantic_type: flux_density
+  unit_confidence: documented
+  mapping_confidence: exact_alias
+  output_section: primary
+  origin: simulated
+  origin_confidence: high
+- canonical_id: electricity_price
+  local_name: buses_marginal_price
+  unit: CNY/MWh
+  valid_range:
+  - 0.0
+  - 5000.0
+  format: netcdf
+  semantic_type: state
+  unit_confidence: documented
+  mapping_confidence: exact_alias
+  output_section: primary
+  origin: simulated
+  origin_confidence: high
+- canonical_id: storage_level
+  local_name: storage_units_state_of_charge
+  unit: MWh
+  valid_range:
+  - 0.0
+  - null
+  format: netcdf
+  semantic_type: state
+  unit_confidence: documented
+  mapping_confidence: exact_alias
+  output_section: primary
+  origin: simulated
+  origin_confidence: high
+- canonical_id: co2_emission
+  local_name: generators_co2_emission
+  unit: t CO2/h
+  valid_range:
+  - 0.0
+  - null
+  format: csv
+  semantic_type: flux_density
+  unit_confidence: documented
+  mapping_confidence: exact_alias
+  output_section: primary
+  origin: simulated
+  origin_confidence: high
+spatial:
+  type: nodal
+  resolution: bus_level
+  crs: EPSG:4326
+  source: skill_md
+temporal:
+  resolution: hourly
+  calendar: standard
+  source: format_spec
+risks:
+  known_traps:
+  - canonical_var: electricity_demand
+    trap_id: mixed_mw_gw_units
+    description: Capacities in GW and loads in MW coexist silently — PyPSA never checks
+      unit consistency across components. Results are off by 1000x.
+    detection: Optimal capacity >> actual demand by 3 orders of magnitude
+    fix: Standardize all network components to MW; scale GW values × 1000
+    is_unit_trap: true
+    automatable: true
+    severity: high
+  - canonical_var: discharge
+    trap_id: hydro_head_wrong
+    description: Using wrong dam head value converts m3/s to MWh incorrectly. Typical
+      Chinese irrigation-focused dams are 10-30m head, not 100m.
+    detection: Hydro generation >> rated capacity of dam
+    fix: Source actual dam head from GRanD database or dam design specs; default 15m for
+      Huaihe irrigation dams
+    is_unit_trap: true
+    automatable: false
+    severity: high
+  - canonical_var: capacity_factor
+    trap_id: solver_not_installed
+    description: PyPSA optimization requires a LP/MILP solver (HiGHS, Gurobi, CPLEX).
+      Without it, n.optimize() raises ImportError silently if solver not found.
+    detection: network.optimize() returns no result or raises solver-not-found error
+    fix: Use HiGHS (bundled with pypsa_eur conda env); invoke as n.optimize(solver_name='highs')
+    is_unit_trap: false
+    automatable: true
+    severity: high
+  unit_conversions: []
+coupling:
+  chain_position: consumer_producer
+  native_formats:
+  - csv
+  - netcdf
+  exchange_format: csv
+  coupling_role: earth_system
+quality:
+  has_format_spec: true
+  has_skill_md: true
+  has_triplets: false
+  n_inputs: 4
+  n_outputs: 4
+  n_inputs_canonical: 4
+  n_outputs_canonical: 4
+  n_unmapped: 0
+  n_traps: 3
+  n_conversions: 0
+  spatial_complete: true
+  temporal_complete: true
+  unmapped_variables: []
+  validation_issues: []
+  card_status: complete

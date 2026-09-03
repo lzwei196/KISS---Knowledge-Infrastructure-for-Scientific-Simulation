@@ -1,0 +1,223 @@
+# Coupling Config v2: CWatM -> Ribasim
+
+coupling_config_version: '2.0'
+generated: '2026-05-23'
+generator: ata_pipeline2_coupling_gen.py v2
+metadata:
+  edge_id: CWatM_to_Ribasim
+  source_model: CWatM
+  target_model: Ribasim
+  source_domain: hydrology
+  target_domain: water_resources
+  edge_type: type5_cross_scale_cross_domain
+  n_forward_variables: 1
+  n_combine_variables: 0
+  n_plausible_feedback: 0
+  n_review_feedback: 0
+  is_feedback: false
+forward_edges:
+- canonical_id: discharge
+  source_canonical_id: discharge
+  target_canonical_id: discharge
+  match_type: exact_canonical
+  source_local_name: discharge
+  source_unit: m3/s
+  target_local_name: flow_boundary
+  target_unit: m3/s
+combine_edges: []
+plausible_feedback: []
+review_feedback: []
+compatibility:
+- canonical_id: discharge
+  source_canonical_id: discharge
+  target_canonical_id: discharge
+  match_type: exact_canonical
+  primitives_needed:
+  - map_space
+  - align_time
+  - validate_boundary
+  details:
+    convert_units:
+      status: not_needed
+      units_match: true
+    exchange_data:
+      status: not_needed
+      variable_mapping:
+        source_name: discharge
+        target_name: flow_boundary
+    map_space: &id001
+      from_type: regular_grid
+      to_type: HRU
+      method: grid_to_hru_area_weighted
+      canonical_id: discharge
+    align_time: &id002
+      from_resolution: daily
+      to_resolution: sub-hourly
+      direction: disaggregate
+      aggregation_method: distribute_uniform
+      semantic_type: volumetric_flow
+      canonical_id: discharge
+    validate_boundary: &id003
+      checks:
+      - no_nan
+      - 'range: [0, 100000]'
+      canonical_id: discharge
+primitives_needed:
+- align_time
+- map_space
+- validate_boundary
+execution_order:
+- align_time
+- map_space
+- validate_boundary
+primitive_configs:
+  convert_units: []
+  exchange_data: []
+  map_space:
+  - *id001
+  align_time:
+  - *id002
+  validate_boundary:
+  - *id003
+risks:
+  total_traps: 9
+  automatable: 5
+  judgment_required: 4
+  traps:
+  - canonical_var: discharge
+    model: CWatM
+    trap_id: dt_016
+    description: '{''description'': ''Discharge unrealistically high for first few years, then stabilizes.'', ''error_pattern'':
+      '''', ''detection_method'': ''value_comparison''}'
+    detection: '{''root_cause'': ''Insufficient spinup period. Initial conditions not equilibrated.'', ''explanation'': ''CWatM
+      starts with default initial conditions (all storage = 0 or default values). The model needs 3-5'
+    fix: '{''action'': ''Increase spinup period to 3-5 years'', ''manual_steps'': [''Set SpinUp date at least 3 years after
+      StepStart'', ''Or use saved initial conditions from a previous long run'', ''Exclude spinup perio'
+    is_unit_trap: false
+    automatable: false
+  - canonical_var: discharge
+    model: Ribasim
+    trap_id: dt_003
+    description: 'Basin level barely responds to inflows. Large inflows produce negligible level changes. Storage changes
+      are minuscule.
+
+      '
+    detection: Basin profile area is in km² instead of m². Ribasim expects m². An area of 10 km² = 1e7 m², but if entered
+      as 10, the basin has only 10 m² surface area — it fills in milliseconds with any inflow, or i
+    fix: 'Convert area: area_m2 = area_km2 * 1e6. Or ha: area_m2 = area_ha * 1e4. Verify: basin area should be consistent
+      with expected storage volumes.
+
+      '
+    is_unit_trap: true
+    automatable: true
+  - canonical_var: discharge
+    model: Ribasim
+    trap_id: dt_008
+    description: 'Ribasim crashes at startup with connectivity validation error. Error message about invalid node connections.
+
+      '
+    detection: 'Node connectivity rules violated. Common cases: - Basin connected directly to Basin (needs structure between
+      them) - FlowBoundary connected to non-Basin node - Control node connected via "flow" instea'
+    fix: 'Check connectivity rules in SKILL.md. Ensure structure nodes (Pump, Outlet, LinearResistance, etc.) separate basins.
+      Use link_type="control" for control connections.
+
+      '
+    is_unit_trap: true
+    automatable: false
+  - canonical_var: discharge
+    model: Ribasim
+    trap_id: dt_009
+    description: 'Model runs but distances and areas are incorrect. Manning resistance flows are wrong magnitude. Spatial
+      operations give unexpected results.
+
+      '
+    detection: 'CRS mismatch between declared CRS and actual node coordinates. E.g., coordinates in WGS84 (degrees) but CRS
+      declared as EPSG:28992 (meters). Ribasim doesn''t reproject automatically.
+
+      '
+    fix: 'Ensure all coordinates match the declared CRS. Use GIS tools to reproject if needed. Verify by plotting nodes on
+      a map.
+
+      '
+    is_unit_trap: false
+    automatable: true
+  - canonical_var: discharge
+    model: Ribasim
+    trap_id: dt_010
+    description: 'No water flows between connected basins despite level differences. LinearResistance links show zero or near-zero
+      flow. Basins behave as if isolated.
+
+      '
+    detection: 'Resistance value is too high. LinearResistance uses Q = Δh / R. With R = 1e10 s/m² and Δh = 1m, Q = 1e-10
+      m³/s (negligible). This effectively disconnects the basins.
+
+      '
+    fix: 'Typical resistance values: 1e2 to 1e6 s/m² for natural channels. Start with R = 1e4 and adjust. Lower R = more flow.
+      Check: with expected Δh, does Q = Δh/R give reasonable flow?
+
+      '
+    is_unit_trap: false
+    automatable: false
+  - canonical_var: discharge
+    model: Ribasim
+    trap_id: dt_011
+    description: 'Basin levels stay near zero or at minimum despite inflows. Pump/outlet flows are zero even when they should
+      be active. Basin never "fills up" to expected operating level.
+
+      '
+    detection: depth_threshold in solver settings is too high. When basin depth is below this threshold, flows are progressively
+      reduced to zero. Default is 0.1 m. If set to e.g. 5.0 m, basins must reach 5m before s
+    fix: 'Keep depth_threshold at default 0.1 m for most applications. Only increase for very deep basins where sub-meter
+      levels are numerically problematic.
+
+      '
+    is_unit_trap: false
+    automatable: true
+  - canonical_var: discharge
+    model: Ribasim
+    trap_id: dt_014
+    description: 'Water balance error exceeds tolerance. Warning messages about mass conservation. Results may be inaccurate.
+
+      '
+    detection: 'Solver is struggling with the ODE system. Typically caused by: - Abrupt forcing changes (step functions in
+      time series) - Very different time scales between connected basins - High flow rates through '
+    fix: 'Reduce tolerances (abstol = 1e-7, reltol = 1e-7). Smooth abrupt forcing transitions. Consider using FBDF instead
+      of QNDF for very stiff systems.
+
+      '
+    is_unit_trap: true
+    automatable: false
+  - canonical_var: discharge
+    model: Ribasim
+    trap_id: dt_015
+    description: 'Output time series misses important dynamics. Peak flows are underestimated. Control state changes not captured.
+      Daily output looks smooth when hourly dynamics are important.
+
+      '
+    detection: 'saveat interval is too large relative to system dynamics. Default saveat = 86400 (daily) misses sub-daily
+      control switching, short flood peaks, and rapid level changes.
+
+      '
+    fix: 'Reduce saveat: 3600 for hourly, 900 for 15-minute. Note: smaller saveat increases output file size proportionally.
+      For control systems, saveat should be <= control response time.
+
+      '
+    is_unit_trap: false
+    automatable: true
+  - canonical_var: discharge
+    model: Ribasim
+    trap_id: dt_016
+    description: 'FlowBoundary or LevelBoundary suddenly drops to zero or goes flat partway through the simulation. Basin
+      inflows stop unexpectedly.
+
+      '
+    detection: 'Time series data has gaps or doesn''t cover the full simulation period. Ribasim interpolates between data
+      points but may use zero or last value for periods beyond the time series range.
+
+      '
+    fix: 'Ensure all time series cover [starttime, endtime]. Check for gaps: pd.date_range vs actual timestamps. Fill gaps
+      with appropriate interpolation before input.
+
+      '
+    is_unit_trap: false
+    automatable: true

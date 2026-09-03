@@ -1,0 +1,277 @@
+# Coupling Config v2: VIC -> DSSAT
+# UPDATED 2026-05-21: added soil_moisture → SH2O initialization edge
+# Pipeline2 auto-generated only precipitation_rate (exact_canonical). Soil moisture
+# was not registered as a canonical DSSAT input, so pipeline2 missed it. This edge
+# injects VIC's per-layer soil_moisture [mm] into DSSAT FileX *INITIAL CONDITIONS
+# as SH2O [cm³/cm³] before each growing-season run. Without this, DSSAT uses
+# generic default SH2O which can produce 20-40% yield error in water-limited years.
+
+coupling_config_version: '2.0'
+generated: '2026-05-21'
+generator: manual_update_v1
+metadata:
+  edge_id: VIC_to_DSSAT
+  source_model: VIC
+  target_model: DSSAT
+  source_domain: hydrology
+  target_domain: crop
+  edge_type: type5_cross_scale_cross_domain
+  n_forward_variables: 2
+  n_combine_variables: 0
+  n_plausible_feedback: 0
+  n_review_feedback: 0
+  is_feedback: false
+  update_note: >
+    Added soil_moisture→SH2O edge. The original auto-generated config passed only
+    precipitation_rate. Soil moisture initialization matters for water-limited
+    rainfed and supplemental-irrigation scenarios in the Huaihe plain: pre-season
+    soil water deficit determines early root growth and affects final grain weight.
+forward_edges:
+- canonical_id: precipitation_rate
+  source_canonical_id: precipitation_rate
+  target_canonical_id: precipitation_rate
+  match_type: exact_canonical
+  source_local_name: precipitation
+  source_unit: mm/timestep
+  target_local_name: precipitation
+  target_unit: mm/day
+- canonical_id: soil_moisture
+  source_canonical_id: soil_moisture
+  target_canonical_id: soil_moisture
+  match_type: exact_canonical
+  source_local_name: soil_moisture              # VIC output SOIL_MOIST (mm per layer)
+  source_unit: mm
+  target_local_name: SH2O                       # DSSAT FileX *INITIAL CONDITIONS, cm3/cm3
+  target_unit: cm3/cm3
+  primitives_needed:
+    - convert_units
+    - map_space
+    - align_time
+    - transform_semantic
+    - validate_boundary
+  transform_semantic:
+    description: >
+      VIC outputs per-layer soil moisture as total mm water in the layer (3 layers by default:
+      d1=0.1m, d2=0.3m, d3=1.5m). DSSAT *INITIAL CONDITIONS requires SH2O (volumetric fraction,
+      cm³/cm³) at user-specified depths. This edge injects VIC's end-of-previous-month (pre-season)
+      layer moisture into DSSAT FileX before each growing-season simulation.
+    formula: |
+      # VIC layer_depth in mm (from VIC soil parameter file d1, d2, d3)
+      # SH2O [cm3/cm3] = soil_moisture_mm / layer_depth_mm
+      SH2O_layer1 = VIC_soil_moist_mm[layer1] / (d1_m * 1000)
+      SH2O_layer2 = VIC_soil_moist_mm[layer2] / (d2_m * 1000)
+      SH2O_layer3 = VIC_soil_moist_mm[layer3] / (d3_m * 1000)
+      # Clamp to [SLLL, SSAT] from DSSAT .SOL file to avoid IPSOIL Error 7/8
+      SH2O_layerN = max(SLLL_N, min(SSAT_N, SH2O_layerN))
+      # Temporal: use VIC soil moisture at end-of-day on (SDATE - 1)
+    injection_point: >
+      FileX *INITIAL CONDITIONS section — ICBL (depth cm) and SH2O (cm3/cm3) per layer.
+      Write one row per VIC layer: ICBL = cumulative depth in cm, SH2O = computed value.
+      Use dssat_workdir_setup.py or edit the FileX template before calling run_dssat().
+
+combine_edges: []
+plausible_feedback: []
+review_feedback: []
+compatibility:
+- canonical_id: soil_moisture
+  source_canonical_id: soil_moisture
+  target_canonical_id: soil_moisture
+  match_type: exact_canonical
+  primitives_needed:
+    - convert_units
+    - map_space
+    - align_time
+    - transform_semantic
+    - validate_boundary
+  details:
+    convert_units:
+      from_unit: mm
+      to_unit: cm3/cm3
+      factor: 1/layer_depth_mm
+      known: true
+      canonical_id: soil_moisture
+    map_space:
+      from_type: regular_grid
+      to_type: point
+      method: grid_to_point_extraction
+      canonical_id: soil_moisture
+    align_time:
+      from_resolution: daily
+      to_resolution: point_in_time
+      direction: snapshot
+      aggregation_method: last_value_before_sdate
+      semantic_type: state
+      canonical_id: soil_moisture
+    transform_semantic:
+      description: layer_mm_to_volumetric_fraction + injection into FileX INITIAL CONDITIONS
+      canonical_id: soil_moisture
+    validate_boundary:
+      checks:
+        - non_negative
+        - no_nan
+        - "range: [0.0, 0.60]"
+        - "clamp_to_SLLL_SSAT_from_SOL_file"
+      canonical_id: soil_moisture
+- canonical_id: precipitation_rate
+  source_canonical_id: precipitation_rate
+  target_canonical_id: precipitation_rate
+  match_type: exact_canonical
+  primitives_needed:
+  - convert_units
+  - map_space
+  - align_time
+  - validate_boundary
+  details:
+    convert_units: &id001
+      from_unit: mm/timestep
+      to_unit: mm/day
+      known: false
+      canonical_id: precipitation_rate
+    exchange_data: &id002
+      status: format_unspecified
+      variable_mapping:
+        source_name: precipitation
+        target_name: precipitation
+      canonical_id: precipitation_rate
+    map_space: &id003
+      from_type: regular_grid
+      to_type: point
+      method: grid_to_point_extraction
+      canonical_id: precipitation_rate
+    align_time: &id004
+      from_resolution: 3-hourly
+      to_resolution: daily
+      direction: aggregate
+      aggregation_method: sum
+      semantic_type: flux_density
+      canonical_id: precipitation_rate
+    validate_boundary: &id005
+      checks:
+      - non_negative
+      - no_nan
+      - 'range: [0.0, 500.0]'
+      canonical_id: precipitation_rate
+primitives_needed:
+- align_time
+- convert_units
+- map_space
+- validate_boundary
+execution_order:
+- align_time
+- convert_units
+- map_space
+- validate_boundary
+primitive_configs:
+  convert_units:
+  - *id001
+  exchange_data:
+  - *id002
+  map_space:
+  - *id003
+  align_time:
+  - *id004
+  validate_boundary:
+  - *id005
+primitives_needed:
+- align_time
+- convert_units
+- map_space
+- transform_semantic
+- validate_boundary
+execution_order:
+- align_time
+- convert_units
+- map_space
+- transform_semantic
+- validate_boundary
+
+risks:
+  total_traps: 8
+  automatable: 6
+  judgment_required: 2
+  traps:
+  - canonical_var: precipitation_rate
+    model: DSSAT
+    trap_id: dt_014
+    description: '{''description'': ''Simulation terminates with Error 7 from IPSOIL — saturated water content (SAT) is less
+      than drained upper limit (DUL) in one or more soil layers.'', ''error_pattern'': ''Error key: IPSOIL'
+    detection: '{''root_cause'': ''IPSOIL_Inp.for (line ~499) checks IF((DUL(J)-SAT(J)).GT.0.0) CALL ERROR(ERRKEY,7,FILES,LINSOL).
+      This enforces the physical constraint SAT >= DUL.'', ''explanation'': ''Soil water content f'
+    fix: '{''action'': ''Correct the soil water parameters so that SAT >= DUL >= LL in every layer.'', ''tool_to_run'': '''',
+      ''manual_steps'': [''Open the .SOL file and find the soil profile identified by the error.'', ''F'
+    is_unit_trap: false
+    automatable: true
+  - canonical_var: precipitation_rate
+    model: DSSAT
+    trap_id: dt_015
+    description: '{''description'': ''Simulation terminates with Error 8 from IPSOIL — lower limit (LL) exceeds drained upper
+      limit (DUL) in one or more soil layers.'', ''error_pattern'': ''Error key: IPSOIL.*Error.*8|LL.*DUL'
+    detection: '{''root_cause'': ''IPSOIL_Inp.for (line ~502) checks IF((LL(J)-DUL(J)).GT.0.0) CALL ERROR(ERRKEY,8,FILES,LINSOL).
+      This enforces DUL >= LL.'', ''explanation'': ''The lower limit of plant-extractable water (LL'
+    fix: '{''action'': ''Correct soil water parameters so that DUL >= LL in every layer.'', ''tool_to_run'': '''', ''manual_steps'':
+      [''Open the .SOL file and locate the layer reported in the error.'', ''Swap SLLL and SDUL '
+    is_unit_trap: true
+    automatable: true
+  - canonical_var: precipitation_rate
+    model: DSSAT
+    trap_id: dt_025
+    description: '{''description'': ''Simulation terminates with Error 4 — simulation start date (SDATE) is after the planting
+      date (YRPLT). The model cannot simulate pre-planting soil dynamics.'', ''error_pattern'': ''Error.'
+    detection: '{''root_cause'': ''The simulation start date (SDATE) must precede or equal the planting date (YRPLT) to allow
+      initialization of soil water and nitrogen dynamics before planting. When SDATE > YRPLT, the m'
+    fix: '{''action'': ''Set SDATE to a date before the planting date.'', ''tool_to_run'': '''', ''manual_steps'': [''Open
+      the FileX and check SDATE in *SIMULATION CONTROLS and YRPLT in *PLANTING DETAILS.'', ''Ensure SDATE '
+    is_unit_trap: true
+    automatable: false
+  - canonical_var: precipitation_rate
+    model: DSSAT
+    trap_id: dt_042
+    description: '{''description'': ''Summary.OUT shows HWAH=0 and the simulation completed (no error). The crop grew but
+      never reached physiological maturity or the harvested fraction was zero.'', ''error_pattern'': ''HWAH\\'
+    detection: '{''root_cause'': ''HWAH (harvested weight at harvest) can be zero if: (1) the crop never reached maturity
+      (MDAT not set), (2) HPC (harvest percentage) was 0, (3) the grain-filling phase was terminated by'
+    fix: '{''action'': ''Investigate why the crop did not produce grain by examining PlantGro.OUT and WARNING.OUT.'', ''tool_to_run'':
+      '''', ''manual_steps'': [''Check Summary.OUT: is MDAT (maturity date) present or -99?'''
+    is_unit_trap: false
+    automatable: true
+  - canonical_var: precipitation_rate
+    model: VIC
+    trap_id: conv_precipitation
+    description: 'Conversion trap: CMFD (kg/m2/s) -> VIC (mm/3hr)'
+    detection: Runoff 10800x too high (raw kg/m2/s) or near zero
+    fix: Apply multiply factor=10800 offset=
+    is_unit_trap: true
+    automatable: true
+  - canonical_var: precipitation_rate
+    model: VIC->DSSAT
+    trap_id: unit_mismatch_precipitation_rate
+    description: 'Unit mismatch: source [mm/timestep] vs target [mm/day]'
+    detection: Check precipitation_rate units at coupling boundary
+    fix: Convert mm/timestep -> mm/day
+    is_unit_trap: true
+    automatable: true
+  - canonical_var: soil_moisture
+    model: VIC->DSSAT
+    trap_id: sm_001
+    description: >
+      VIC soil moisture [mm] divided by wrong layer depth gives wrong SH2O.
+      VIC soil_d1/d2/d3 are in the VIC soil parameter file and differ per basin calibration.
+    detection: Check DSSAT SH2O values; if SH2O > SSAT or < 0, layer depth is wrong.
+    fix: >
+      Read actual d1/d2/d3 from VIC soil parameter file (data/vic_parameters/soil_params.txt
+      column order: d1=col22, d2=col23, d3=col24 in 0.25° format, or from SKILL.md).
+      Do NOT hardcode d1=0.1, d2=0.3, d3=1.5 without verifying.
+    is_unit_trap: true
+    automatable: true
+  - canonical_var: soil_moisture
+    model: DSSAT
+    trap_id: sm_002
+    description: >
+      Injected SH2O outside [SLLL, SSAT] triggers IPSOIL Error 7 or Error 8.
+      This happens when VIC is calibrated with different porosity than the DSSAT .SOL file.
+    detection: IPSOIL error in ERROR.OUT; or SH2O > SSAT in the injected initial conditions.
+    fix: >
+      Clamp SH2O to [SLLL+0.001, SSAT-0.001] from the DSSAT .SOL file before injection.
+      If systematic: reconcile VIC porosity (θ_s) with DSSAT SLSAT using HWSD soil data.
+    is_unit_trap: false
+    automatable: true

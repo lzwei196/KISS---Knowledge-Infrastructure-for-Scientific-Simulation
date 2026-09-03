@@ -1,0 +1,80 @@
+coupling_config_version: '1.0'
+source_model: CaMa_Flood
+target_model: DSSAT
+generated_by: manual semantic transform (pipeline2 failed — no canonical ID overlap)
+validated: true
+notes: >
+  CaMa_Flood outputs floodplain_depth (m) and floodplain_fraction (dimensionless).
+  DSSAT has no canonical input for soil-water forcing; its irrigation module (IROP=IR011,
+  basin flood irrigation) is the validated physical pathway to impose ponded water on the
+  soil profile. Once the soil reaches saturation, DSSAT's ANAERF subroutine automatically
+  reduces root water uptake and accelerates senescence — this is the correct waterlogging
+  physics, not an external damage multiplier.
+
+forward_edges:
+  - source_canonical_id: floodplain_depth
+    target_canonical_id: null   # No canonical mapping — handled via FileX irrigation section
+    transform_semantic:
+      type: flood_injection
+      description: >
+        For each qualifying flood episode (>= min_event_days consecutive days with
+        fldfrc > flood_frac_threshold AND flddph > flood_depth_threshold_m):
+        inject one IR001 irrigation event PER FLOODED DAY at
+        min(daily_flddph_m * 1000, max_daily_injection_mm) mm.
+        Daily injection sustains soil moisture above SAT so DSSAT's ANAERF
+        waterlogging physics engages correctly — a single-pulse approach drains
+        too quickly and registers as beneficial irrigation, not waterlogging.
+        All events must be expressed in DSSAT YYDDD date format.
+      parameters:
+        flood_frac_threshold: 0.05       # fldfrc threshold (5% of cell inundated)
+        flood_depth_threshold_m: 0.10    # flddph threshold (10 cm above land surface)
+        max_daily_injection_mm: 50       # cap per-day event; ~50 mm/day maintains saturation
+        irop_code: IR001                 # surface/furrow irrigation — IR011 is rice-only, ignored by DSSAT for maize/wheat
+        min_event_days: 2                # ignore 1-day spikes (noise)
+      unit_check:
+        source_unit: m
+        target_unit: mm
+        factor: 1000
+        direction: correct_m_to_mm
+
+  - source_canonical_id: floodplain_fraction
+    target_canonical_id: null
+    transform_semantic:
+      type: gating
+      description: >
+        fldfrc is used only as a gate to qualify flood events (fldfrc >
+        flood_frac_threshold). It does not directly map to a DSSAT variable.
+
+filex_modifications_required:
+  - section: SIMULATION CONTROLS
+    field: IRRIG
+    old_value: "N"
+    new_value: "R"
+    reason: Enable reported (event-based) irrigation so injected flood events are applied
+  - section: IRRIGATION AND WATER MANAGEMENT
+    action: append_events
+    format: " 1 {YYDDD} IR011 {amount_mm:.1f}"
+    header_line: "@I IDATE  IROP IRVAL"
+
+sanity_checks:
+  - check: daily_amount_mm <= max_daily_injection_mm
+    action: cap
+  - check: flood_event_within_growing_season_only
+    action: filter_out_of_season_events
+  - check: yyddd_year_range_1980_1997
+    action: assert
+  - check: no_duplicate_event_dates
+    action: deduplicate_by_day
+
+known_limitations:
+  - >
+    Spatial mismatch: CaMa cells are 0.25° (~28 km); DSSAT operates at field scale.
+    The flood fraction (fldfrc) partially accounts for this but the injection volume
+    is a cell-average, not a field measurement.
+  - >
+    DSSAT does not model surface ponding explicitly; excess water beyond SAT is
+    lost via drainage rather than maintained as a ponded layer. Deep floods
+    (flddph > 0.5 m) are approximated as equivalent ponded-water additions.
+  - >
+    DSSAT ANAERF response is calibrated for short-term waterlogging. Prolonged
+    multi-week inundation (common in 1991 Huai River flood) may be underestimated.

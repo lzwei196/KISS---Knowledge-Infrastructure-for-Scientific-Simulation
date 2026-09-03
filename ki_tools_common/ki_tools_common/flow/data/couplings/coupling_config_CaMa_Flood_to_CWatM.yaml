@@ -1,0 +1,102 @@
+# Coupling Config v2: CaMa_Flood -> CWatM
+
+coupling_config_version: '2.0'
+generated: '2026-05-23'
+generator: ata_pipeline2_coupling_gen.py v2
+metadata:
+  edge_id: CaMa_Flood_to_CWatM
+  source_model: CaMa_Flood
+  target_model: CWatM
+  source_domain: routing
+  target_domain: hydrology
+  edge_type: type6_cross_domain_feedback
+  n_forward_variables: 1
+  n_combine_variables: 0
+  n_plausible_feedback: 2
+  n_review_feedback: 0
+  is_feedback: true
+forward_edges:
+- canonical_id: discharge
+  source_canonical_id: discharge
+  target_canonical_id: discharge
+  match_type: exact_canonical
+  source_local_name: discharge
+  source_unit: m3/s
+  target_local_name: upstream_discharge
+  target_unit: m3/s
+combine_edges: []
+plausible_feedback:
+- canonical_id: surface_runoff
+  source_local_name: discharge
+  target_local_name: runoff
+- canonical_id: discharge
+  source_local_name: discharge
+  target_local_name: lateral_inflow
+review_feedback: []
+compatibility:
+- canonical_id: discharge
+  source_canonical_id: discharge
+  target_canonical_id: discharge
+  match_type: exact_canonical
+  primitives_needed:
+  - validate_boundary
+  details:
+    convert_units:
+      status: not_needed
+      units_match: true
+    exchange_data:
+      status: not_needed
+      variable_mapping:
+        source_name: discharge
+        target_name: upstream_discharge
+    validate_boundary: &id001
+      checks:
+      - no_nan
+      canonical_id: discharge
+primitives_needed:
+- validate_boundary
+execution_order:
+- validate_boundary
+primitive_configs:
+  convert_units: []
+  exchange_data: []
+  validate_boundary:
+  - *id001
+risks:
+  total_traps: 3
+  automatable: 1
+  judgment_required: 2
+  traps:
+  - canonical_var: discharge
+    model: CWatM
+    trap_id: dt_016
+    description: '{''description'': ''Discharge unrealistically high for first few years, then stabilizes.'', ''error_pattern'':
+      '''', ''detection_method'': ''value_comparison''}'
+    detection: '{''root_cause'': ''Insufficient spinup period. Initial conditions not equilibrated.'', ''explanation'': ''CWatM
+      starts with default initial conditions (all storage = 0 or default values). The model needs 3-5'
+    fix: '{''action'': ''Increase spinup period to 3-5 years'', ''manual_steps'': [''Set SpinUp date at least 3 years after
+      StepStart'', ''Or use saved initial conditions from a previous long run'', ''Exclude spinup perio'
+    is_unit_trap: false
+    automatable: false
+  - canonical_var: discharge
+    model: CaMa_Flood
+    trap_id: dt_cama_003
+    description: '{''description'': ''CaMa-Flood runs but river channel widths are unrealistically wide or narrow, causing
+      wrong water depths and discharge timing'', ''error_pattern'': '''', ''detection_method'': ''value_comparis'
+    detection: '{''root_cause'': ''calc_rivwth was run using the global diminfo file instead of the regional diminfo file'',
+      ''explanation'': ''The calc_rivwth tool reads the diminfo file to determine grid dimensions (nrows'
+    fix: '{''action'': ''Re-run calc_rivwth with the regional diminfo file'', ''tool_to_run'': '''', ''manual_steps'': [''cd
+      map/{basin}_15min'', ''Verify regional diminfo exists: cat diminfo_{basin}_025deg.txt'', ''Run: ./sr'
+    is_unit_trap: true
+    automatable: true
+  - canonical_var: discharge
+    model: CaMa_Flood
+    trap_id: dt_cama_005
+    description: '{''description'': ''CaMa-Flood produces discharge at completely wrong locations -- river network does not
+      match the basin'', ''error_pattern'': '''', ''detection_method'': ''value_comparison''}'
+    detection: '{''root_cause'': ''CaMa map files from a previous basin were reused instead of regenerating for the new basin'',
+      ''explanation'': "Each basin requires its own set of CaMa-Flood map files because the river n'
+    fix: '{''action'': ''Regenerate all CaMa map files for the new basin'', ''tool_to_run'': ''tools/configure_simulation.py'',
+      ''manual_steps'': [''Create new map dir: mkdir map/{new_basin}_15min'', ''Run configure_simulat'
+    is_unit_trap: true
+    automatable: false

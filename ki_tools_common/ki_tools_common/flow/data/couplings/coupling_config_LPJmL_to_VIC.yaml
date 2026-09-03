@@ -1,0 +1,124 @@
+# Coupling Config v2: LPJmL -> VIC
+# Hand-authored 2026-05-22 — dynamic vegetation (LAI, fcover) → VIC veg parameter update
+
+coupling_config_version: '2.0'
+generated: '2026-05-22'
+generator: hand_authored
+metadata:
+  edge_id: LPJmL_to_VIC
+  source_model: LPJmL
+  target_model: VIC
+  source_domain: crop
+  target_domain: hydrology
+  edge_type: type2b_parameter_update
+  n_forward_variables: 1
+  n_combine_variables: 0
+  n_plausible_feedback: 0
+  n_review_feedback: 0
+  is_feedback: false
+  coupling_frequency: annual
+  note: This is a PARAMETER UPDATE coupling, not a forcing coupling. LPJmL provides
+    annual vegetation state that updates VIC's veg_param.txt before the next simulation
+    year. It is NOT inline per-timestep coupling.
+forward_edges:
+- canonical_id: leaf_area_index
+  source_canonical_id: npp
+  target_canonical_id: leaf_area_index
+  match_type: transform_semantic
+  source_local_name: mnpp
+  source_unit: gC/m2/day
+  target_local_name: LAI
+  target_unit: m2/m2
+combine_edges: []
+plausible_feedback: []
+review_feedback: []
+compatibility:
+- canonical_id: leaf_area_index
+  source_canonical_id: npp
+  target_canonical_id: leaf_area_index
+  match_type: transform_semantic
+  primitives_needed:
+  - transform_semantic
+  - convert_units
+  - exchange_data
+  - validate_boundary
+  details:
+    transform_semantic: &t1
+      type: npp_to_lai_allometric
+      transform: "LAI = (npp_annual_gCm2yr / 250.0)^0.5 * SLA_m2gC"
+      requires:
+      - npp
+      source_canonical: npp
+      target_canonical: leaf_area_index
+      note: "LPJmL does not output LAI directly from the mnpp variable — preferred\n\
+        path is to use LPJmL's direct LAI output (lai variable, m2/m2) if available.\n\
+        If only npp is available, use allometric relationship:\n\
+        LAI ≈ (NPP_annual_gCm2yr / leaf_turnover_fraction) * SLA (m2/gC)\n\
+        where SLA = 0.02 m2/gC for temperate crops, leaf_turnover_fraction = 250 gC/m2/yr.\n\
+        Recommended: run LPJmL with lai output enabled; treat this npp transform as fallback."
+      canonical_id: leaf_area_index
+    convert_units: &c1
+      status: direct_if_lai_output
+      note: If LPJmL outputs lai directly (m2/m2), no conversion needed. If using
+        npp proxy, see transform formula.
+      canonical_id: leaf_area_index
+    exchange_data: &e1
+      status: veg_param_update
+      variable_mapping:
+        source_name: mnpp (proxy for lai)
+        target_name: LAI[month] in veg_param.txt
+      note: VIC veg_param.txt has 12 monthly LAI values per vegetation class per cell.
+        LPJmL provides annual mean LAI per PFT. Map LPJmL PFTs to VIC vegetation
+        classes using the standard LPJmL-VIC PFT crosswalk table. Update veg_param.txt
+        annually, then re-run VIC for that year.
+      canonical_id: leaf_area_index
+    validate_boundary: &v1
+      checks:
+      - no_nan
+      - 'range: [0.0, 10.0]'
+      canonical_id: leaf_area_index
+primitives_needed:
+- transform_semantic
+- convert_units
+- exchange_data
+- validate_boundary
+execution_order:
+- transform_semantic
+- convert_units
+- exchange_data
+- validate_boundary
+primitive_configs:
+  transform_semantic:
+  - *t1
+  convert_units:
+  - *c1
+  exchange_data:
+  - *e1
+  validate_boundary:
+  - *v1
+risks:
+  total_traps: 2
+  automatable: 1
+  judgment_required: 1
+  traps:
+  - canonical_var: leaf_area_index
+    model: LPJmL->VIC
+    trap_id: pft_to_veg_class_mismatch
+    description: LPJmL has ~14 PFTs; VIC has ~14 vegetation classes but with different
+      definitions. Direct index mapping without a crosswalk table produces wrong LAI
+      for converted land (e.g. LPJmL crop PFT != VIC crop class).
+    detection: VIC LAI > 8 m2/m2 for desert cells, or LAI < 0.5 for irrigated cropland
+    fix: Use the LPJmL-VIC PFT crosswalk table in ata-kdt/cards/crosswalks/ (to be
+      created); default crosswalk uses C3/C4 crops, needleleaf/broadleaf trees.
+    is_unit_trap: false
+    automatable: false
+  - canonical_var: leaf_area_index
+    trap_id: parameter_update_coupling_not_inline
+    description: This coupling updates VIC veg_param.txt annually, NOT within a single
+      time step. Running LPJmL and VIC simultaneously without the annual update step
+      means VIC always uses its default static LAI — no dynamic vegetation effect.
+    detection: VIC LAI identical across all simulation years despite land use change
+    fix: After each LPJmL annual run, invoke veg_param_updater.py before the next
+      VIC annual run. Use the coupled_orchestrator annual-feedback loop.
+    is_unit_trap: false
+    automatable: true

@@ -1,0 +1,413 @@
+ata_card_version: '1.0'
+generated: '2026-04-17'
+generator: ata_pipeline1_card_gen.py
+identity:
+  model_id: CWatM
+  model_name: CWatM
+  domain: hydrology
+  secondary_domains: []
+  language: Python 3.8+ with C++ routing acceleration
+  binary_path: /home/server/knowledge-dissection-toolkit/auto_dissect/_work/CWatM/venv/bin/python
+inputs:
+- canonical_id: precipitation_rate
+  local_name: precipitation
+  unit: kg m-2 s-1
+  valid_range:
+  - 0.0
+  - 0.001
+  format: netcdf
+  semantic_type: flux_density
+  unit_confidence: documented
+  mapping_confidence: exact_alias
+  input_category: forcing
+- canonical_id: air_temperature
+  local_name: tavg
+  unit: K
+  valid_range:
+  - 200
+  - 330
+  format: netcdf
+  semantic_type: temperature
+  unit_confidence: documented
+  mapping_confidence: exact_alias
+  input_category: forcing
+- canonical_id: air_temperature_min
+  local_name: tmin
+  unit: K
+  valid_range:
+  - 200
+  - 330
+  format: netcdf
+  semantic_type: temperature
+  unit_confidence: documented
+  mapping_confidence: exact_alias
+  input_category: forcing
+- canonical_id: air_temperature_max
+  local_name: tmax
+  unit: K
+  valid_range:
+  - 200
+  - 330
+  format: netcdf
+  semantic_type: temperature
+  unit_confidence: documented
+  mapping_confidence: exact_alias
+  input_category: forcing
+- canonical_id: air_pressure
+  local_name: surface_pressure
+  unit: Pa
+  valid_range:
+  - 50000
+  - 110000
+  format: netcdf
+  semantic_type: unknown
+  unit_confidence: documented
+  mapping_confidence: exact_alias
+  input_category: forcing
+- canonical_id: specific_humidity
+  local_name: specific_humidity
+  unit: kg/kg
+  valid_range:
+  - 0.0
+  - 0.04
+  format: netcdf
+  semantic_type: unknown
+  unit_confidence: documented
+  mapping_confidence: exact_alias
+  input_category: forcing
+- canonical_id: wind_speed
+  local_name: wind_speed
+  unit: m/s
+  valid_range:
+  - 0.0
+  - 50.0
+  format: netcdf
+  semantic_type: unknown
+  unit_confidence: documented
+  mapping_confidence: exact_alias
+  input_category: forcing
+- canonical_id: shortwave_radiation
+  local_name: shortwave_radiation
+  unit: W/m2
+  valid_range:
+  - 0.0
+  - 500.0
+  format: netcdf
+  semantic_type: energy_flux
+  unit_confidence: documented
+  mapping_confidence: exact_alias
+  input_category: forcing
+- canonical_id: longwave_radiation
+  local_name: longwave_radiation
+  unit: W/m2
+  valid_range:
+  - 100.0
+  - 500.0
+  format: netcdf
+  semantic_type: energy_flux
+  unit_confidence: documented
+  mapping_confidence: exact_alias
+  input_category: forcing
+- canonical_id: discharge
+  local_name: upstream_discharge
+  unit: m3/s
+  semantic_type: volumetric_flow
+  mapping_confidence: inferred
+  origin: coupled_model
+  origin_confidence: high
+  format: unspecified
+- canonical_id: reservoir_storage
+  local_name: reservoir_storage
+  unit: m3
+  semantic_type: volume
+  mapping_confidence: inferred
+  origin: coupled_model
+  origin_confidence: high
+  format: unspecified
+outputs:
+- canonical_id: discharge
+  local_name: discharge
+  unit: m3/s
+  valid_range:
+  - 0.0
+  - 100000.0
+  format: unspecified
+  semantic_type: volumetric_flow
+  unit_confidence: documented
+  mapping_confidence: exact_alias
+  output_section: primary
+  origin: simulated
+  origin_confidence: high
+- canonical_id: null
+  local_name: totalET
+  unit: m
+  valid_range:
+  - 0.0
+  - 0.02
+  format: unspecified
+  semantic_type: unknown
+  unit_confidence: documented
+  mapping_confidence: unmapped
+  output_section: primary
+  origin: unknown
+  origin_confidence: low
+- canonical_id: surface_runoff
+  local_name: runoff
+  unit: m
+  valid_range:
+  - 0.0
+  - 0.1
+  format: unspecified
+  semantic_type: flux_density
+  unit_confidence: documented
+  mapping_confidence: exact_alias
+  output_section: primary
+  origin: simulated
+  origin_confidence: high
+- canonical_id: baseflow
+  local_name: baseflow
+  unit: m
+  valid_range:
+  - 0.0
+  - 0.05
+  format: unspecified
+  semantic_type: flux_density
+  unit_confidence: documented
+  mapping_confidence: exact_alias
+  output_section: primary
+  origin: simulated
+  origin_confidence: high
+- canonical_id: null
+  local_name: storGroundwater
+  unit: m
+  valid_range:
+  - 0.0
+  - 10.0
+  format: unspecified
+  semantic_type: unknown
+  unit_confidence: documented
+  mapping_confidence: unmapped
+  output_section: primary
+  origin: unknown
+  origin_confidence: low
+- canonical_id: null
+  local_name: SnowCover
+  unit: m
+  valid_range:
+  - 0.0
+  - 5.0
+  format: unspecified
+  semantic_type: unknown
+  unit_confidence: documented
+  mapping_confidence: unmapped
+  output_section: primary
+  origin: unknown
+  origin_confidence: low
+- canonical_id: null
+  local_name: tws
+  unit: m
+  valid_range:
+  - 0.0
+  - 20.0
+  format: unspecified
+  semantic_type: unknown
+  unit_confidence: documented
+  mapping_confidence: unmapped
+  output_section: primary
+  origin: unknown
+  origin_confidence: low
+spatial:
+  type: regular_grid
+  resolution: unspecified
+  crs: EPSG:4326
+  source: skill_md
+temporal:
+  resolution: daily
+  calendar: standard
+  source: skill_md
+risks:
+  known_traps:
+  - canonical_var: shortwave_radiation
+    trap_id: dt_006
+    description: '{''description'': ''ET is extremely high or near zero. Penman-Monteith
+      produces unrealistic values.'', ''error_pattern'': '''', ''detection_method'':
+      ''value_comparison''}'
+    detection: '{''root_cause'': ''Surface pressure in hPa instead of Pa, or radiation
+      in wrong units'', ''explanation'': "Penman-Monteith requires pressure in Pa
+      and radiation in W/m². If pressure is provided in hPa (1013'
+    fix: '{''action'': ''Check units of all Penman-Monteith inputs'', ''manual_steps'':
+      [''Pressure: should be 50000-110000 Pa (not 500-1100 hPa)'', ''Shortwave: should
+      be 0-500 W/m² (not 0-40 MJ/m²/day)'', ''Wind: should'
+    is_unit_trap: true
+    automatable: true
+    severity: high
+  - canonical_var: precipitation_rate
+    trap_id: dt_001
+    description: '{''description'': ''Extreme flooding or unrealistically high discharge.
+      River discharge 100-1000× too high.'', ''error_pattern'': '''', ''detection_method'':
+      ''value_comparison''}'
+    detection: '{''root_cause'': "precipitation_coversion factor wrong — input precip
+      units don''t match conversion factor", ''explanation'': ''CWatM multiplies precipitation
+      input by precipitation_coversion to get m/day. '
+    fix: '{''action'': ''Match precipitation_coversion to actual input units'', ''tool_to_run'':
+      ''convert_forcing_to_cwatm'', ''manual_steps'': [''Check actual units in forcing
+      NetCDF: ncdump -h precipitation.nc'', ''kg/m²'
+    is_unit_trap: true
+    automatable: false
+    severity: high
+  - canonical_var: precipitation_rate
+    trap_id: dt_002
+    description: '{''description'': ''Zero or near-zero discharge. No runoff generated
+      despite precipitation.'', ''error_pattern'': '''', ''detection_method'': ''value_comparison''}'
+    detection: '{''root_cause'': ''Precipitation too low — conversion factor divides
+      instead of multiplying, or wrong scale'', ''explanation'': ''If precipitation_coversion
+      = 1.0 but input is in kg/m²/s, the internal precip'
+    fix: '{''action'': ''Check precipitation internal values: should be ~0.001-0.01
+      m/day for most climates'', ''tool_to_run'': ''convert_forcing_to_cwatm'', ''manual_steps'':
+      [''Add temporary output: OUT_MAP_Daily = prec'
+    is_unit_trap: true
+    automatable: true
+    severity: high
+  - canonical_var: precipitation_rate
+    trap_id: dt_003
+    description: '{''description'': ''Snow never melts, or all precipitation is snow/rain
+      regardless of season. Wrong snowpack dynamics.'', ''error_pattern'': '''', ''detection_method'':
+      ''value_comparison''}'
+    detection: '{''root_cause'': "TemperatureInKelvin flag doesn''t match input data
+      units", ''explanation'': ''If TemperatureInKelvin = True but input is in Celsius
+      (e.g., 20°C), CWatM treats 20 as 20 K = -253°C. All prec'
+    fix: '{''action'': ''Check temperature values in forcing NetCDF and set flag correctly'',
+      ''tool_to_run'': ''convert_forcing_to_cwatm'', ''manual_steps'': [''ncdump -v
+      tavg precipitation.nc | head -20'', ''If values > 2'
+    is_unit_trap: true
+    automatable: true
+    severity: high
+  - canonical_var: precipitation_rate
+    trap_id: dt_004
+    description: '{''description'': ''All water drains instantly or soil stays waterlogged.
+      Unrealistic soil moisture dynamics.'', ''error_pattern'': '''', ''detection_method'':
+      ''value_comparison''}'
+    detection: '{''root_cause'': ''KSat units wrong — CWatM expects cm/day, input
+      may be mm/hr or m/s'', ''explanation'': ''CWatM reads KSat in cm/day. SoilGrids
+      provides mm/hr (factor 2.4 to cm/day). Some datasets provide '
+    fix: '{''action'': ''Convert KSat to cm/day before use'', ''tool_to_run'': ''convert_soil_to_cwatm'',
+      ''manual_steps'': [''HWSD: already cm/day (no conversion)'', ''SoilGrids: cm/day
+      = mm/hr × 2.4'', ''m/s: cm/day = m/s ×'
+    is_unit_trap: true
+    automatable: true
+    severity: high
+  - canonical_var: precipitation_rate
+    trap_id: dt_007
+    description: '{''description'': "CWatM crashes at startup with ''option not found''
+      or ''key not found'' error.", ''error_pattern'': ''CWATMError'', ''detection_method'':
+      ''log_match''}'
+    detection: '{''root_cause'': ''Settings file section or key name typo, or missing
+      required section'', ''explanation'': "CWatM''s ExtParser is case-sensitive for
+      keys. A typo in a key name (e.g., ''PrecipitationMap'' inste'
+    fix: '{''action'': ''Check the error message for suggested closest match'', ''manual_steps'':
+      [''Compare your settings file against the template'', ''Check for typos in section
+      names and key names'', ''Ensure all requ'
+    is_unit_trap: true
+    automatable: true
+    severity: high
+  - canonical_var: precipitation_rate
+    trap_id: dt_009
+    description: '{''description'': "precipitation_coversion spelled as ''precipitation_conversion''
+      — silently ignored.", ''error_pattern'': '''', ''detection_method'': ''value_comparison''}'
+    detection: '{''root_cause'': "CWatM code has a typo in the key name: ''precipitation_coversion''
+      (missing ''n'')", ''explanation'': "The settings key is ''precipitation_coversion''
+      (sic), not ''precipitation_conversion''. If'
+    fix: '{''action'': "Use the misspelled key: precipitation_coversion (without the
+      ''n'')", ''manual_steps'': ["Search settings file for ''conversion'' and replace
+      with ''coversion''"], ''prevention'': ''Copy the key name'
+    is_unit_trap: false
+    automatable: false
+    severity: medium
+  - canonical_var: precipitation_rate
+    trap_id: dt_010
+    description: '{''description'': ''Water accumulates in random cells. Discharge
+      at outlet is near zero. Disconnected drainage.'', ''error_pattern'': '''', ''detection_method'':
+      ''value_comparison''}'
+    detection: '{''root_cause'': ''LDD coding convention wrong — ArcGIS D8 instead
+      of PCRaster convention'', ''explanation'': ''CWatM uses PCRaster LDD coding
+      (1=SW, 2=S, 3=SE, ..., 9=NE, 5=pit). ArcGIS D8 uses power-of-2 e'
+    fix: '{''action'': ''Convert ArcGIS D8 to PCRaster LDD convention'', ''manual_steps'':
+      [''ArcGIS mapping: 1→6, 2→3, 4→2, 8→1, 16→4, 32→7, 64→8, 128→9'', ''Or use HydroSHEDS
+      flow direction with proper conversion'', ''V'
+    is_unit_trap: true
+    automatable: true
+    severity: high
+  - canonical_var: precipitation_rate
+    trap_id: dt_015
+    description: '{''description'': ''NaN values propagate through all outputs. Discharge
+      is NaN everywhere.'', ''error_pattern'': ''nan'', ''detection_method'': ''value_comparison''}'
+    detection: '{''root_cause'': ''NaN in input forcing data or soil parameters'',
+      ''explanation'': ''CWatM does not automatically handle missing values in input
+      data. A single NaN in forcing (e.g., one missing precipitatio'
+    fix: '{''action'': ''Pre-fill or interpolate missing values in all input data'',
+      ''manual_steps'': [''Check for NaN: python -c "import netCDF4; ds=netCDF4.Dataset(\''file.nc\'');
+      print(np.isnan(ds.variables[\''var\'']'
+    is_unit_trap: false
+    automatable: false
+    severity: medium
+  - canonical_var: precipitation_rate
+    trap_id: dt_018
+    description: '{''description'': ''Hydrograph peaks are too sharp or too flat.
+      Recession limb is wrong.'', ''error_pattern'': '''', ''detection_method'': ''value_comparison''}'
+    detection: '{''root_cause'': ''Runoff partitioning or groundwater recession parameters
+      need calibration'', ''explanation'': ''arnoBeta_add controls the fraction of
+      precipitation becoming direct runoff (higher = more sur'
+    fix: '{''action'': ''Adjust arnoBeta_add and recessionCoeff_factor'', ''manual_steps'':
+      [''Peaks too sharp: decrease arnoBeta_add, increase recessionCoeff_factor'',
+      ''Peaks too flat: increase arnoBeta_add, decrease '
+    is_unit_trap: true
+    automatable: true
+    severity: high
+  - canonical_var: discharge
+    trap_id: dt_016
+    description: '{''description'': ''Discharge unrealistically high for first few
+      years, then stabilizes.'', ''error_pattern'': '''', ''detection_method'': ''value_comparison''}'
+    detection: '{''root_cause'': ''Insufficient spinup period. Initial conditions
+      not equilibrated.'', ''explanation'': ''CWatM starts with default initial conditions
+      (all storage = 0 or default values). The model needs 3-5'
+    fix: '{''action'': ''Increase spinup period to 3-5 years'', ''manual_steps'':
+      [''Set SpinUp date at least 3 years after StepStart'', ''Or use saved initial
+      conditions from a previous long run'', ''Exclude spinup perio'
+    is_unit_trap: false
+    automatable: false
+    severity: medium
+  unit_conversions: []
+coupling:
+  chain_position: upstream_producer
+  native_formats:
+  - netcdf
+  exchange_format: netcdf
+  coupling_role: earth_system
+quality:
+  has_format_spec: true
+  has_skill_md: true
+  has_triplets: true
+  n_inputs: 9
+  n_outputs: 7
+  n_inputs_canonical: 9
+  n_outputs_canonical: 3
+  n_unmapped: 4
+  n_traps: 11
+  n_conversions: 0
+  spatial_complete: true
+  temporal_complete: true
+  unmapped_variables:
+  - name: totalET
+    direction: output
+    reason: unmapped
+  - name: storGroundwater
+    direction: output
+    reason: unmapped
+  - name: SnowCover
+    direction: output
+    reason: unmapped
+  - name: tws
+    direction: output
+    reason: unmapped
+  validation_issues: []
+  card_status: complete

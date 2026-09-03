@@ -1,0 +1,488 @@
+ata_card_version: '1.0'
+generated: '2026-04-26'
+generator: ata_pipeline1_card_gen.py
+identity:
+  model_id: SWAT_Plus
+  model_name: SWAT+ Rev 60.5
+  domain: hydrology
+  secondary_domains:
+  - water_quality
+  language: Fortran 90
+  binary_path: /mnt/disk1/Hydrocraft_server/model/swatplus/swatplus_rev59
+inputs:
+- canonical_id: precipitation_rate
+  local_name: precipitation
+  unit: mm/day
+  valid_range:
+  - 0.0
+  - 500.0
+  format: ascii_text
+  semantic_type: flux_density
+  unit_confidence: documented
+  mapping_confidence: exact_alias
+  input_category: forcing
+  conversion_notes:
+    conversion_from_cmfd: 'kg/m2/s -> mm/day: multiply by 86400'
+- canonical_id: air_temperature_max
+  local_name: temperature_max
+  unit: degC
+  valid_range:
+  - -50.0
+  - 60.0
+  format: ascii_text
+  semantic_type: temperature
+  unit_confidence: documented
+  mapping_confidence: exact_alias
+  input_category: forcing
+  conversion_notes:
+    conversion_from_cmfd: 'K -> degC: subtract 273.15; split daily mean: Tmax = Tmean
+      + 5'
+- canonical_id: air_temperature_min
+  local_name: temperature_min
+  unit: degC
+  valid_range:
+  - -60.0
+  - 50.0
+  format: ascii_text
+  semantic_type: temperature
+  unit_confidence: documented
+  mapping_confidence: exact_alias
+  input_category: forcing
+  conversion_notes:
+    conversion_from_cmfd: 'K -> degC: subtract 273.15; split daily mean: Tmin = Tmean
+      - 5'
+- canonical_id: shortwave_radiation
+  local_name: solar_radiation
+  unit: MJ/m2/day
+  valid_range:
+  - 0.0
+  - 35.0
+  format: ascii_text
+  semantic_type: energy_flux
+  unit_confidence: documented
+  mapping_confidence: exact_alias
+  input_category: forcing
+  conversion_notes:
+    conversion_from_cmfd: 'W/m2 -> MJ/m2/day: multiply by 0.0864'
+- canonical_id: relative_humidity
+  local_name: relative_humidity
+  unit: fraction
+  valid_range:
+  - 0.0
+  - 1.0
+  format: ascii_text
+  semantic_type: fraction
+  unit_confidence: documented
+  mapping_confidence: exact_alias
+  input_category: forcing
+- canonical_id: wind_speed
+  local_name: wind_speed
+  unit: m/s
+  valid_range:
+  - 0.0
+  - 80.0
+  format: ascii_text
+  semantic_type: unknown
+  unit_confidence: documented
+  mapping_confidence: exact_alias
+  input_category: forcing
+- canonical_id: discharge
+  local_name: upstream_discharge
+  unit: m3/s
+  semantic_type: volumetric_flow
+  mapping_confidence: inferred
+  origin: coupled_model
+  origin_confidence: high
+  format: unspecified
+- canonical_id: sediment_export
+  local_name: sed_in
+  unit: t/ha
+  semantic_type: mass_per_area
+  mapping_confidence: inferred
+  origin: coupled_model
+  origin_confidence: high
+  format: unspecified
+outputs:
+- canonical_id: discharge
+  local_name: discharge
+  unit: m3/s
+  valid_range:
+  - 0
+  - null
+  format: unspecified
+  semantic_type: volumetric_flow
+  unit_confidence: documented
+  mapping_confidence: exact_alias
+  output_section: primary
+  origin: simulated
+  origin_confidence: high
+- canonical_id: total_nitrogen
+  local_name: total_nitrogen_export
+  unit: kgN/ha/day
+  valid_range: null
+  format: unspecified
+  semantic_type: concentration
+  unit_confidence: documented
+  mapping_confidence: substring
+  output_section: primary
+  origin: simulated
+  origin_confidence: high
+- canonical_id: total_phosphorus
+  local_name: total_phosphorus_export
+  unit: kgP/ha/day
+  valid_range: null
+  format: unspecified
+  semantic_type: concentration
+  unit_confidence: documented
+  mapping_confidence: substring
+  output_section: primary
+  origin: simulated
+  origin_confidence: high
+- canonical_id: sediment_flux
+  local_name: sediment_yield
+  unit: t/ha/day
+  valid_range: null
+  format: unspecified
+  semantic_type: flux_density
+  unit_confidence: documented
+  mapping_confidence: exact_alias
+  output_section: primary
+  origin: simulated
+  origin_confidence: high
+- canonical_id: grain_yield
+  local_name: crop_yield
+  unit: kg/ha
+  valid_range: null
+  format: unspecified
+  semantic_type: rate
+  unit_confidence: documented
+  mapping_confidence: exact_alias
+  output_section: primary
+  origin: simulated
+  origin_confidence: high
+spatial:
+  type: regular_grid
+  resolution: unspecified
+  crs: EPSG:4326
+  source: skill_md
+temporal:
+  resolution: daily
+  calendar: standard
+  source: format_spec
+risks:
+  known_traps:
+  - canonical_var: grain_yield
+    trap_id: dt_004
+    description: '{''description'': ''Simulated water yield or nutrient loads are
+      significantly biased compared to observations, despite reasonable weather and
+      soil inputs. Model runs without errors.'', ''error_pattern'': '''''
+    detection: '{''root_cause'': ''HRU thresholds are too aggressive (>20%), removing
+      significant land use or soil types and biasing the basin-average properties.'',
+      ''explanation'': ''When HRU thresholds eliminate land use'
+    fix: '{''action'': ''Reduce HRU thresholds to 5-10% for land use and soil, 10-20%
+      for slope. For water quality studies, use 0% threshold (all HRUs).'', ''tool_to_run'':
+      ''apply_hru_threshold'', ''manual_steps'': [''Co'
+    is_unit_trap: false
+    automatable: true
+    severity: medium
+  - canonical_var: grain_yield
+    trap_id: dt_011
+    description: '{''description'': ''Crop yields are zero or unreasonably low. Biomass
+      does not accumulate. No harvest output in management output file.'', ''error_pattern'':
+      '''', ''detection_method'': ''value_comparison''}'
+    detection: '{''root_cause'': ''Management schedule has missing or misordered operations
+      — planting after harvest, missing kill operation, or crop name not matching
+      plants.plt.'', ''explanation'': ''SWAT+ processes manag'
+    fix: '{''action'': ''Verify management sequence: plant -> fertilize -> harvest
+      -> kill. Verify crop names match plants.plt entries exactly.'', ''tool_to_run'':
+      ''build_management_schedules'', ''manual_steps'': [''Chec'
+    is_unit_trap: true
+    automatable: true
+    severity: high
+  - canonical_var: grain_yield
+    trap_id: dt_021
+    description: '{''description'': ''Simulated sediment yield exceeds 100 t/ha/yr,
+      which is unreasonable for agricultural land without active gully erosion. Sediment
+      output dominates nutrient transport via sediment-bound'
+    detection: '{''root_cause'': ''USLE_K (soil erodibility) or slope values are incorrect,
+      or USLE_P (practice factor) is not calibrated.'', ''explanation'': ''SWAT+ computes
+      sediment yield using the Modified Universal Soi'
+    fix: '{''action'': ''Check USLE_K values against soil texture expectations. Verify
+      slope values are reasonable. Set USLE_P < 1.0 for terraced agricultural land.'',
+      ''tool_to_run'': ''validate_soil_properties'', ''ma'
+    is_unit_trap: true
+    automatable: true
+    severity: high
+  - canonical_var: grain_yield
+    trap_id: dt_034
+    description: '{''description'': ''Sediment yield exceeds 100 t/ha/yr — unrealistic
+      for most non-loess regions'', ''error_pattern'': ''basin_ls_yr.*syld.*> 100'',
+      ''detection_method'': ''value_comparison''}'
+    detection: '{''root_cause'': ''USLE_K or USLE_C factors are too high, or slope
+      length/steepness from DEM is incorrect'', ''explanation'': ''MUSLE sediment
+      yield > 100 t/ha/yr is physically unrealistic for all but the mo'
+    fix: '{''steps'': [''Check USLE_K in soils.sol: typical range 0.01-0.45'', ''Check
+      USLE_C in management.sch: bare soil ~0.5, crops 0.01-0.2'', ''Check slope_len
+      in topography.hyd: >100m may be unrealistic'', ''For r'
+    is_unit_trap: true
+    automatable: true
+    severity: high
+  - canonical_var: air_temperature_max
+    trap_id: tmax_lt_tmin
+    description: Tmax < Tmin in weather files causes silent ET and snowmelt errors
+    detection: Any day where Tmax < Tmin in tmp.cli
+    fix: Regenerate weather files with correct CMFD aggregation
+    is_unit_trap: true
+    automatable: true
+    severity: high
+  - canonical_var: shortwave_radiation
+    trap_id: solar_unit_wrong
+    description: Solar radiation in W/m2 instead of MJ/m2/day
+    detection: SRAD values > 35 MJ/m2/day (debug_framework sw_radiation_W check)
+    fix: Multiply by 0.0864
+    is_unit_trap: true
+    automatable: true
+    severity: high
+  - canonical_var: shortwave_radiation
+    trap_id: conv_solar_radiation
+    description: 'Conversion trap: CMFD (W/m2) -> SWAT+ (MJ/m2/day)'
+    detection: Zero or excess growth; wrong ET
+    fix: Apply multiply factor=0.0864 offset=
+    is_unit_trap: true
+    automatable: true
+    severity: high
+  - canonical_var: precipitation_rate
+    trap_id: conv_precipitation
+    description: 'Conversion trap: CMFD (kg/m2/s) -> SWAT+ (mm/day)'
+    detection: Runoff 86400x too high or near zero
+    fix: Apply multiply factor=86400 offset=
+    is_unit_trap: true
+    automatable: true
+    severity: high
+  - canonical_var: precipitation_rate
+    trap_id: dt_012
+    description: '{''description'': ''SWAT+ runs successfully but ET is 3-12x higher
+      than expected. Water yield is near zero despite normal precipitation. No error
+      messages.'', ''error_pattern'': '''', ''detection_method'': ''val'
+    detection: '{''root_cause'': ''Solar radiation input is in W/m2 instead of MJ/m2/day.
+      W/m2 values (100-400) are ~12x higher than MJ/m2/day values (8-30).'', ''explanation'':
+      ''CMFD and many reanalysis products provide s'
+    fix: '{''action'': ''Check solar radiation values in .slr files. If daily mean
+      > 50, they are likely in W/m2. Convert: MJ/m2/day = W/m2 * 0.0864.'', ''tool_to_run'':
+      ''validate_weather_data'', ''manual_steps'': ["Che'
+    is_unit_trap: true
+    automatable: true
+    severity: high
+  - canonical_var: precipitation_rate
+    trap_id: dt_015
+    description: '{''description'': ''Basin water balance error exceeds 5% — precipitation
+      does not equal ET + runoff + percolation + storage change. Model ran without
+      errors.'', ''error_pattern'': '''', ''detection_method'': ''v'
+    detection: '{''root_cause'': ''Time period mismatch between water balance components,
+      or deep aquifer loss not accounted, or irrigation from external source not tracked.'',
+      ''explanation'': ''The SWAT+ water balance inc'
+    fix: '{''action'': ''Exclude warmup years from balance calculation. Include deep
+      aquifer loss. Account for irrigation imports.'', ''tool_to_run'': ''check_mass_balance'',
+      ''manual_steps'': [''Recalculate balance exclu'
+    is_unit_trap: false
+    automatable: false
+    severity: medium
+  - canonical_var: precipitation_rate
+    trap_id: dt_027
+    description: '{''description'': ''PBIAS exceeds +/- 100% when comparing simulated
+      vs observed streamflow'', ''error_pattern'': ''PBIAS.*> 100|PBIAS.*< -100'',
+      ''detection_method'': ''value_comparison''}'
+    detection: '{''root_cause'': ''Model is fundamentally miscalibrated or has structural
+      issues'', ''explanation'': ''PBIAS > +100% means simulated flow is more than
+      double observed (volume overestimation). PBIAS < -100% m'
+    fix: '{''steps'': [''Verify basin area matches between HRU definitions and watershed
+      delineation'', ''Check precipitation: compare station data with basin average
+      rainfall'', ''If PBIAS > +50%: increase ESCO (0.7-'
+    is_unit_trap: false
+    automatable: true
+    severity: medium
+  - canonical_var: precipitation_rate
+    trap_id: dt_035
+    description: '{''description'': ''basin_wb_yr.txt water balance does not close:
+      precip differs significantly from ET + Q + delta_storage'', ''error_pattern'':
+      ''abs(precip - et - surq - latq - perc - revap) > 0.05 * preci'
+    detection: '{''root_cause'': ''Water balance residual indicates a storage term
+      or flux is missing or miscounted'', ''explanation'': ''In basin_wb_yr.txt, precip
+      should approximately equal ET + surq_gen + latq + tile + p'
+    fix: '{''steps'': [''Extract annual values from basin_wb_yr.txt'', ''Compute:
+      residual = precip - (et + surq_gen + latq + tile + perc - revap)'', ''If residual
+      > 0: check rchrg_dp (deep aquifer recharge fraction) '
+    is_unit_trap: false
+    automatable: false
+    severity: medium
+  - canonical_var: discharge
+    trap_id: qual2e_blowup
+    description: QUAL2E in-stream routing has numerical instability at extreme flows
+    detection: Any nutrient concentration > 1e6 mg/L or NaN values
+    fix: Set wq_cha=0 in codes.bsn; use basin_ls_day HRU-level outputs
+    is_unit_trap: false
+    automatable: true
+    severity: medium
+  - canonical_var: discharge
+    trap_id: dt_008
+    description: '{''description'': ''Delineated watershed area is much larger (>2x)
+      or smaller (<0.5x) than expected. Model runs successfully but discharge is completely
+      wrong.'', ''error_pattern'': '''', ''detection_method'': '
+    detection: '{''root_cause'': ''Outlet point snapped to the wrong stream — typically
+      a larger river at a confluence, or a smaller tributary.'', ''explanation'':
+      ''The pour-point snapping algorithm finds the highest-accum'
+    fix: '{''action'': ''Compare delineated area to known/published area. If wrong,
+      adjust outlet coordinates or manually specify the snap point.'', ''tool_to_run'':
+      ''delineate_watershed'', ''manual_steps'': [''Check del'
+    is_unit_trap: false
+    automatable: true
+    severity: medium
+  - canonical_var: discharge
+    trap_id: dt_v006
+    description: '{''description'': ''SWAT+ channel discharge appears 200x too high
+      when compared to VIC routing output'', ''error_pattern'': ''SWAT+ discharge.*100x|ratio.*[5-9]\\.'',
+      ''detection_method'': ''value_comparison''}'
+    detection: '{''root_cause'': ''SWAT+ channel output flo_out is in ha-m/day, not
+      m³/s'', ''explanation'': "SWAT+ channel daily output (channel_day.txt) reports
+      flo_out in hectare-meters per day (ha-m/day), not cubic met'
+    fix: '{''action'': ''Convert SWAT+ channel flow: Q_cms = flo_out_ham * 10000 /
+      86400'', ''tool_to_run'': ''compare_swatplus_vic'', ''manual_steps'': [''Read
+      units row (line 3) from channel output'', "If flo_out unit is'
+    is_unit_trap: true
+    automatable: true
+    severity: high
+  - canonical_var: discharge
+    trap_id: dt_wq_001
+    description: '{''pattern'': ''channel_day.txt no3_out values > 1e6 kgN or NaN
+      in solp_out'', ''description'': ''QUAL2E in-stream routing produces physically
+      impossible nutrient concentrations (>1e9 mg/L) during flood even'
+    detection: '{''root_cause'': ''Rev 59.3 wq_semianalyt function numerically unstable
+      for extreme flow events'', ''explanation'': ''During monsoon peak flows, the
+      semi-analytical QUAL2E solver diverges. Small channels gen'
+    fix: '{''steps'': [''Do NOT use channel_day.txt no3_out/orgn_out for nutrient
+      loads'', ''Use basin_ls_day.txt (sedorgn, surqno3) for HRU-level nutrient export'',
+      ''Use basin_nb_yr.txt for basin N budget (fertn, de'
+    is_unit_trap: false
+    automatable: true
+    severity: medium
+  - trap_id: nperco_silent
+    triplet_ref: dt_wq_006
+    description: NPERCO > 1.0 silently inflates N export by 5-20x
+    affected_output: basin_ls_day.txt sedorgn, surqno3
+    detection: TN > 50 kgN/ha/yr
+    fix: Set n_perc to 0.2 in parameters.bsn
+    is_unit_trap: false
+    automatable: true
+    severity: medium
+    source: format_spec
+  - trap_id: rtu_wq_disabled
+    triplet_ref: ''
+    description: rtu_wq=0 in codes.bsn disables WQ routing between landscape and channel
+    affected_output: All TP columns zero in channel output when P fertilizer applied
+    detection: TP == 0.0 in channel output despite non-zero fertilizer
+    fix: ''
+    is_unit_trap: false
+    automatable: true
+    severity: medium
+    source: format_spec
+  - trap_id: qual2e_blowup
+    triplet_ref: ''
+    description: QUAL2E in-stream routing has numerical instability at extreme flows
+    affected_output: channel_day.txt no3_out, orgn_out, solp_out
+    detection: Any nutrient concentration > 1e6 mg/L or NaN values
+    fix: Set wq_cha=0 in codes.bsn; use basin_ls_day HRU-level outputs
+    is_unit_trap: false
+    automatable: true
+    severity: medium
+    source: format_spec
+  - trap_id: om_water_ini_defaults
+    triplet_ref: ''
+    description: Default om_water.ini ships with extreme initial concentrations (90
+      mg/L orgn)
+    affected_output: Channel nutrient outputs massively inflated at simulation start
+    detection: First-year channel nutrients >> HRU exports
+    fix: Set all nutrient initial concentrations to 0.0 in om_water.ini
+    is_unit_trap: false
+    automatable: true
+    severity: medium
+    source: format_spec
+  - trap_id: cn3_swf_runoff_bias
+    triplet_ref: ''
+    description: cn3_swf > 0 inflates runoff in humid subtropical basins
+    affected_output: channel_sd_day.txt flo_out
+    detection: PBIAS > +100% in humid basins
+    fix: Set cn3_swf = 0.0 in codes.bsn for Huai River and similar climates
+    is_unit_trap: false
+    automatable: true
+    severity: medium
+    source: format_spec
+  - trap_id: tmax_lt_tmin
+    triplet_ref: dt_003
+    description: Tmax < Tmin in weather files causes silent ET and snowmelt errors
+    affected_output: All ET-dependent outputs
+    detection: Any day where Tmax < Tmin in tmp.cli
+    fix: Regenerate weather files with correct CMFD aggregation
+    is_unit_trap: false
+    automatable: true
+    severity: medium
+    source: format_spec
+  - trap_id: solar_unit_wrong
+    triplet_ref: dt_012
+    description: Solar radiation in W/m2 instead of MJ/m2/day
+    affected_output: ET, crop growth, all water balance components
+    detection: SRAD values > 35 MJ/m2/day (debug_framework sw_radiation_W check)
+    fix: Multiply by 0.0864
+    is_unit_trap: true
+    automatable: true
+    severity: high
+    source: format_spec
+  unit_conversions:
+  - canonical_var: precipitation_rate
+    source_unit: CMFD (kg/m2/s)
+    target_unit: SWAT+ (mm/day)
+    operation: multiply
+    factor: 86400
+    offset: null
+    consequence_if_wrong: Runoff 86400x too high or near zero
+    severity: critical
+    automatable: true
+  - canonical_var: air_temperature
+    source_unit: CMFD (K)
+    target_unit: SWAT+ (degC)
+    operation: subtract
+    factor: null
+    offset: -273.15
+    consequence_if_wrong: Crops never grow; perpetual snow
+    severity: critical
+    automatable: true
+  - canonical_var: shortwave_radiation
+    source_unit: CMFD (W/m2)
+    target_unit: SWAT+ (MJ/m2/day)
+    operation: multiply
+    factor: 0.0864
+    offset: null
+    consequence_if_wrong: Zero or excess growth; wrong ET
+    severity: critical
+    automatable: true
+coupling:
+  chain_position: upstream_producer
+  native_formats:
+  - ascii_text
+  exchange_format: ascii_text
+  coupling_role: earth_system
+quality:
+  has_format_spec: true
+  has_skill_md: true
+  has_triplets: true
+  n_inputs: 6
+  n_outputs: 5
+  n_inputs_canonical: 6
+  n_outputs_canonical: 5
+  n_unmapped: 0
+  n_traps: 23
+  n_conversions: 3
+  spatial_complete: true
+  temporal_complete: true
+  unmapped_variables: []
+  validation_issues: []
+  card_status: complete

@@ -1,0 +1,89 @@
+# Coupling Config v2: BIOME_BGC -> VIC
+
+coupling_config_version: '2.0'
+generated: '2026-05-23'
+generator: ata_pipeline2_coupling_gen.py v2
+metadata:
+  edge_id: BIOME_BGC_to_VIC
+  source_model: BIOME_BGC
+  target_model: VIC
+  source_domain: biogeochemistry
+  target_domain: hydrology
+  edge_type: type5_cross_scale_cross_domain
+  n_forward_variables: 1
+  n_combine_variables: 0
+  n_plausible_feedback: 0
+  n_review_feedback: 1
+  is_feedback: false
+forward_edges:
+- canonical_id: leaf_area_index
+  source_canonical_id: leaf_area_index
+  target_canonical_id: leaf_area_index
+  match_type: exact_canonical
+  source_local_name: leaf_area_index
+  source_unit: m2/m2
+  target_local_name: LAI
+  target_unit: m2/m2
+combine_edges: []
+plausible_feedback: []
+review_feedback:
+- canonical_id: precipitation_rate
+  source_local_name: precipitation
+  target_local_name: precipitation
+  note: Flagged for review — physical plausibility uncertain
+compatibility:
+- canonical_id: leaf_area_index
+  source_canonical_id: leaf_area_index
+  target_canonical_id: leaf_area_index
+  match_type: exact_canonical
+  primitives_needed:
+  - map_space
+  - align_time
+  - validate_boundary
+  details:
+    convert_units:
+      status: not_needed
+      units_match: true
+    exchange_data:
+      status: not_needed
+      variable_mapping:
+        source_name: leaf_area_index
+        target_name: LAI
+    map_space: &id001
+      from_type: network
+      to_type: regular_grid
+      method: unknown
+      canonical_id: leaf_area_index
+    align_time: &id002
+      from_resolution: daily
+      to_resolution: 3-hourly
+      direction: disaggregate
+      aggregation_method: distribute_uniform
+      semantic_type: fraction
+      canonical_id: leaf_area_index
+    validate_boundary: &id003
+      checks:
+      - no_nan
+      canonical_id: leaf_area_index
+primitives_needed:
+- align_time
+- map_space
+- validate_boundary
+execution_order:
+- align_time
+- map_space
+- validate_boundary
+primitive_configs:
+  convert_units: []
+  exchange_data: []
+  map_space:
+  - *id001
+  align_time:
+  - *id002
+  validate_boundary:
+  - *id003
+risks:
+  total_traps: 0
+  automatable: 0
+  judgment_required: 0
+  traps: []
