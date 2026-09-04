@@ -72,7 +72,10 @@ def save(data: dict) -> None:
                                        dir=p.parent)
         tmp = Path(raw_tmp)
         try:
-            os.fchmod(fd, 0o600)
+            # Windows has no fchmod; mkstemp already creates the file for the
+            # current user and the final chmod remains a best-effort hardening.
+            if hasattr(os, "fchmod"):
+                os.fchmod(fd, 0o600)
             payload = json.dumps(data, indent=2).encode("utf-8")
             with os.fdopen(fd, "wb") as stream:
                 fd = -1

@@ -20,6 +20,7 @@ Overlap is decided on resolved PATHS, not substrings.
 from __future__ import annotations
 
 import re
+import os
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -98,6 +99,15 @@ def _under(p: Path, root: Path) -> bool:
         return False
 
 
+def _native_policy_path(value: str) -> Path:
+    """Convert Claude's Windows ``//c/path`` permission spelling for local checks."""
+    if os.name == "nt":
+        match = re.match(r"^//([A-Za-z])(/.*)?$", value)
+        if match:
+            return Path(f"{match.group(1).upper()}:{match.group(2) or '/'}")
+    return Path(value)
+
+
 def protected_paths(project: Path, ki_roots: list[Path], state: State | None = None) -> list[Path]:
     """Paths an agent may never write in `state` (all states when state is None):
     flow-state, approval, receipts, every KI's tools/ — and the two plan files outside
@@ -157,7 +167,7 @@ def _assert_key_dir_unreadable(tools: list[str]) -> None:
         m = _TOOL_RE.match(t)
         if not m or m.group("name") not in ("Read", "Glob", "Grep"):
             continue
-        target = Path(m.group("arg").replace("/**", ""))
+        target = _native_policy_path(m.group("arg").replace("/**", ""))
         if _under(kd, target):
             raise ValueError(f"the receipt key dir {kd} is readable through grant {t!r}; move "
                              f"GEOFORGE_FLOW_KEYS outside every granted tree")
@@ -225,7 +235,7 @@ def _claude_executing_tools(project: Path, ki_roots: dict[str, Path],
     for t in kept:
         m = _TOOL_RE.match(t)
         if m and m.group("name") in ("Write", "Edit"):
-            target = Path(m.group("arg").replace("/**", ""))
+            target = _native_policy_path(m.group("arg").replace("/**", ""))
             if any(_under(target, p) or _under(p, target) for p in prot):
                 continue
         out.append(t)

@@ -5,7 +5,12 @@ from pathlib import Path
 import sys
 import tomllib
 
-from PyInstaller.utils.hooks import collect_all, collect_dynamic_libs, copy_metadata
+from PyInstaller.utils.hooks import (
+    collect_all,
+    collect_data_files,
+    collect_dynamic_libs,
+    copy_metadata,
+)
 
 
 SOURCE = Path(SPECPATH).resolve()
@@ -21,6 +26,7 @@ ICON = REPO / "assets" / "logo.ico"
 KI_TOOLS_SOURCE = REPO / "ki_tools_common"
 
 trust_datas, trust_binaries, trust_hidden = collect_all("truststore")
+certifi_datas = collect_data_files("certifi")
 webview_hidden = []
 calibration_datas = []
 for distribution in ("numpy", "PyYAML", "spotpy", "pymoo", "moocore"):
@@ -45,6 +51,16 @@ harness_hidden = [
     "ki_tools_common.harness.ki_path",
     "ki_tools_common.harness.ki_attention",
     "ki_tools_common.harness.agent_spawn",
+    "ki_tools_common.flow",
+    "ki_tools_common.flow.states",
+    "ki_tools_common.flow.resolve",
+    "ki_tools_common.flow.plan",
+    "ki_tools_common.flow.approval",
+    "ki_tools_common.flow.contracts",
+    "ki_tools_common.flow.receipts",
+    "ki_tools_common.flow.policy",
+    "ki_tools_common.flow.tools",
+    "ki_tools_common.flow.build_data",
 ]
 
 a = Analysis(
@@ -61,6 +77,7 @@ a = Analysis(
         (str(REPO / "release-manifest.json"), "."),
         (str(REPO / "DESKTOP_CHANGELOG.md"), "."),
         *trust_datas,
+        *certifi_datas,
         *calibration_datas,
     ],
     hiddenimports=[
@@ -73,6 +90,8 @@ a = Analysis(
         "torch", "torchvision", "torchaudio", "pandas", "matplotlib",
         "PIL", "pyarrow", "IPython", "jedi", "botocore", "boto3",
         "fsspec", "lxml", "dask", "numba", "mpi4py", "pathos",
+        "tensorflow", "keras", "cv2", "sklearn", "xarray", "h5py",
+        "pyproj", "rasterio", "rioxarray",
         "webview", "pythonnet", "clr", "clr_loader", "PySide6", "qtpy",
     ],
     noarchive=False,
