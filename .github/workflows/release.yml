@@ -332,7 +332,7 @@ jobs:
           # Every page the app can navigate to must exist in the bundle. A
           # missing library.html shipped once and answered the Library button
           # with a dead connection.
-          for page in / /setup /library /i18n.js /clipboard.js; do
+          for page in / /setup /library /studio /observatory /i18n.js /clipboard.js; do
             curl -fsS "http://127.0.0.1:18777$page" >/dev/null
           done
           # The KI usage contract must survive freezing. ki_tools_common is

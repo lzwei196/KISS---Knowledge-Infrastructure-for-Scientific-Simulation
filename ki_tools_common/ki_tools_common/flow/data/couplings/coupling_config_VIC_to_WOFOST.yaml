@@ -1,0 +1,101 @@
+# Coupling Config v2: VIC -> WOFOST
+
+coupling_config_version: '2.0'
+generated: '2026-04-17'
+generator: ata_pipeline2_coupling_gen.py v2
+metadata:
+  edge_id: VIC_to_WOFOST
+  source_model: VIC
+  target_model: WOFOST
+  source_domain: hydrology
+  target_domain: crop
+  edge_type: type3b_cross_domain
+  n_forward_variables: 1
+  n_combine_variables: 0
+  n_plausible_feedback: 0
+  n_review_feedback: 0
+  is_feedback: false
+forward_edges:
+- canonical_id: potential_evapotranspiration
+  source_canonical_id: evapotranspiration
+  target_canonical_id: potential_evapotranspiration
+  match_type: family_match
+  source_local_name: evapotranspiration
+  source_unit: mm/timestep
+  target_local_name: reference_et
+  target_unit: cm/day
+combine_edges: []
+plausible_feedback: []
+review_feedback: []
+compatibility:
+- canonical_id: potential_evapotranspiration
+  source_canonical_id: evapotranspiration
+  target_canonical_id: potential_evapotranspiration
+  match_type: family_match
+  primitives_needed:
+  - convert_units
+  - align_time
+  - validate_boundary
+  details:
+    convert_units: &id001
+      from_unit: mm/timestep
+      to_unit: cm/day
+      known: false
+      canonical_id: potential_evapotranspiration
+    exchange_data: &id002
+      status: format_unspecified
+      variable_mapping:
+        source_name: evapotranspiration
+        target_name: reference_et
+      canonical_id: potential_evapotranspiration
+    align_time: &id003
+      from_resolution: 3-hourly
+      to_resolution: daily
+      direction: aggregate
+      aggregation_method: sum
+      semantic_type: flux_density
+      canonical_id: potential_evapotranspiration
+    family_mapping: &id004
+      source_canonical: evapotranspiration
+      target_canonical: potential_evapotranspiration
+      note: Source provides evapotranspiration, target needs potential_evapotranspiration. These are in the same family (evapotranspiration)
+        — may need splitting/derivation.
+      canonical_id: potential_evapotranspiration
+    validate_boundary: &id005
+      checks:
+      - non_negative
+      - no_nan
+      - 'range: [0.0, 1.5]'
+      canonical_id: potential_evapotranspiration
+primitives_needed:
+- align_time
+- convert_units
+- validate_boundary
+execution_order:
+- align_time
+- convert_units
+- validate_boundary
+primitive_configs:
+  convert_units:
+  - *id001
+  exchange_data:
+  - *id002
+  align_time:
+  - *id003
+  family_mapping:
+  - *id004
+  validate_boundary:
+  - *id005
+risks:
+  total_traps: 1
+  automatable: 1
+  judgment_required: 0
+  traps:
+  - canonical_var: potential_evapotranspiration
+    model: VIC->WOFOST
+    trap_id: unit_mismatch_potential_evapotranspiration
+    description: 'Unit mismatch: source [mm/timestep] vs target [cm/day]'
+    detection: Check potential_evapotranspiration units at coupling boundary
+    fix: Convert mm/timestep -> cm/day
+    is_unit_trap: true
+    automatable: true

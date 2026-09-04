@@ -1,0 +1,173 @@
+# Coupling Config v2: CaMa_Flood -> SFINCS
+
+coupling_config_version: '2.0'
+generated: '2026-04-17'
+generator: ata_pipeline2_coupling_gen.py v2
+metadata:
+  edge_id: CaMa_Flood_to_SFINCS
+  source_model: CaMa_Flood
+  target_model: SFINCS
+  source_domain: routing
+  target_domain: flood
+  edge_type: type5_cross_scale_cross_domain
+  n_forward_variables: 2
+  n_combine_variables: 0
+  n_plausible_feedback: 0
+  n_review_feedback: 0
+  is_feedback: false
+forward_edges:
+- canonical_id: discharge
+  source_canonical_id: discharge
+  target_canonical_id: discharge
+  match_type: exact_canonical
+  source_local_name: discharge
+  source_unit: m3/s
+  target_local_name: river_discharge
+  target_unit: m3/s
+- canonical_id: water_surface_elevation
+  source_canonical_id: water_surface_elevation
+  target_canonical_id: water_surface_elevation
+  match_type: exact_canonical
+  source_local_name: water_surface_elevation
+  source_unit: m ASL
+  target_local_name: water_level_boundary
+  target_unit: m
+combine_edges: []
+plausible_feedback: []
+review_feedback: []
+compatibility:
+- canonical_id: discharge
+  source_canonical_id: discharge
+  target_canonical_id: discharge
+  match_type: exact_canonical
+  primitives_needed:
+  - map_space
+  - align_time
+  - validate_boundary
+  details:
+    convert_units:
+      status: not_needed
+      units_match: true
+    exchange_data: &id002
+      status: format_unspecified
+      variable_mapping:
+        source_name: discharge
+        target_name: river_discharge
+      canonical_id: discharge
+    map_space: &id004
+      from_type: regular_grid
+      to_type: network
+      method: grid_to_network_extraction
+      canonical_id: discharge
+    align_time: &id006
+      from_resolution: daily
+      to_resolution: 3-hourly
+      direction: disaggregate
+      aggregation_method: distribute_uniform
+      semantic_type: volumetric_flow
+      canonical_id: discharge
+    validate_boundary: &id008
+      checks:
+      - no_nan
+      - 'range: [0.0, ''1e6'']'
+      canonical_id: discharge
+- canonical_id: water_surface_elevation
+  source_canonical_id: water_surface_elevation
+  target_canonical_id: water_surface_elevation
+  match_type: exact_canonical
+  primitives_needed:
+  - convert_units
+  - map_space
+  - align_time
+  - validate_boundary
+  details:
+    convert_units: &id001
+      from_unit: m ASL
+      to_unit: m
+      known: true
+      factor: 1.0
+      lookup_cid: water_surface_elevation
+      canonical_id: water_surface_elevation
+    exchange_data: &id003
+      status: format_unspecified
+      variable_mapping:
+        source_name: water_surface_elevation
+        target_name: water_level_boundary
+      canonical_id: water_surface_elevation
+    map_space: &id005
+      from_type: regular_grid
+      to_type: network
+      method: grid_to_network_extraction
+      canonical_id: water_surface_elevation
+    align_time: &id007
+      from_resolution: daily
+      to_resolution: 3-hourly
+      direction: disaggregate
+      aggregation_method: distribute_uniform
+      semantic_type: state
+      canonical_id: water_surface_elevation
+    validate_boundary: &id009
+      checks:
+      - no_nan
+      - 'range: [-10.0, 100.0]'
+      canonical_id: water_surface_elevation
+primitives_needed:
+- align_time
+- convert_units
+- map_space
+- validate_boundary
+execution_order:
+- align_time
+- convert_units
+- map_space
+- validate_boundary
+primitive_configs:
+  convert_units:
+  - *id001
+  exchange_data:
+  - *id002
+  - *id003
+  map_space:
+  - *id004
+  - *id005
+  align_time:
+  - *id006
+  - *id007
+  validate_boundary:
+  - *id008
+  - *id009
+risks:
+  total_traps: 3
+  automatable: 2
+  judgment_required: 1
+  traps:
+  - canonical_var: discharge
+    model: CaMa_Flood
+    trap_id: dt_cama_003
+    description: '{''description'': ''CaMa-Flood runs but river channel widths are unrealistically wide or narrow, causing
+      wrong water depths and discharge timing'', ''error_pattern'': '''', ''detection_method'': ''value_comparis'
+    detection: '{''root_cause'': ''calc_rivwth was run using the global diminfo file instead of the regional diminfo file'',
+      ''explanation'': ''The calc_rivwth tool reads the diminfo file to determine grid dimensions (nrows'
+    fix: '{''action'': ''Re-run calc_rivwth with the regional diminfo file'', ''tool_to_run'': '''', ''manual_steps'': [''cd
+      map/{basin}_15min'', ''Verify regional diminfo exists: cat diminfo_{basin}_025deg.txt'', ''Run: ./sr'
+    is_unit_trap: true
+    automatable: true
+  - canonical_var: discharge
+    model: CaMa_Flood
+    trap_id: dt_cama_005
+    description: '{''description'': ''CaMa-Flood produces discharge at completely wrong locations -- river network does not
+      match the basin'', ''error_pattern'': '''', ''detection_method'': ''value_comparison''}'
+    detection: '{''root_cause'': ''CaMa map files from a previous basin were reused instead of regenerating for the new basin'',
+      ''explanation'': "Each basin requires its own set of CaMa-Flood map files because the river n'
+    fix: '{''action'': ''Regenerate all CaMa map files for the new basin'', ''tool_to_run'': ''tools/configure_simulation.py'',
+      ''manual_steps'': [''Create new map dir: mkdir map/{new_basin}_15min'', ''Run configure_simulat'
+    is_unit_trap: true
+    automatable: false
+  - canonical_var: water_surface_elevation
+    model: CaMa_Flood->SFINCS
+    trap_id: unit_mismatch_water_surface_elevation
+    description: 'Unit mismatch: source [m ASL] vs target [m]'
+    detection: Check water_surface_elevation units at coupling boundary
+    fix: Convert m ASL -> m
+    is_unit_trap: true
+    automatable: true

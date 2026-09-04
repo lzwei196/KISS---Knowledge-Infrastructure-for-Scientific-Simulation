@@ -81,6 +81,34 @@ def _blocker_options(value) -> list[dict]:
     return out
 
 
+def _intake(value) -> dict | None:
+    """Normalise the agent's task-understanding handoff.
+
+    This is conversation state, not authority: the flow still validates every KI name and
+    owns the transition into planning.  Keeping the semantic fields here means the planner
+    does not have to reconstruct the user's study from a title or a regex on every turn.
+    """
+    if not isinstance(value, dict):
+        return None
+    out = {
+        "ready_for_planning": value.get("ready_for_planning") is True,
+        "understanding": _short(value.get("understanding"), 1000),
+        "study_area": _short(value.get("study_area"), 500),
+        "period": _short(value.get("period"), 300),
+        "process": _short(value.get("process"), 500),
+        "scenario": _short(value.get("scenario"), 500),
+        "requested_outputs": [
+            _short(item, 160) for item in (value.get("requested_outputs") or [])
+            if _short(item, 160)
+        ][:20] if isinstance(value.get("requested_outputs", []), list) else [],
+        "missing": [
+            _short(item, 300) for item in (value.get("missing") or [])
+            if _short(item, 300)
+        ][:20] if isinstance(value.get("missing", []), list) else [],
+    }
+    return out
+
+
 def _new(goal: str = "", selected_kis: list[str] | None = None) -> dict:
     now = time.time()
     return {
@@ -96,9 +124,16 @@ def _new(goal: str = "", selected_kis: list[str] | None = None) -> dict:
     }
 
 
-def _normalise(raw: dict | None, fallback: dict | None = None) -> dict:
+def _normalise(raw: dict | None, fallback: dict | None = None, *,
+               allow_stage: bool = True) -> dict:
+    """allow_stage=False (plan v3 B5): an AGENT report may change status/summary/goal/
+    selected_kis/blocker but never the stage — the flow (flowgate) owns the stage. The
+    desktop passes allow_stage=False for every agent-sourced update once a project has a
+    flow state file; app-sourced updates keep the old behaviour."""
     base = dict(fallback or _new())
     raw = raw if isinstance(raw, dict) else {}
+    if not allow_stage:
+        raw = {k: v for k, v in raw.items() if k != "stage"}
     stage = str(raw.get("stage") or base.get("stage") or "understanding")
     status = str(raw.get("status") or base.get("status") or "idle")
     if stage not in STAGES:
@@ -138,6 +173,11 @@ def _normalise(raw: dict | None, fallback: dict | None = None) -> dict:
         }
     else:
         base.pop("blocker", None)
+    intake = _intake(raw.get("intake", base.get("intake")))
+    if intake is not None:
+        base["intake"] = intake
+    else:
+        base.pop("intake", None)
     return base
 
 
@@ -172,7 +212,7 @@ def load(project: Path, *, goal: str = "", selected_kis: list[str] | None = None
     try:
         agent = json.loads(agent_path.read_text(encoding="utf-8"))
         if isinstance(agent, dict) and agent_path.stat().st_mtime >= path.stat().st_mtime:
-            state = _normalise(agent, state)
+            state = _normalise(agent, state, allow_stage=not flow_owned(project))
             state["updated_at"] = agent_path.stat().st_mtime
             _write(project, state)
             _event(project, "agent_progress", state)
@@ -199,13 +239,38 @@ def begin_turn(project: Path, message: str, selected_kis: list[str] | None = Non
     return state
 
 
+FLOW_STATE_FILE = "flow-state.json"     # written by ki_tools_common.flow (flowgate), never by agents
+FLOW_SOURCES = ("flow",)                # the only report() sources allowed to move the stage
+
+
+def flow_owned(project: Path) -> bool:
+    """True once the project has a flow state file: from then on the stage is the flow's."""
+    return _path(project, FLOW_STATE_FILE).is_file()
+
+
+def set_stage(project: Path, stage: str, summary: str = "", *, source: str = "flow") -> dict:
+    """The flow's way to move the display stage (maps a flow state to the 8 UI labels)."""
+    if source not in FLOW_SOURCES:
+        raise ValueError("only the flow may set the stage")
+    state = load(project)
+    if stage in STAGES:
+        state["stage"] = stage
+    if summary:
+        state["summary"] = _short(summary, 500)
+    state["updated_at"] = time.time()
+    _write(project, state)
+    _event(project, f"stage:{source}", state)
+    return state
+
+
 def report(project: Path, payload: dict, *, source: str = "agent") -> dict:
     state = load(project)
     update = dict(payload or {})
     if update.get("status") != "waiting_for_user" and "blocker" not in update:
         state.pop("blocker", None)
     update["updated_at"] = time.time()
-    state = _normalise(update, state)
+    state = _normalise(update, state,
+                       allow_stage=(source in FLOW_SOURCES) or not flow_owned(project))
     _write(project, state)
     _event(project, f"progress:{source}", state)
     return state
@@ -246,6 +311,23 @@ def finish_turn(project: Path, *, request: dict | None = None,
 def prompt_block(project: Path) -> str:
     status_path = _path(project, AGENT_FILE)
     request_path = Path(project) / "setup-request.json"
+    if flow_owned(project):
+        return f"""[PROJECT PROGRESS — REPORT WORK; GEOFORGE TRACKS THE STAGE]
+You are using the reusable general KI directly. GeoForge moves the project stage itself
+from the plan, the approval and the signed receipts — do NOT report a stage.
+At meaningful transitions, call `report_project_progress` when that tool is available
+(status + summary only). Otherwise write `{status_path}` as JSON with:
+  {{"status":"working|waiting_for_user|complete|failed",
+    "summary":"one short, plain-language description",
+    "selected_kis":["KI name"]}}
+If blocked by a download, login, licence, permission, or high-impact scientific choice,
+write `{request_path}` using the request_user_action fields (status=waiting, kind, title,
+message, optional url, `options` with id/label/description/response). One grouped action.
+During the initial task-understanding turn also report `intake` with
+ready_for_planning, understanding, study_area, period, process, scenario,
+requested_outputs and missing. Selecting a KI does not by itself mean the study is ready
+to plan.
+"""
     return f"""[PROJECT PROGRESS — REPORT WORK, DO NOT INVENT A NEW KI]
 You are using the reusable general KI directly. There is no adaptive or
 project-specific KI harness in this version of GeoForge; never claim one was
@@ -271,4 +353,8 @@ Memory rule: preserve the existing goal for ordinary follow-ups such as
 period, scenario, or requested experiment enough to make it a different run,
 report the new goal explicitly so the status panel and project memory do not
 describe the previous case.
+For initial task understanding, include an `intake` object with
+ready_for_planning, understanding, study_area, period, process, scenario,
+requested_outputs and missing. Set ready_for_planning=false while a critical scientific
+question is unanswered; choosing a model alone is not readiness.
 """

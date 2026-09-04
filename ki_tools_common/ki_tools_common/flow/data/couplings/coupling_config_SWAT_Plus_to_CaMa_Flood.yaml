@@ -1,0 +1,272 @@
+# Coupling Config v2: SWAT_Plus -> CaMa_Flood
+
+coupling_config_version: '2.0'
+generated: '2026-04-17'
+generator: ata_pipeline2_coupling_gen.py v2
+metadata:
+  edge_id: SWAT_Plus_to_CaMa_Flood
+  source_model: SWAT_Plus
+  target_model: CaMa_Flood
+  source_domain: hydrology
+  target_domain: routing
+  edge_type: type3b_cross_domain
+  n_forward_variables: 1
+  n_combine_variables: 0
+  n_plausible_feedback: 0
+  n_review_feedback: 0
+  is_feedback: false
+forward_edges:
+- canonical_id: surface_runoff
+  source_canonical_id: discharge
+  target_canonical_id: surface_runoff
+  match_type: family_match
+  source_local_name: discharge
+  source_unit: m3/s
+  target_local_name: runoff
+  target_unit: mm/day
+combine_edges: []
+plausible_feedback: []
+review_feedback: []
+compatibility:
+- canonical_id: surface_runoff
+  source_canonical_id: discharge
+  target_canonical_id: surface_runoff
+  match_type: family_match
+  primitives_needed:
+  - transform_semantic
+  - exchange_data
+  - validate_boundary
+  details:
+    transform_semantic: &id001
+      type: volumetric_to_flux_density
+      transform: runoff_mm_day = discharge_m3s * 86400 / cell_area_m2 * 1000
+      requires:
+      - cell_area_m2
+      source_canonical: discharge
+      target_canonical: surface_runoff
+      note: Physical quantity changes — this is NOT a unit conversion
+      canonical_id: surface_runoff
+    convert_units: &id002
+      status: handled_by_semantic_transform
+      canonical_id: surface_runoff
+    exchange_data: &id003
+      from_format: ascii_text
+      to_format: netcdf
+      conversion_needed: true
+      source: card_level_format_check
+      variable_mapping:
+        source_name: discharge
+        target_name: runoff
+      canonical_id: surface_runoff
+    family_mapping: &id004
+      source_canonical: discharge
+      target_canonical: surface_runoff
+      note: Source provides discharge, target needs surface_runoff. These are in the same family (surface_water_flux) — may
+        need splitting/derivation.
+      canonical_id: surface_runoff
+    validate_boundary: &id005
+      checks:
+      - no_nan
+      - 'range: [0.0, 500.0]'
+      canonical_id: surface_runoff
+primitives_needed:
+- exchange_data
+- transform_semantic
+- validate_boundary
+execution_order:
+- transform_semantic
+- exchange_data
+- validate_boundary
+primitive_configs:
+  transform_semantic:
+  - *id001
+  convert_units:
+  - *id002
+  exchange_data:
+  - *id003
+  family_mapping:
+  - *id004
+  validate_boundary:
+  - *id005
+risks:
+  total_traps: 18
+  automatable: 15
+  judgment_required: 3
+  traps:
+  - canonical_var: surface_runoff
+    model: CaMa_Flood
+    trap_id: inpmat_grid_mismatch
+    description: Inpmat WESTIN/EASTIN uses CaMa domain extent instead of VIC grid extent
+    detection: outflw ~ 0 despite non-zero input runoff
+    fix: Regenerate inpmat using VIC grid extent from basin_grid.nc
+    is_unit_trap: false
+    automatable: true
+  - canonical_var: surface_runoff
+    model: CaMa_Flood
+    trap_id: lat_order_ascending
+    description: Runoff NetCDF latitude in ascending order instead of descending
+    detection: ''
+    fix: Ensure latitude is north-to-south (descending) in runoff NetCDF
+    is_unit_trap: false
+    automatable: false
+  - canonical_var: surface_runoff
+    model: CaMa_Flood
+    trap_id: unit_mismatch_m3s
+    description: Runoff provided in m3/s instead of mm/day
+    detection: ''
+    fix: Keep runoff in mm/day — CaMa converts internally using ctmare.bin
+    is_unit_trap: true
+    automatable: false
+  - canonical_var: surface_runoff
+    model: CaMa_Flood
+    trap_id: conv_runoff_input
+    description: 'Conversion trap: VIC (mm/day, OUT_RUNOFF + OUT_BASEFLOW) -> CaMa-Flood NetCDF (mm/day)'
+    detection: If m3/s provided, discharge is ~1e6 too high for large basins
+    fix: Apply none (same unit) factor= offset=
+    is_unit_trap: true
+    automatable: true
+  - canonical_var: surface_runoff
+    model: CaMa_Flood
+    trap_id: dt_cama_002
+    description: '{''description'': ''CaMa-Flood runs without error but outflw values are near-zero everywhere despite VIC
+      producing reasonable runoff'', ''error_pattern'': '''', ''detection_method'': ''value_comparison''}'
+    detection: '{''root_cause'': ''The inpmat generation script uses the CaMa domain extent instead of the VIC grid extent
+      for WESTIN/EASTIN/NORTHIN/SOUTHIN parameters'', ''explanation'': ''The generate_inpmat tool creates '
+    fix: '{''action'': ''Regenerate inpmat using the VIC grid extent from basin_grid.nc, not the CaMa domain extent'', ''tool_to_run'':
+      '''', ''manual_steps'': [''Read VIC grid extent from basin_grid.nc: python -c "import'
+    is_unit_trap: true
+    automatable: true
+  - canonical_var: surface_runoff
+    model: CaMa_Flood
+    trap_id: dt_cama_006
+    description: '{''description'': ''CaMa receives runoff but many cells show zero flux -- NetCDF grid is padded with zeros
+      around actual VIC data'', ''error_pattern'': '''', ''detection_method'': ''value_comparison''}'
+    detection: '{''root_cause'': ''Runoff conversion script created a padded rectangular grid larger than the actual VIC domain'',
+      ''explanation'': ''When converting VIC output to CaMa-Flood NetCDF, the script must create a'
+    fix: '{''action'': ''Regenerate NetCDF using only the actual VIC grid extent'', ''tool_to_run'': ''tools/prepare_runoff_input.py'',
+      ''manual_steps'': [''Check NC grid: python -c "import xarray as xr; print(xr.open_dat'
+    is_unit_trap: true
+    automatable: true
+  - canonical_var: surface_runoff
+    model: CaMa_Flood
+    trap_id: dt_cama_007
+    description: '{''description'': ''CaMa-Flood runs to completion but outflw values are all near-zero despite non-zero runoff
+      in input NetCDF'', ''error_pattern'': '''', ''detection_method'': ''value_comparison''}'
+    detection: '{''root_cause'': ''The inpmat latitude ordering (OLAT) does not match the runoff NetCDF latitude ordering'',
+      ''explanation'': "The inpmat maps each CaMa cell to VIC runoff grid cells. This depends on the la'
+    fix: '{''action'': ''Verify lat ordering in runoff NC matches OLAT, regenerate inpmat if mismatched'', ''tool_to_run'':
+      '''', ''manual_steps'': [''Check NC lat: python -c "import xarray as xr; ds=xr.open_dataset(\''pat'
+    is_unit_trap: false
+    automatable: true
+  - canonical_var: surface_runoff
+    model: CaMa_Flood
+    trap_id: dt_cama_009
+    description: '{''description'': ''CaMa-Flood produces discharge values that are orders of magnitude too high (e.g., millions
+      of m3/s for a small basin)'', ''error_pattern'': '''', ''detection_method'': ''value_comparison''}'
+    detection: '{''root_cause'': ''Runoff input was pre-converted to m3/s before feeding to CaMa-Flood, but CaMa expects mm/day
+      and converts internally'', ''explanation'': ''CaMa-Flood reads gridded runoff in mm/day and con'
+    fix: '{''action'': "Verify runoff input units are mm/day. Check the Runoff variable''s ''units'' attribute.", ''tool_to_run'':
+      ''tools/prepare_runoff_input.py'', ''manual_steps'': [''python -c "import xarray as xr; ds='
+    is_unit_trap: true
+    automatable: true
+  - canonical_var: surface_runoff
+    model: SWAT_Plus
+    trap_id: cn3_swf_runoff_bias
+    description: cn3_swf > 0 inflates runoff in humid subtropical basins
+    detection: PBIAS > +100% in humid basins
+    fix: Set cn3_swf = 0.0 in codes.bsn for Huai River and similar climates
+    is_unit_trap: false
+    automatable: true
+  - canonical_var: surface_runoff
+    model: SWAT_Plus
+    trap_id: dt_026
+    description: '{''description'': ''Runoff is unrealistically high or low; hydrograph shape wrong regardless of calibration'',
+      ''error_pattern'': ''cn2.*< 25|cn2.*> 98'', ''detection_method'': ''value_comparison''}'
+    detection: '{''root_cause'': ''CN2 values in hru-data.hru are outside physically realistic range (25-98)'', ''explanation'':
+      ''CN2 (curve number for moisture condition II) must be 25-98 for SCS method. Values <25 produc'
+    fix: '{''steps'': [''Check CN2 values: sort hru-data.hru by cn2 column'', ''Forest on good soil: CN2 ~ 36-70; Cropland:
+      67-85; Urban: 89-98'', ''If auto-generated, verify land use to CN lookup table''], ''prevention'
+    is_unit_trap: false
+    automatable: true
+  - canonical_var: surface_runoff
+    model: SWAT_Plus
+    trap_id: dt_032
+    description: '{''description'': ''Simulated baseflow is zero or near-zero; entire hydrograph is surface runoff'', ''error_pattern'':
+      ''basin_wb_yr.*latq.*0\\.0.*perc.*0\\.0'', ''detection_method'': ''value_comparison''}'
+    detection: '{''root_cause'': ''GW_DELAY too high (>500 days) or ALPHA_BF too low (<0.001) in aquifer.aqu'', ''explanation'':
+      ''GW_DELAY controls the lag between water leaving the soil profile and entering the shallow aq'
+    fix: '{''steps'': [''Check aquifer.aqu: gw_delay should be 1-365 days (default 31)'', ''Check alpha_bf: typical range
+      0.01-0.3 (default 0.048)'', ''If both look reasonable, check that soils have percolation path ('
+    is_unit_trap: false
+    automatable: true
+  - canonical_var: discharge
+    model: CaMa_Flood
+    trap_id: dt_cama_003
+    description: '{''description'': ''CaMa-Flood runs but river channel widths are unrealistically wide or narrow, causing
+      wrong water depths and discharge timing'', ''error_pattern'': '''', ''detection_method'': ''value_comparis'
+    detection: '{''root_cause'': ''calc_rivwth was run using the global diminfo file instead of the regional diminfo file'',
+      ''explanation'': ''The calc_rivwth tool reads the diminfo file to determine grid dimensions (nrows'
+    fix: '{''action'': ''Re-run calc_rivwth with the regional diminfo file'', ''tool_to_run'': '''', ''manual_steps'': [''cd
+      map/{basin}_15min'', ''Verify regional diminfo exists: cat diminfo_{basin}_025deg.txt'', ''Run: ./sr'
+    is_unit_trap: true
+    automatable: true
+  - canonical_var: discharge
+    model: CaMa_Flood
+    trap_id: dt_cama_005
+    description: '{''description'': ''CaMa-Flood produces discharge at completely wrong locations -- river network does not
+      match the basin'', ''error_pattern'': '''', ''detection_method'': ''value_comparison''}'
+    detection: '{''root_cause'': ''CaMa map files from a previous basin were reused instead of regenerating for the new basin'',
+      ''explanation'': "Each basin requires its own set of CaMa-Flood map files because the river n'
+    fix: '{''action'': ''Regenerate all CaMa map files for the new basin'', ''tool_to_run'': ''tools/configure_simulation.py'',
+      ''manual_steps'': [''Create new map dir: mkdir map/{new_basin}_15min'', ''Run configure_simulat'
+    is_unit_trap: true
+    automatable: false
+  - canonical_var: discharge
+    model: SWAT_Plus
+    trap_id: qual2e_blowup
+    description: QUAL2E in-stream routing has numerical instability at extreme flows
+    detection: Any nutrient concentration > 1e6 mg/L or NaN values
+    fix: Set wq_cha=0 in codes.bsn; use basin_ls_day HRU-level outputs
+    is_unit_trap: false
+    automatable: true
+  - canonical_var: discharge
+    model: SWAT_Plus
+    trap_id: dt_008
+    description: '{''description'': ''Delineated watershed area is much larger (>2x) or smaller (<0.5x) than expected. Model
+      runs successfully but discharge is completely wrong.'', ''error_pattern'': '''', ''detection_method'': '
+    detection: '{''root_cause'': ''Outlet point snapped to the wrong stream — typically a larger river at a confluence, or
+      a smaller tributary.'', ''explanation'': ''The pour-point snapping algorithm finds the highest-accum'
+    fix: '{''action'': ''Compare delineated area to known/published area. If wrong, adjust outlet coordinates or manually
+      specify the snap point.'', ''tool_to_run'': ''delineate_watershed'', ''manual_steps'': [''Check del'
+    is_unit_trap: false
+    automatable: true
+  - canonical_var: discharge
+    model: SWAT_Plus
+    trap_id: dt_v006
+    description: '{''description'': ''SWAT+ channel discharge appears 200x too high when compared to VIC routing output'',
+      ''error_pattern'': ''SWAT+ discharge.*100x|ratio.*[5-9]\\.'', ''detection_method'': ''value_comparison''}'
+    detection: '{''root_cause'': ''SWAT+ channel output flo_out is in ha-m/day, not m³/s'', ''explanation'': "SWAT+ channel
+      daily output (channel_day.txt) reports flo_out in hectare-meters per day (ha-m/day), not cubic met'
+    fix: '{''action'': ''Convert SWAT+ channel flow: Q_cms = flo_out_ham * 10000 / 86400'', ''tool_to_run'': ''compare_swatplus_vic'',
+      ''manual_steps'': [''Read units row (line 3) from channel output'', "If flo_out unit is'
+    is_unit_trap: true
+    automatable: true
+  - canonical_var: discharge
+    model: SWAT_Plus
+    trap_id: dt_wq_001
+    description: '{''pattern'': ''channel_day.txt no3_out values > 1e6 kgN or NaN in solp_out'', ''description'': ''QUAL2E
+      in-stream routing produces physically impossible nutrient concentrations (>1e9 mg/L) during flood even'
+    detection: '{''root_cause'': ''Rev 59.3 wq_semianalyt function numerically unstable for extreme flow events'', ''explanation'':
+      ''During monsoon peak flows, the semi-analytical QUAL2E solver diverges. Small channels gen'
+    fix: '{''steps'': [''Do NOT use channel_day.txt no3_out/orgn_out for nutrient loads'', ''Use basin_ls_day.txt (sedorgn,
+      surqno3) for HRU-level nutrient export'', ''Use basin_nb_yr.txt for basin N budget (fertn, de'
+    is_unit_trap: false
+    automatable: true
+  - canonical_var: surface_runoff
+    model: SWAT_Plus->CaMa_Flood
+    trap_id: unit_mismatch_surface_runoff
+    description: 'Unit mismatch: source [m3/s] vs target [mm/day]'
+    detection: Check surface_runoff units at coupling boundary
+    fix: Convert m3/s -> mm/day
+    is_unit_trap: true
+    automatable: true

@@ -1,0 +1,142 @@
+ata_card_version: '1.0'
+generated: '2026-04-26'
+generator: ata_pipeline1_card_gen.py
+identity:
+  model_id: DART
+  model_name: DART
+  domain: unknown
+  secondary_domains: []
+  language: Fortran 90+
+  binary_path: /home/server/knowledge-dissection-toolkit/auto_dissect/_work/DART/source/repo/models/lorenz_63/work/filter
+inputs:
+- canonical_id: soil_moisture
+  local_name: sm_obs
+  unit: mm
+  semantic_type: depth
+  mapping_confidence: inferred
+  origin: coupled_model
+  origin_confidence: high
+  format: unspecified
+- canonical_id: discharge
+  local_name: streamflow_obs
+  unit: m3/s
+  semantic_type: volumetric_flow
+  mapping_confidence: inferred
+  origin: coupled_model
+  origin_confidence: high
+  format: unspecified
+- canonical_id: snow_water_equivalent
+  local_name: swe_obs
+  unit: mm
+  semantic_type: depth
+  mapping_confidence: inferred
+  origin: coupled_model
+  origin_confidence: high
+  format: unspecified
+outputs:
+- canonical_id: soil_moisture
+  local_name: sm_analysis
+  unit: mm
+  semantic_type: depth
+  mapping_confidence: inferred
+  origin: simulated
+  origin_confidence: high
+  output_section: primary
+  format: unspecified
+  valid_range:
+  - 0
+  - null
+- canonical_id: snow_water_equivalent
+  local_name: swe_analysis
+  unit: mm
+  semantic_type: depth
+  mapping_confidence: inferred
+  origin: simulated
+  origin_confidence: high
+  output_section: primary
+  format: unspecified
+  valid_range:
+  - 0
+  - null
+- canonical_id: discharge
+  local_name: streamflow_analysis
+  unit: m3/s
+  semantic_type: volumetric_flow
+  mapping_confidence: inferred
+  origin: simulated
+  origin_confidence: high
+  output_section: primary
+  format: unspecified
+  valid_range:
+  - 0
+  - null
+- canonical_id: soil_temperature
+  local_name: st_analysis
+  unit: C
+  semantic_type: temperature
+  mapping_confidence: inferred
+  origin: simulated
+  origin_confidence: high
+  output_section: primary
+  format: unspecified
+  valid_range:
+  - -50
+  - 50
+spatial:
+  type: regular_grid
+  resolution: unspecified
+  crs: EPSG:4326
+  source: skill_md
+temporal:
+  resolution: hourly
+  calendar: standard
+  source: skill_md
+risks:
+  known_traps: []
+  unit_conversions: []
+coupling:
+  chain_position: mixed
+  native_formats:
+  - ascii_text
+  - dart obs_seq
+  - fortran_fixed
+  - netcdf
+  exchange_format: netcdf
+  coupling_role: standalone
+quality:
+  has_format_spec: true
+  has_skill_md: true
+  has_triplets: true
+  n_inputs: 3
+  n_outputs: 4
+  n_inputs_canonical: 0
+  n_outputs_canonical: 0
+  n_unmapped: 7
+  n_traps: 0
+  n_conversions: 0
+  spatial_complete: true
+  temporal_complete: true
+  unmapped_variables:
+  - name: obs_seq.in
+    direction: input
+    reason: unmapped
+  - name: obs_seq.out
+    direction: input
+    reason: unmapped
+  - name: input.nml
+    direction: input
+    reason: unmapped
+  - name: analysis.nc
+    direction: output
+    reason: unmapped
+  - name: preassim.nc
+    direction: output
+    reason: unmapped
+  - name: obs_seq.final
+    direction: output
+    reason: unmapped
+  - name: true_state.nc
+    direction: output
+    reason: unmapped
+  validation_issues: []
+  card_status: complete

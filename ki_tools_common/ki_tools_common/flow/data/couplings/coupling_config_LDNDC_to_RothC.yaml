@@ -1,0 +1,153 @@
+# Coupling Config v2: LDNDC -> RothC
+# Hand-authored 2026-05-22 — LDNDC litter-C throughput + CO2 flux -> RothC DPM/RPM input + validation
+
+coupling_config_version: '2.0'
+generated: '2026-05-22'
+generator: hand_authored
+metadata:
+  edge_id: LDNDC_to_RothC
+  source_model: LDNDC
+  target_model: RothC
+  source_domain: biogeochemistry
+  target_domain: biogeochemistry
+  edge_type: type1_same_domain
+  n_forward_variables: 2
+  n_combine_variables: 0
+  n_plausible_feedback: 0
+  n_review_feedback: 0
+  is_feedback: false
+  coupling_frequency: monthly
+  note: >
+    Two-variable edge. (1) LDNDC passes through the litter-carbon flux it
+    received from DSSAT to RothC as the DPM+RPM input — LDNDC simulates the
+    short-term (<10 yr) microbial processing and GHG losses; RothC carries
+    the multi-decadal SOC trajectory from the same litter source.
+    (2) LDNDC co2_flux is passed to RothC as a cross-model validation check:
+    both models independently estimate heterotrophic respiration; agreement
+    within 20% is the acceptance criterion.
+forward_edges:
+- canonical_id: litter_carbon
+  source_canonical_id: litter_carbon
+  target_canonical_id: carbon_input_rate
+  match_type: transform_semantic
+  source_local_name: crop_residue_carbon
+  source_unit: gC/m2/day
+  target_local_name: dpm_rpm_input
+  target_unit: tC/ha/month
+- canonical_id: co2_emission
+  source_canonical_id: co2_flux
+  target_canonical_id: co2_emission
+  match_type: family_match
+  source_local_name: co2_heterotrophic
+  source_unit: kgC/ha/day
+  target_local_name: CO2_evolution
+  target_unit: tC/ha/month
+  note: Comparison check only — both models simulate heterotrophic respiration independently.
+combine_edges: []
+plausible_feedback: []
+compatibility:
+- canonical_id: litter_carbon
+  source_canonical_id: litter_carbon
+  target_canonical_id: carbon_input_rate
+  match_type: transform_semantic
+  primitives_needed:
+  - convert_units
+  - exchange_data
+  - validate_boundary
+  details:
+    convert_units: &c1
+      status: explicit
+      formula: "carbon_input_tCham = litter_C_gCm2day * 10000 * 30.4375 / 1e6"
+      from_unit: gC/m2/day
+      to_unit: tC/ha/month
+      factor: 0.30438
+      note: >
+        Dimensional path: gC/m2/day × 10000 m2/ha × 30.4375 days/month ÷ 1e6 g/t = 0.30438 tC/ha/month.
+        This litter flux enters RothC as 59% DPM + 41% RPM for cereal residues
+        (Falloon & Smith 2000); LDNDC already consumed the most-labile fraction in
+        its short-term simulation, so use 40% DPM + 60% RPM for the RothC pass-through.
+      canonical_id: litter_carbon
+    exchange_data: &e1
+      status: monthly_csv
+      variable_mapping:
+        source_name: crop_residue_carbon
+        target_name: dpm_rpm_input
+      note: >
+        Write monthly totals to RothC input CSV (date, dpm_tCham, rpm_tCham) using
+        the 40/60 DPM/RPM split. File goes to models/RothC/economic_input/<year>.csv.
+        LDNDC reports daily; aggregate to monthly sum before converting.
+      canonical_id: litter_carbon
+    validate_boundary: &v1
+      checks:
+      - no_nan
+      - 'range: [0.0, 5.0]'
+      note: >
+        tC/ha/month > 5.0 would imply > 200 kg/ha/day residue addition — unrealistic
+        for Huaihe wheat/maize double crop. Values 0.1-0.8 are typical.
+      canonical_id: litter_carbon
+- canonical_id: co2_emission
+  source_canonical_id: co2_flux
+  target_canonical_id: co2_emission
+  match_type: family_match
+  primitives_needed:
+  - convert_units
+  - exchange_data
+  details:
+    convert_units: &c2
+      status: explicit
+      formula: "co2_tCham_month = co2_kgCha_day * 30.4375 / 1000"
+      from_unit: kgC/ha/day
+      to_unit: tC/ha/month
+      factor: 0.030438
+      canonical_id: co2_emission
+    exchange_data: &e2
+      status: comparison_check
+      note: >
+        LDNDC and RothC both output heterotrophic CO2. This coupling is a comparison,
+        not a sequential feed. Run both independently; compute PBIAS. Agreement within
+        ±20% validates the litter_carbon forward edge above.
+      canonical_id: co2_emission
+primitives_needed:
+- convert_units
+- exchange_data
+- validate_boundary
+execution_order:
+- convert_units
+- exchange_data
+- validate_boundary
+primitive_configs:
+  convert_units:
+  - *c1
+  - *c2
+  exchange_data:
+  - *e1
+  - *e2
+  validate_boundary:
+  - *v1
+risks:
+  total_traps: 2
+  automatable: 2
+  judgment_required: 0
+  traps:
+  - canonical_var: litter_carbon
+    model: LDNDC->RothC
+    trap_id: dpm_rpm_split_after_ldndc
+    description: >
+      LDNDC consumes the most-labile litter fraction (DPM) during its short-term
+      simulation. Passing 59% DPM to RothC double-counts the fast-decomposing pool
+      and causes RothC SOC to drop too fast in the first year.
+    detection: RothC SOC decreases > 0.5 tC/ha in year 1 despite no land-use change
+    fix: Use 40% DPM + 60% RPM for the pass-through fraction (not the standard 59/41 split).
+    is_unit_trap: false
+    automatable: true
+  - canonical_var: litter_carbon
+    model: LDNDC->RothC
+    trap_id: unit_gCm2day_to_tChamonth
+    description: >
+      LDNDC reports litter_carbon in gC/m2/day. RothC expects tC/ha/month.
+      Factor is 0.30438 (not 0.1 or 1.0). Off-by-10 or off-by-3 errors are common
+      when the per-area and per-time conversions are applied in the wrong order.
+    detection: RothC SOC one order of magnitude different from LDNDC baseline
+    fix: Apply formula carbon_input_tCham = litter_C_gCm2day * 10000 * 30.4375 / 1e6
+    is_unit_trap: true
+    automatable: true

@@ -159,6 +159,10 @@ class KdtStudioTests(unittest.TestCase):
         self.assertEqual(contract["required"], 10)
         self.assertEqual(contract["present"], 2)
         self.assertEqual(contract["label"], "10 KI deliverable groups + 1 acceptance report")
+        visualization = next(item for item in contract["items"]
+                             if item["key"] == "visualization")
+        self.assertFalse(visualization["required"])
+        self.assertEqual(visualization["state"], "missing")
         self.assertFalse(contract["acceptance_report"])
         (root / "runs" / "ki-acceptance.json").write_text("{}", encoding="utf-8")
         self.assertTrue(kdtstudio.deliverable_inventory(created["id"])["acceptance_report"])
@@ -275,7 +279,10 @@ class KdtStudioTests(unittest.TestCase):
         self.assertNotIn("/mnt/disk1", accepted["warnings"][0])
         self.assertIn("server-only path unavailable", accepted["warnings"][0])
         self.assertFalse(marker.exists(), "candidate preflight must not execute during structure gate")
-        self.assertTrue(kdtstudio.job(created["id"])["can_import"])
+        state = kdtstudio.job(created["id"])
+        self.assertTrue(state["can_export_bare"])
+        self.assertFalse(state["can_import"],
+                         "KDT's gate alone must not authorize a Desktop import")
         archive, blob = kdtstudio.export_zip(created["id"])
         self.assertTrue(archive.is_file())
         with zipfile.ZipFile(archive) as zf:
@@ -331,6 +338,12 @@ class KdtStudioTests(unittest.TestCase):
         ]
         self.assertEqual(blockers, [])
 
+        (root / "runs" / "geoforge-ki-verify.json").write_text(json.dumps({
+            "ok": True,
+            "candidate_signature": kdtstudio.tree_signature(candidate),
+            "authoring_revision": 0,
+        }), encoding="utf-8")
+
         archive, blob, exported = kdtstudio.export_desktop_zip(created["id"])
         self.assertEqual(exported["source_digest"], acceptance["digest"])
         self.assertEqual(blob, archive.read_bytes())
@@ -338,24 +351,96 @@ class KdtStudioTests(unittest.TestCase):
             self.assertIn(".geoforge-adapter.json", zf.namelist())
             self.assertIn("template_version: '3.5'", zf.read("dag.yaml").decode())
 
+    def test_finish_creates_read_only_independent_report_and_user_can_reopen(self):
+        created = self._create()
+        root = Path(created["root"])
+        candidate = root / "candidate"
+        (candidate / "SKILL.md").write_text("# My Model\n", encoding="utf-8")
+        (candidate / "preflight_check.py").write_text(
+            "print('PREFLIGHT_REPORT={}')\n", encoding="utf-8")
+        (candidate / "docs").mkdir()
+        (candidate / "docs" / "format_spec.yaml").write_text(
+            "formats: {}\n", encoding="utf-8")
+        (candidate / "dag.yaml").write_text(
+            "template_version: '3.5'\n"
+            "identity:\n  model_id: My Model\n  repo_url: https://example.org/model\n"
+            "boundary: {}\ninputs: {}\noutputs: []\nstates: {}\n"
+            "processes:\n  nodes: []\n  internal_edges: []\n"
+            "influence: {}\nsafety: {}\n", encoding="utf-8")
+        (self.engine / "verify_ki_structure.py").write_text(
+            "def verify(root, kind=None):\n"
+            " return {'ok': True, 'failures': [], 'warnings': [], 'info': {}}\n",
+            encoding="utf-8",
+        )
+
+        report = kdtstudio.geoforge_verify(created["id"])
+        self.assertTrue(report["ok"])
+        self.assertEqual(report["decision"], "awaiting_user")
+        report_path = root / "runs" / "geoforge-ki-verify.json"
+        self.assertTrue(report_path.is_file())
+        self.assertEqual(report_path.stat().st_mode & 0o222, 0)
+        self.assertTrue(kdtstudio.job(created["id"])["can_import"])
+
+        reopened = kdtstudio.continue_modifying(created["id"])
+        self.assertEqual(reopened["status"], "editing")
+        self.assertFalse(reopened["verification_current"])
+        self.assertFalse(reopened["can_import"])
+
+    def test_workbench_projects_dag_io_diagnostics_and_visualizations(self):
+        created = self._create()
+        candidate = Path(created["candidate"])
+        (candidate / "tools" / "plot").mkdir(parents=True)
+        (candidate / "tools" / "plot" / "plot_flow_map.py").write_text(
+            "", encoding="utf-8")
+        (candidate / "docs").mkdir()
+        (candidate / "docs" / "visualization_contract.yaml").write_text(
+            "visualizations:\n"
+            "  - id: flow-map\n    title: Flow map\n    kind: map\n"
+            "    tool: tools/plot/plot_flow_map.py\n"
+            "    inputs: [discharge]\n    outputs: [flow_map.png]\n",
+            encoding="utf-8",
+        )
+        (candidate / "dag.yaml").write_text(
+            "inputs:\n  forcing:\n    name: Rainfall\n"
+            "outputs:\n  - name: Discharge\n"
+            "processes:\n  nodes:\n    - id: runoff\n      name: Runoff\n",
+            encoding="utf-8",
+        )
+        (candidate / "diagnostics").mkdir()
+        (candidate / "diagnostics" / "triplets.yaml").write_text(
+            "- symptom: x\n  diagnosis: y\n  remedy: z\n", encoding="utf-8")
+        (candidate / "preflight_check.py").write_text("", encoding="utf-8")
+
+        workbench = kdtstudio.workbench_inventory(created["id"])
+        self.assertEqual(workbench["dag"]["nodes"][0]["id"], "runoff")
+        self.assertIn("Rainfall", workbench["io_tools"]["inputs"])
+        self.assertEqual(workbench["diagnostics"]["triplets"], 1)
+        self.assertTrue(workbench["visualizations"]["contract_present"])
+        self.assertEqual(workbench["visualizations"]["items"][0]["title"], "Flow map")
+
     def test_studio_frontend_and_routes_are_present(self):
         package = Path(__file__).parents[1]
         page = (package / "kiss_cli" / "web" / "studio.html").read_text(encoding="utf-8")
         gui = (package / "kiss_cli" / "gui.py").read_text(encoding="utf-8")
         app = (package / "kiss_cli" / "web" / "app.html").read_text(encoding="utf-8")
         library = (package / "kiss_cli" / "web" / "library.html").read_text(encoding="utf-8")
-        self.assertIn("Create a KI for your own model", page)
-        self.assertIn("Unknown generated code is not executed here", page)
+        self.assertIn("KDT Workbench", page)
+        self.assertIn("never executes unverified Agent code", page)
         self.assertIn('id="customdomain"', page)
         self.assertIn('id="runprovider"', page)
         self.assertIn('id="runllm"', page)
         self.assertIn('id="evidencepanel"', page)
         self.assertIn('id="contractpanel"', page)
+        self.assertIn('id="workbenchpanel"', page)
+        self.assertIn('id="vizpreview"', page)
+        self.assertIn('id="finish"', page)
+        self.assertIn('id="continue"', page)
         self.assertIn("10 KI deliverable groups", gui + page)
         self.assertIn("No KDT prior protocol exists", page)
         self.assertIn("GitHub file or folder page", page)
         for route in ("/api/kdt/create", "/api/kdt/probe", "/api/kdt/build",
-                      "/api/kdt/verify", "/api/kdt/import", "/api/kdt/evidence"):
+                      "/api/kdt/verify", "/api/kdt/finish", "/api/kdt/reopen",
+                      "/api/kdt/import", "/api/kdt/evidence"):
             self.assertIn(route, gui)
         self.assertIn('href="/studio"', app)
         self.assertIn('location.href="/studio"', library)

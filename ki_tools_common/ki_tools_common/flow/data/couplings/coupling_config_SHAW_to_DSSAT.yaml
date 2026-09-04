@@ -1,0 +1,158 @@
+# Coupling Config v2: SHAW -> DSSAT
+
+coupling_config_version: '2.0'
+generated: '2026-05-02'
+generator: ata_pipeline2_coupling_gen.py v2
+metadata:
+  edge_id: SHAW_to_DSSAT
+  source_model: SHAW
+  target_model: DSSAT
+  source_domain: soil_physics
+  target_domain: crop
+  edge_type: type5_cross_scale_cross_domain
+  n_forward_variables: 2
+  n_combine_variables: 0
+  n_plausible_feedback: 0
+  n_review_feedback: 0
+  is_feedback: false
+forward_edges:
+- canonical_id: air_temperature_max
+  source_canonical_id: soil_temperature
+  target_canonical_id: air_temperature_max
+  match_type: family_match
+  source_local_name: soil_temperature_profiles
+  source_unit: degC
+  target_local_name: temperature_max
+  target_unit: degC
+- canonical_id: air_temperature_min
+  source_canonical_id: soil_temperature
+  target_canonical_id: air_temperature_min
+  match_type: family_match
+  source_local_name: soil_temperature_profiles
+  source_unit: degC
+  target_local_name: temperature_min
+  target_unit: degC
+combine_edges: []
+plausible_feedback: []
+review_feedback: []
+compatibility:
+- canonical_id: air_temperature_max
+  source_canonical_id: soil_temperature
+  target_canonical_id: air_temperature_max
+  match_type: family_match
+  primitives_needed:
+  - exchange_data
+  - map_space
+  - align_time
+  - validate_boundary
+  details:
+    convert_units:
+      status: not_needed
+      units_match: true
+    exchange_data: &id001
+      from_format: ascii_text
+      to_format: fortran_fixed
+      conversion_needed: true
+      variable_mapping:
+        source_name: soil_temperature_profiles
+        target_name: temperature_max
+      canonical_id: air_temperature_max
+    map_space: &id003
+      from_type: 1d_vertical
+      to_type: point
+      method: unknown
+      canonical_id: air_temperature_max
+    align_time: &id005
+      from_resolution: hourly
+      to_resolution: daily
+      direction: aggregate
+      aggregation_method: mean
+      semantic_type: temperature
+      canonical_id: air_temperature_max
+    family_mapping: &id007
+      source_canonical: soil_temperature
+      target_canonical: air_temperature_max
+      note: Source provides soil_temperature, target needs air_temperature_max. These are in the same family (temperature)
+        — may need splitting/derivation.
+      canonical_id: air_temperature_max
+    validate_boundary: &id009
+      checks:
+      - no_nan
+      - 'range: [-50.0, 60.0]'
+      canonical_id: air_temperature_max
+- canonical_id: air_temperature_min
+  source_canonical_id: soil_temperature
+  target_canonical_id: air_temperature_min
+  match_type: family_match
+  primitives_needed:
+  - exchange_data
+  - map_space
+  - align_time
+  - validate_boundary
+  details:
+    convert_units:
+      status: not_needed
+      units_match: true
+    exchange_data: &id002
+      from_format: ascii_text
+      to_format: fortran_fixed
+      conversion_needed: true
+      variable_mapping:
+        source_name: soil_temperature_profiles
+        target_name: temperature_min
+      canonical_id: air_temperature_min
+    map_space: &id004
+      from_type: 1d_vertical
+      to_type: point
+      method: unknown
+      canonical_id: air_temperature_min
+    align_time: &id006
+      from_resolution: hourly
+      to_resolution: daily
+      direction: aggregate
+      aggregation_method: mean
+      semantic_type: temperature
+      canonical_id: air_temperature_min
+    family_mapping: &id008
+      source_canonical: soil_temperature
+      target_canonical: air_temperature_min
+      note: Source provides soil_temperature, target needs air_temperature_min. These are in the same family (temperature)
+        — may need splitting/derivation.
+      canonical_id: air_temperature_min
+    validate_boundary: &id010
+      checks:
+      - no_nan
+      - 'range: [-60.0, 50.0]'
+      canonical_id: air_temperature_min
+primitives_needed:
+- align_time
+- exchange_data
+- map_space
+- validate_boundary
+execution_order:
+- align_time
+- map_space
+- exchange_data
+- validate_boundary
+primitive_configs:
+  convert_units: []
+  exchange_data:
+  - *id001
+  - *id002
+  map_space:
+  - *id003
+  - *id004
+  align_time:
+  - *id005
+  - *id006
+  family_mapping:
+  - *id007
+  - *id008
+  validate_boundary:
+  - *id009
+  - *id010
+risks:
+  total_traps: 0
+  automatable: 0
+  judgment_required: 0
+  traps: []

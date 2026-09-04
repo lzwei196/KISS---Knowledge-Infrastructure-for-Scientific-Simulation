@@ -1,0 +1,242 @@
+# Coupling Config v2: VIC -> SWMM
+
+coupling_config_version: '2.0'
+generated: '2026-04-17'
+generator: ata_pipeline2_coupling_gen.py v2
+metadata:
+  edge_id: VIC_to_SWMM
+  source_model: VIC
+  target_model: SWMM
+  source_domain: hydrology
+  target_domain: urban_drainage
+  edge_type: type3b_cross_domain
+  n_forward_variables: 2
+  n_combine_variables: 1
+  n_plausible_feedback: 0
+  n_review_feedback: 0
+  is_feedback: false
+forward_edges:
+- canonical_id: evapotranspiration
+  source_canonical_id: evapotranspiration
+  target_canonical_id: evapotranspiration
+  match_type: exact_canonical
+  source_local_name: evapotranspiration
+  source_unit: mm/timestep
+  target_local_name: evaporation
+  target_unit: mm/day
+- canonical_id: surface_runoff
+  source_canonical_id: surface_runoff
+  target_canonical_id: surface_runoff
+  match_type: exact_canonical
+  source_local_name: runoff
+  source_unit: mm/timestep
+  target_local_name: subcatchment_inflow
+  target_unit: m3/s
+combine_edges:
+- target_canonical_id: surface_runoff
+  target_local_name: subcatchment_inflow
+  target_unit: m3/s
+  sources: &id001
+  - canonical_id: surface_runoff
+    local_name: runoff
+    unit: mm/timestep
+  - canonical_id: surface_runoff
+    local_name: total_runoff
+    unit: mm/day
+  - canonical_id: baseflow
+    local_name: baseflow
+    unit: mm/timestep
+  combine_method: sum
+  note: total_runoff = surface_runoff + baseflow
+  match_type: combine_rule
+plausible_feedback: []
+review_feedback: []
+compatibility:
+- canonical_id: evapotranspiration
+  source_canonical_id: evapotranspiration
+  target_canonical_id: evapotranspiration
+  match_type: exact_canonical
+  primitives_needed:
+  - convert_units
+  - align_time
+  - validate_boundary
+  details:
+    convert_units: &id002
+      from_unit: mm/timestep
+      to_unit: mm/day
+      known: false
+      canonical_id: evapotranspiration
+    exchange_data: &id004
+      status: format_unspecified
+      variable_mapping:
+        source_name: evapotranspiration
+        target_name: evaporation
+      canonical_id: evapotranspiration
+    align_time: &id006
+      from_resolution: 3-hourly
+      to_resolution: daily
+      direction: aggregate
+      aggregation_method: sum
+      semantic_type: flux_density
+      canonical_id: evapotranspiration
+    validate_boundary: &id008
+      checks:
+      - non_negative
+      - no_nan
+      - 'range: [0.0, 15.0]'
+      canonical_id: evapotranspiration
+- canonical_id: surface_runoff
+  source_canonical_id: surface_runoff
+  target_canonical_id: surface_runoff
+  match_type: exact_canonical
+  primitives_needed:
+  - convert_units
+  - align_time
+  - validate_boundary
+  details:
+    convert_units: &id003
+      from_unit: mm/timestep
+      to_unit: m3/s
+      known: false
+      canonical_id: surface_runoff
+    exchange_data: &id005
+      status: format_unspecified
+      variable_mapping:
+        source_name: runoff
+        target_name: subcatchment_inflow
+      canonical_id: surface_runoff
+    align_time: &id007
+      from_resolution: 3-hourly
+      to_resolution: daily
+      direction: aggregate
+      aggregation_method: sum
+      semantic_type: flux_density
+      canonical_id: surface_runoff
+    validate_boundary: &id009
+      checks:
+      - non_negative
+      - no_nan
+      - 'range: [0.0, None]'
+      canonical_id: surface_runoff
+primitives_needed:
+- align_time
+- combine_sources
+- convert_units
+- validate_boundary
+execution_order:
+- combine_sources
+- align_time
+- convert_units
+- validate_boundary
+primitive_configs:
+  combine_sources:
+  - target_canonical_id: surface_runoff
+    target_local_name: subcatchment_inflow
+    target_unit: m3/s
+    sources: *id001
+    method: sum
+    note: total_runoff = surface_runoff + baseflow
+  convert_units:
+  - *id002
+  - *id003
+  exchange_data:
+  - *id004
+  - *id005
+  align_time:
+  - *id006
+  - *id007
+  validate_boundary:
+  - *id008
+  - *id009
+risks:
+  total_traps: 9
+  automatable: 8
+  judgment_required: 1
+  traps:
+  - canonical_var: evapotranspiration
+    model: VIC->SWMM
+    trap_id: unit_mismatch_evapotranspiration
+    description: 'Unit mismatch: source [mm/timestep] vs target [mm/day]'
+    detection: Check evapotranspiration units at coupling boundary
+    fix: Convert mm/timestep -> mm/day
+    is_unit_trap: true
+    automatable: true
+  - canonical_var: surface_runoff
+    model: SWMM
+    trap_id: rainfall_format_mismatch
+    description: INTENSITY vs VOLUME format mismatch — 12x error for 5-min data
+    detection: Runoff coefficient > 1.0 or unrealistic peak flows
+    fix: Match FORMAT to actual data type in RAINGAGES
+    is_unit_trap: false
+    automatable: true
+  - canonical_var: surface_runoff
+    model: SWMM
+    trap_id: subcatchment_width_wrong
+    description: Subcatchment width too large produces too-peaked hydrograph
+    detection: Runoff response much faster than expected
+    fix: Width = Area / longest_overland_flow_path
+    is_unit_trap: false
+    automatable: true
+  - canonical_var: surface_runoff
+    model: SWMM
+    trap_id: dt_006
+    description: '{''description'': ''Simulation runs but infiltration behavior is wrong — either excessive infiltration in
+      clay soils or no infiltration in sandy soils. Runoff volumes do not match expectations. No error '
+    detection: '{''root_cause'': ''The [INFILTRATION] parameters do not match the infiltration method set in [OPTIONS]. SWMM
+      reads different columns depending on the method.'', ''explanation'': ''If [OPTIONS] INFILTRATION=H'
+    fix: '{''action'': ''Verify that [INFILTRATION] parameters match the method in [OPTIONS]. Check column meanings for the
+      chosen method.'', ''tool_to_run'': ''validate_subcatchments'', ''manual_steps'': [''Check [OPTION'
+    is_unit_trap: true
+    automatable: true
+  - canonical_var: surface_runoff
+    model: SWMM
+    trap_id: dt_010
+    description: '{''description'': ''VIC runoff is successfully converted to SWMM inflow, but the flow magnitude is wrong
+      by 3-5 orders of magnitude. Either flooding occurs immediately at all boundary nodes, or external '
+    detection: '{''root_cause'': ''The unit conversion from VIC runoff (mm/day per grid cell) to SWMM flow (m3/s) has a missing
+      or wrong conversion factor.'', ''explanation'': ''The correct conversion is Q(m3/s) = runoff(mm'
+    fix: '{''action'': ''Validate the conversion by computing the expected flow independently. For a 0.25-degree cell at 30N
+      with 5 mm/day runoff: Q = 5 * 6.25e8 / 86400000 = 36.2 m3/s. Compare with the tool outpu'
+    is_unit_trap: true
+    automatable: true
+  - canonical_var: surface_runoff
+    model: SWMM
+    trap_id: dt_016
+    description: '{''description'': ''Runoff hydrograph is too peaked and too fast — time to peak is much shorter than expected.
+      Total volume may be correct but the hydrograph shape is wrong. No error message.'', ''error_pa'
+    detection: '{''root_cause'': ''Subcatchment width is too large, causing overland flow to reach the outlet too quickly.'',
+      ''explanation'': "SWMM models subcatchment runoff using the nonlinear reservoir equation with Ma'
+    fix: '{''action'': ''Recompute width as Area / longest_overland_flow_path for each subcatchment.'', ''tool_to_run'': ''compute_subcatchment_params'',
+      ''manual_steps'': [''For each subcatchment, estimate the longest fl'
+    is_unit_trap: true
+    automatable: true
+  - canonical_var: surface_runoff
+    model: SWMM
+    trap_id: dt_019
+    description: '{''description'': ''SWMM warns or silently clips LID area. Reported LID performance (volume captured, runoff
+      reduced) is lower than expected for the specified LID area. Or the remaining non-LID subcatchm'
+    detection: '{''root_cause'': "The total LID area assigned to a subcatchment (Number * Area across all LID types) exceeds
+      the subcatchment''s total area.", ''explanation'': ''In [LID_USAGE], each entry specifies Number '
+    fix: '{''action'': ''Verify total LID area per subcatchment does not exceed subcatchment area. Reduce LID Number or Area
+      if needed.'', ''tool_to_run'': ''validate_lid_params'', ''manual_steps'': [''For each subcatchme'
+    is_unit_trap: true
+    automatable: true
+  - canonical_var: surface_runoff
+    model: SWMM
+    trap_id: dt_021
+    description: '{''description'': ''After SWMM simulation completes successfully via pyswmm, accessing Simulation.routing_error
+      or Simulation.runoff_error raises AttributeError. The simulation itself ran fine — only pos'
+    detection: '{''root_cause'': ''pyswmm v2.1.0 removed the .routing_error and .runoff_error attributes from the Simulation
+      object. These were available in pyswmm 1.x but silently dropped in the v2 API refactor.'', ''exp'
+    fix: '{''action'': "Parse the .rpt file for continuity errors instead of accessing Simulation attributes. Use check_continuity_errors.py
+      or manually grep the RPT file for ''Continuity Error''.", ''tool_to_run'': '
+    is_unit_trap: true
+    automatable: false
+  - canonical_var: surface_runoff
+    model: VIC->SWMM
+    trap_id: unit_mismatch_surface_runoff
+    description: 'Unit mismatch: source [mm/timestep] vs target [m3/s]'
+    detection: Check surface_runoff units at coupling boundary
+    fix: Convert mm/timestep -> m3/s
+    is_unit_trap: true
+    automatable: true

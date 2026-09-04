@@ -19,24 +19,28 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import queue
 import re
+import secrets
 import shutil
 import sys
 import threading
 import time
 import webbrowser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from http.cookies import SimpleCookie
 from pathlib import Path
 from urllib.parse import parse_qs, quote, unquote, urlparse
 
-from . import api, calibration, clipboard, doctor, handoff, harness_runtime, install, install_locations, kdtstudio, ki_updates, mcp, paths, policy, port, preparation, projectrun, projectview, prompt, providers, recipe, sessions, settings, setup as setup_flow, skilllib, tls
+from . import api, calibration, clipboard, doctor, flowrun, handoff, harness_runtime, install, install_locations, kdtstudio, ki_updates, mcp, observatory, paths, policy, port, preparation, projectrun, projectview, prompt, providers, recipe, runnable, sessions, settings, setup as setup_flow, skilllib, tls
 from .catalog import Catalog, KI
 from .manifest import Manifest
 
 PAGE = (Path(__file__).parent / "web" / "app.html")
 SETUP_PAGE = (Path(__file__).parent / "web" / "setup.html")
 STUDIO_PAGE = (Path(__file__).parent / "web" / "studio.html")
+OBSERVATORY_PAGE = (Path(__file__).parent / "web" / "observatory.html")
 
 INPUT_GROUPS = (
     ("forcing", "Forcing"),
@@ -119,6 +123,26 @@ CHAT_KEEPALIVE = "\u200b"
 # still open" while the first request is blocked inside an agent or tool.
 _LIVE_AGENT_RUNS: dict[str, dict] = {}
 _LIVE_AGENT_RUNS_LOCK = threading.Lock()
+_FINISHED_AGENT_RUN_TTL = 15 * 60
+_MAX_LIVE_AGENT_RUNS = 128
+
+
+def _prune_agent_runs_locked(now: float) -> None:
+    expired = [sid for sid, event in _LIVE_AGENT_RUNS.items()
+               if event.get("finished_at") and
+               now - float(event["finished_at"]) > _FINISHED_AGENT_RUN_TTL]
+    for sid in expired:
+        _LIVE_AGENT_RUNS.pop(sid, None)
+    if len(_LIVE_AGENT_RUNS) <= _MAX_LIVE_AGENT_RUNS:
+        return
+    finished = sorted(
+        ((float(event.get("finished_at") or 0), sid)
+         for sid, event in _LIVE_AGENT_RUNS.items()
+         if event.get("finished_at")),
+    )
+    for _ended, sid in finished[:max(0, len(_LIVE_AGENT_RUNS) -
+                                     _MAX_LIVE_AGENT_RUNS)]:
+        _LIVE_AGENT_RUNS.pop(sid, None)
 
 
 def _register_agent_run(session_id: str, events: dict) -> None:
@@ -130,7 +154,102 @@ def _register_agent_run(session_id: str, events: dict) -> None:
         "last_visible_output_at": None,
     })
     with _LIVE_AGENT_RUNS_LOCK:
+        _prune_agent_runs_locked(now)
         _LIVE_AGENT_RUNS[session_id] = events
+
+
+def _activity_kind(activity: str | None, project_state: dict,
+                   files: dict) -> tuple[str, str]:
+    """Classify only activity for which GeoForge has concrete evidence."""
+    value = str(activity or "").lower()
+    if project_state.get("status") == "waiting_for_user":
+        return "waiting", "project_report"
+    if files.get("input_growing"):
+        return "data_transfer", "file_growth"
+    if any(word in value for word in (
+            "download", "fetch", "curl", "wget", "clone", "acquire")):
+        return "data_transfer", "tool_event"
+    if any(word in value for word in (
+            "preflight", "verify", "validate", "check", "test")):
+        return "checking", "tool_event"
+    if any(word in value for word in (
+            "plot", "render", "publish", "visual")):
+        return "visualizing", "tool_event"
+    if any(word in value for word in ("write", "create", "save")):
+        return "writing", "tool_event"
+    if activity == "responding":
+        return "responding", "provider_output"
+    if activity and activity != "starting":
+        return "tool", "tool_event"
+    if files.get("recent_count"):
+        return "file_activity", "file_timestamp"
+    if project_state.get("stage") == "running":
+        # A project report is weaker than a live tool event.  Keep that
+        # distinction explicit instead of claiming the model is running.
+        return "reported_running", "project_report"
+    return "unknown", "none"
+
+
+def _project_file_evidence(project: Path, started: float, previous: dict | None) -> dict:
+    """Return a bounded, metadata-only probe of files changed by this turn.
+
+    Large scientific projects may contain millions of files.  The status API
+    is polled frequently, so inspect at most 2,000 entries under project-owned
+    data/result roots and never read file contents.
+    """
+    now = time.time()
+    previous = previous if isinstance(previous, dict) else {}
+    if now - float(previous.get("probed_at") or 0) < 3:
+        return previous
+    stack = [project / name for name in ("inputs", "outputs", "artifacts")]
+    seen = recent_count = input_count = total_bytes = input_bytes = 0
+    latest_mtime = 0.0
+    latest_path = ""
+    while stack and seen < 2000:
+        directory = stack.pop()
+        try:
+            entries = list(os.scandir(directory))
+        except OSError:
+            continue
+        for entry in entries:
+            if seen >= 2000:
+                break
+            seen += 1
+            try:
+                if entry.is_dir(follow_symlinks=False):
+                    stack.append(Path(entry.path))
+                    continue
+                if not entry.is_file(follow_symlinks=False):
+                    continue
+                stat = entry.stat(follow_symlinks=False)
+            except OSError:
+                continue
+            if stat.st_mtime + 1 < started:
+                continue
+            recent_count += 1
+            total_bytes += max(0, stat.st_size)
+            rel = Path(entry.path).relative_to(project).as_posix()
+            if rel.startswith("inputs/"):
+                input_count += 1
+                input_bytes += max(0, stat.st_size)
+            if stat.st_mtime >= latest_mtime:
+                latest_mtime = stat.st_mtime
+                latest_path = rel
+    old_input_bytes = int(previous.get("input_bytes") or 0)
+    return {
+        "probed_at": now,
+        "scanned_count": seen,
+        "scan_limited": seen >= 2000,
+        "recent_count": recent_count,
+        "recent_bytes": total_bytes,
+        "input_count": input_count,
+        "input_bytes": input_bytes,
+        "input_growing": bool(previous.get("probed_at") and
+                              input_bytes > old_input_bytes),
+        "latest_path": latest_path or None,
+        "latest_age_seconds": (max(0, int(now - latest_mtime))
+                               if latest_mtime else None),
+    }
 
 
 def _agent_run_snapshot(session_id: str) -> dict:
@@ -142,7 +261,14 @@ def _agent_run_snapshot(session_id: str) -> dict:
     transport heartbeat into the false claim that the model is computing.
     """
     with _LIVE_AGENT_RUNS_LOCK:
-        events = _LIVE_AGENT_RUNS.get(session_id)
+        _prune_agent_runs_locked(time.time())
+        live = _LIVE_AGENT_RUNS.get(session_id)
+        # Work from a coherent top-level snapshot.  The process handle itself
+        # is intentionally retained so ``poll`` remains live; nested process
+        # metadata is copied before the lock is released.
+        events = dict(live) if live else None
+        if events:
+            events["process"] = dict(live.get("process") or {})
     if not events:
         return {"state": "idle", "process_alive": False}
 
@@ -167,6 +293,28 @@ def _agent_run_snapshot(session_id: str) -> dict:
     transport = events.get("last_transport_at")
     finished = events.get("finished_at")
     state = "running" if alive else ("finishing" if not finished else "finished")
+    project_state: dict = {}
+    file_evidence: dict = {}
+    project_raw = events.get("project")
+    if project_raw:
+        project = Path(str(project_raw))
+        try:
+            project_state = projectrun.load(project)
+        except OSError:
+            project_state = {}
+        try:
+            file_evidence = _project_file_evidence(
+                project, float(started), events.get("_file_evidence"))
+            with _LIVE_AGENT_RUNS_LOCK:
+                current = _LIVE_AGENT_RUNS.get(session_id)
+                if current is live:
+                    current["_file_evidence"] = file_evidence
+        except (OSError, ValueError):
+            file_evidence = {}
+    activity_signal = " ".join(str(item or "") for item in (
+        process.get("activity"), process.get("activity_detail")))
+    activity_kind, confidence = _activity_kind(
+        activity_signal, project_state, file_evidence)
     return {
         "state": state,
         "provider": events.get("provider"),
@@ -174,6 +322,7 @@ def _agent_run_snapshot(session_id: str) -> dict:
         "pid": process.get("pid"),
         "returncode": returncode,
         "activity": process.get("activity"),
+        "activity_detail": process.get("activity_detail"),
         "elapsed_seconds": max(0, int(now - started)),
         "event_silence_seconds": (max(0, int(now - last_event))
                                   if last_event else None),
@@ -181,6 +330,20 @@ def _agent_run_snapshot(session_id: str) -> dict:
                                    if last_output else None),
         "transport_silence_seconds": (max(0, int(now - transport))
                                       if transport else None),
+        "activity_kind": activity_kind,
+        "activity_confidence": confidence,
+        "project_stage": project_state.get("stage"),
+        "project_status": project_state.get("status"),
+        "project_summary": project_state.get("summary"),
+        "project_report_age_seconds": (
+            max(0, int(now - float(project_state.get("updated_at"))))
+            if project_state.get("updated_at") else None),
+        "file_evidence": {
+            key: file_evidence.get(key) for key in (
+                "recent_count", "recent_bytes", "input_count", "input_bytes",
+                "input_growing", "latest_path", "latest_age_seconds",
+                "scan_limited")
+        } if file_evidence else {},
     }
 
 
@@ -564,6 +727,7 @@ class Handler(BaseHTTPRequestHandler):
     library_root: Path
     workroot: Path
     ki_update_manager: ki_updates.UpdateManager | None = None
+    csrf_token: str = secrets.token_urlsafe(32)
 
     protocol_version = "HTTP/1.1"
 
@@ -571,10 +735,19 @@ class Handler(BaseHTTPRequestHandler):
         pass
 
     # --- plumbing ----------------------------------------------------------
+    def _set_browser_security_headers(self) -> None:
+        self.send_header(
+            "Set-Cookie",
+            f"geoforge_csrf={self.csrf_token}; Path=/; HttpOnly; SameSite=Strict",
+        )
+        self.send_header("X-Content-Type-Options", "nosniff")
+        self.send_header("Referrer-Policy", "no-referrer")
+
     def _send(self, code: int, body: bytes, ctype: str) -> None:
         self.send_response(code)
         self.send_header("Content-Type", ctype)
         self.send_header("Content-Length", str(len(body)))
+        self._set_browser_security_headers()
         self.end_headers()
         self.wfile.write(body)
 
@@ -584,7 +757,7 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Type", ctype)
         self.send_header("Content-Length", str(len(body)))
         self.send_header("Cache-Control", "no-store")
-        self.send_header("X-Content-Type-Options", "nosniff")
+        self._set_browser_security_headers()
         self.send_header(
             "Content-Security-Policy",
             "default-src 'none'; style-src 'unsafe-inline'; sandbox",
@@ -594,6 +767,36 @@ class Handler(BaseHTTPRequestHandler):
 
     def _json(self, obj, code: int = 200) -> None:
         self._send(code, json.dumps(obj).encode(), "application/json")
+
+    def _browser_write_allowed(self) -> tuple[bool, str]:
+        """Require the page's process-local cookie and a same-origin browser.
+
+        A malicious website can send a CORS-simple POST to localhost without
+        reading the response.  SameSite plus a random HttpOnly cookie makes
+        that request unauthorised, while the Origin/Sec-Fetch checks reject
+        DNS-rebinding and opaque/cross-site browser contexts explicitly.
+        """
+        site = str(self.headers.get("Sec-Fetch-Site") or "").lower()
+        if site in {"cross-site", "none"}:
+            return False, f"browser site is {site}"
+        origin = str(self.headers.get("Origin") or "")
+        if origin:
+            parsed = urlparse(origin)
+            host = str(self.headers.get("Host") or "")
+            if parsed.scheme not in {"http", "https"} or parsed.netloc != host:
+                return False, "Origin does not match the local GeoForge server"
+            if parsed.hostname not in {"127.0.0.1", "localhost", "::1"}:
+                return False, "Origin is not a loopback GeoForge page"
+        cookie = SimpleCookie()
+        try:
+            cookie.load(str(self.headers.get("Cookie") or ""))
+        except Exception:
+            return False, "invalid browser cookie"
+        supplied = cookie.get("geoforge_csrf")
+        if supplied is None or not secrets.compare_digest(
+                supplied.value, self.csrf_token):
+            return False, "missing or invalid GeoForge request token"
+        return True, ""
 
     def _shipped_manifest(self, name: str) -> Path:
         """Manifest paired with the currently active, validated KI snapshot."""
@@ -877,6 +1080,13 @@ class Handler(BaseHTTPRequestHandler):
                                   "text/html; charset=utf-8")
             return self._send(200, STUDIO_PAGE.read_bytes(), "text/html; charset=utf-8")
 
+        if route == "/observatory":
+            if not OBSERVATORY_PAGE.is_file():
+                return self._send(500, b"<h1>KI Observatory is missing from this build</h1>",
+                                  "text/html; charset=utf-8")
+            return self._send(200, OBSERVATORY_PAGE.read_bytes(),
+                              "text/html; charset=utf-8")
+
         if route == "/logo.svg":
             logo = PAGE.parent / "logo.svg"
             if logo.exists():
@@ -974,6 +1184,16 @@ class Handler(BaseHTTPRequestHandler):
                 self.end_headers()
                 self.wfile.write(blob)
                 return
+            if len(parts) == 5 and parts[4] == "report":
+                try:
+                    state = kdtstudio.job(job_id)
+                except KeyError as error:
+                    return self._json({"error": str(error)}, 404)
+                report = state.get("verification")
+                if not report:
+                    return self._json(
+                        {"error": "KI_verify has not produced a report yet"}, 404)
+                return self._json(report)
             if len(parts) == 4:
                 try:
                     return self._json(kdtstudio.job(job_id))
@@ -1206,6 +1426,32 @@ class Handler(BaseHTTPRequestHandler):
         if route == "/api/sessions":
             return self._json(sessions.list_all(self.workroot))
 
+        if route == "/api/observatory":
+            return self._json(observatory.atlas(self.catalog, self._status_for))
+
+        if route.startswith("/api/observatory/model/"):
+            try:
+                ki = self._ki(route.split("/", 4)[4])
+            except (KeyError, IndexError) as error:
+                return self._json({"error": str(error)}, 404)
+            return self._json(observatory.model(ki, self._status_for(ki)))
+
+        if route.startswith("/api/observatory/session/"):
+            sid = route.split("/", 4)[4] if len(route.split("/", 4)) > 4 else ""
+            if not sessions.valid_id(sid):
+                return self._json({"error": "invalid session id"}, 400)
+            session = sessions.load(self.workroot, sid)
+            if not session:
+                return self._json({"error": "no such session"}, 404)
+            project = sessions.project_path(self.workroot, session)
+            return self._json({
+                "session": sessions.for_client(self.workroot, session),
+                "run": projectrun.load(project, selected_kis=session.get("models") or []),
+                "agent": _agent_run_snapshot(sid),
+                "view": projectview.load(project),
+                "request": setup_flow.request(project),
+            })
+
         if route == "/api/project-location":
             return self._json({
                 "default_parent": str(sessions.default_project_parent(self.workroot)),
@@ -1394,11 +1640,32 @@ class Handler(BaseHTTPRequestHandler):
             cfg = self._config(ki)
             return self._send(200, prompt.compose(ki, cfg).encode(), "text/plain; charset=utf-8")
 
+        if route == "/api/flow-status":
+            try:
+                flow = __import__("kiss_cli.flowgate", fromlist=["load"])
+                pkg = flow.load()
+                return self._json({
+                    "ready": True,
+                    "source": str(getattr(pkg, "__file__", "")),
+                    "modules": [
+                        "states", "resolve", "plan", "approval", "contracts",
+                        "receipts", "policy", "tools", "build_data",
+                    ],
+                })
+            except Exception as error:
+                return self._json({
+                    "ready": False,
+                    "error": f"{type(error).__name__}: {error}",
+                }, 503)
+
         self._json({"error": "not found"}, 404)
 
     # --- POST --------------------------------------------------------------
     def do_POST(self) -> None:
         route = urlparse(self.path).path
+        allowed, reason = self._browser_write_allowed()
+        if not allowed:
+            return self._json({"error": f"blocked unsafe local request: {reason}"}, 403)
         n = int(self.headers.get("Content-Length", 0))
         if route == "/api/import_ki":
             if n > 300 * 1024 * 1024:
@@ -1533,6 +1800,24 @@ class Handler(BaseHTTPRequestHandler):
             except (ValueError, RuntimeError, OSError) as error:
                 return self._json({"error": str(error)}, 400)
 
+        if route == "/api/kdt/finish":
+            try:
+                return self._json(kdtstudio.geoforge_verify(
+                    str(req.get("job") or "")))
+            except KeyError as error:
+                return self._json({"error": str(error)}, 404)
+            except (ValueError, RuntimeError, OSError) as error:
+                return self._json({"error": str(error)}, 400)
+
+        if route == "/api/kdt/reopen":
+            try:
+                return self._json(kdtstudio.continue_modifying(
+                    str(req.get("job") or "")))
+            except KeyError as error:
+                return self._json({"error": str(error)}, 404)
+            except (ValueError, OSError) as error:
+                return self._json({"error": str(error)}, 400)
+
         if route == "/api/kdt/open":
             try:
                 opened = kdtstudio.open_workspace(str(req.get("job") or ""))
@@ -1661,8 +1946,17 @@ class Handler(BaseHTTPRequestHandler):
         if route == "/api/setup-location":
             try:
                 ki = self._ki(req["model"])
-                target = install_locations.select(
-                    self.workroot, ki.name, req.get("path") or "")
+                mode = str(req.get("installation_mode") or "new")
+                if mode == "existing":
+                    install_locations.select_mode(
+                        self.workroot, ki.name, mode,
+                        req.get("existing_path") or None)
+                    target = install_locations.resolve(self.workroot, ki.name)
+                    target.mkdir(parents=True, exist_ok=True)
+                else:
+                    target = install_locations.select(
+                        self.workroot, ki.name, req.get("path") or "")
+                    install_locations.select_mode(self.workroot, ki.name, "new")
                 cfg_file = target / paths.CONFIG_NAME
                 if not cfg_file.exists():
                     cfg = paths.KissConfig.default(target)
@@ -1670,7 +1964,12 @@ class Handler(BaseHTTPRequestHandler):
                     cfg_file.write_text(cfg.dumps(), encoding="utf-8")
                 else:
                     cfg = paths.KissConfig.load(target)
-                install_locations.record(ki.name, target, cfg)
+                binding = install_locations.info(self.workroot, ki.name)
+                install_locations.record(
+                    ki.name, target, cfg,
+                    installation_mode=binding["installation_mode"],
+                    existing_path=binding.get("existing_path"),
+                )
             except KeyError as error:
                 return self._json({"error": str(error)}, 404)
             except (ValueError, OSError) as error:
@@ -1715,9 +2014,6 @@ class Handler(BaseHTTPRequestHandler):
         if route == "/api/data-guide":
             return self._stream_data_guide(req)
 
-        if route == "/api/import_ki":
-            return self._import_ki(req)
-
         if route == "/api/init":
             return self._stream_init(req)
         if route == "/api/chat":
@@ -1729,6 +2025,7 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Type", "text/plain; charset=utf-8")
         self.send_header("Cache-Control", "no-store")
         self.send_header("Transfer-Encoding", "chunked")
+        self._set_browser_security_headers()
         self.end_headers()
 
     def _chunk(self, text: str) -> bool:
@@ -1966,6 +2263,7 @@ class Handler(BaseHTTPRequestHandler):
         except (KeyError, TypeError) as e:
             return self._json({"error": str(e)}, 404)
 
+        installation_only = bool(req.get("installation_only"))
         want = req.get("provider") or settings.load().get("default_provider") or ""
         llm = req.get("llm_model") or None
         if not want:
@@ -2015,12 +2313,37 @@ class Handler(BaseHTTPRequestHandler):
         resumed = waiting if waiting and waiting.get("status") == "ready" else None
         try:
             emit(f"Preparing the {ki.name} agent workspace…\n")
+            binding = install_locations.info(self.workroot, ki.name)
             live_ki, cfg = setup_flow.prepare(
                 ki, self._manifest(ki), root, self.repo_root, self.catalog.models_dir)
+            existing_paths: list[str] = []
+            if binding.get("installation_mode") == "existing":
+                if binding.get("existing_path"):
+                    existing_paths.append(str(binding["existing_path"]))
+                if req.get("discover_existing"):
+                    man = self._manifest(ki)
+                    hints = [man.install_dir]
+                    if man.acquire and man.acquire.produces:
+                        hints.append(man.acquire.produces)
+                    hints.extend(Path(item).name for item in runnable.declared(live_ki))
+                    emit("Searching indexed and standard installation locations…\n")
+                    discovered = install_locations.search_candidates(
+                        ki.name, hints, limit=24)
+                    for candidate in discovered:
+                        if candidate not in existing_paths:
+                            existing_paths.append(candidate)
+                    install_locations.record_discovery(root, existing_paths)
+                    if existing_paths:
+                        emit(f"Found {len(existing_paths)} candidate location(s); "
+                             "the agent will verify them against the KI.\n")
+                    else:
+                        emit("No likely installation was found automatically; "
+                             "the agent will ask for a path instead of reinstalling.\n")
             if resumed:
                 setup_flow.clear_request(root)
-            initial_check = install.run_preflight(live_ki, cfg.python, cfg)
-            if initial_check.ok:
+            initial_check = (None if installation_only else
+                             install.run_preflight(live_ki, cfg.python, cfg))
+            if initial_check is not None and initial_check.ok:
                 # A previous pass may already have completed the install while
                 # the live browser stream was interrupted. Trust the KI's real
                 # deterministic check and do not spend another model turn
@@ -2029,22 +2352,38 @@ class Handler(BaseHTTPRequestHandler):
                     ki, live_ki, cfg, root, emit, check=initial_check)
                 emit(f"\n{ki.name} is already verified and ready to use.\n")
                 return
-            instructions = (root / "CLAUDE.md").read_text(encoding="utf-8")
-            system = (prompt.compose(live_ki, cfg, headless=True) +
-                      "\n\n[SOFTWARE SETUP CONTRACT]\n" + instructions +
-                      "\n\n[SETUP WRITE BOUNDARY]\n"
-                      f"Every file write, rename, patch, install, or deletion must stay "
-                      f"inside this setup workspace: {root}. System installations and "
-                      "toolchains outside it are read-only. This rule also applies to "
-                      "Python scripts, shell scripts, build tools, and every child "
-                      "process you launch. Never patch an external compiler, CMake "
-                      "package, registry entry, user profile, or another KI. If an "
-                      "external configuration needs relocation, copy the required "
-                      "files into this workspace and patch only that private copy. "
-                      "If that cannot work, create a structured setup request instead.")
+            if installation_only:
+                instructions = f"""[INSTALLATION-ONLY TEST CONTRACT]
+Install the official {ki.name} software and its runtime dependencies. Never
+call `run_preflight` and never run an example, reference case, simulation,
+calibration, data-preparation, or result-generation command. Do not acquire
+scientific/project datasets. A cheap executable startup probe or declared
+Python import is the only runtime action allowed. Installation success and KI
+verification are different states; never claim this test verified the KI."""
+                system = (prompt.compose(live_ki, cfg, headless=True) +
+                          "\n\n" + instructions)
+            else:
+                instructions = (root / "CLAUDE.md").read_text(encoding="utf-8")
+                system = (prompt.compose(live_ki, cfg, headless=True) +
+                          "\n\n[SOFTWARE SETUP CONTRACT]\n" + instructions)
+            system += (
+                "\n\n[SETUP WRITE BOUNDARY]\n"
+                f"Every file write, rename, patch, install, or deletion must stay "
+                f"inside this setup workspace: {root}. System installations and "
+                "toolchains outside it are read-only. This rule also applies to "
+                "Python scripts, shell scripts, build tools, and every child "
+                "process you launch. Never patch an external compiler, CMake "
+                "package, registry entry, user profile, or another KI. If an "
+                "external configuration needs relocation, copy the required "
+                "files into this workspace and patch only that private copy. "
+                "If that cannot work, create a structured setup request instead."
+            )
             task = setup_flow.agent_task(
                 live_ki, cfg, root, resumed=resumed,
-                initial_failure=initial_check.detail,
+                initial_failure=(initial_check.detail if initial_check else ""),
+                installation_mode=binding.get("installation_mode") or "new",
+                existing_paths=existing_paths,
+                installation_only=installation_only,
             )
             kind, _, pname = want.partition(":")
             if not pname:
@@ -2060,14 +2399,19 @@ class Handler(BaseHTTPRequestHandler):
                 run_install(
                     ki, self._manifest(ki), root, capture, self.repo_root,
                     provider_id=want if ":" in want else f"cli:{want}",
+                    installation_only=installation_only,
                 )
                 return "".join(output)
 
             if kind == "api":
                 prov = api.PROVIDERS[pname]
                 stream = api.run(
-                    prov, live_ki, cfg, system, task, model=llm, max_steps=None,
-                    setup_mode=True, setup_context={"run_builtin": run_builtin},
+                    prov, live_ki, cfg, system, task, model=llm,
+                    setup_mode=True, setup_context={
+                        "run_builtin": run_builtin,
+                        "existing_roots": existing_paths,
+                        "installation_only": installation_only,
+                    },
                     presentation="log",
                 )
                 for piece in _with_heartbeats(stream):
@@ -2086,8 +2430,17 @@ class Handler(BaseHTTPRequestHandler):
                 # these exact command grants; Codex maps the same intent to its
                 # native workspace-write sandbox.
                 _grant_setup_execution(pol, cfg)
+                external_grants: list[str] = []
+                for candidate in existing_paths:
+                    path = Path(candidate).expanduser().resolve(strict=False)
+                    grant_root = path.parent if path.is_file() else path
+                    pol.add("read", grant_root,
+                            "user-selected or indexed existing model installation")
+                    pol.add("exec", grant_root,
+                            "executables in the existing model installation")
+                    external_grants.append(str(grant_root))
                 full = system + "\n\n[TASK]\n" + task
-                extra = [str(live_ki.root), str(root)]
+                extra = [str(live_ki.root), str(root), *external_grants]
                 runtime_events: dict = {}
                 stream = providers.run(
                     prov, full, root, extra_dirs=extra, cfg=cfg,
@@ -2108,6 +2461,48 @@ class Handler(BaseHTTPRequestHandler):
                         str(connection_event.get("provider") or pname),
                         str(connection_event.get("service") or ""),
                     )
+
+            if installation_only:
+                verdict = runnable.check(
+                    live_ki, self._manifest(ki), cfg, timeout=25,
+                    python=cfg.python,
+                )
+                # Providers commonly create a conventional project venv but
+                # omit the final bookkeeping edit.  The deterministic probe
+                # knows which interpreter actually imported the official
+                # package; persist that exact, existing path so later chats do
+                # not fall back to the app/system Python and "lose" a working
+                # installation after restart.
+                if (verdict.usable and verdict.python and
+                        Path(verdict.python).is_file() and
+                        verdict.python != cfg.python):
+                    cfg.python = verdict.python
+                    (root / paths.CONFIG_NAME).write_text(
+                        cfg.dumps(), encoding="utf-8")
+                    install_locations.record(
+                        ki.name, root, cfg, ki_root=live_ki.root,
+                        verified=False)
+                report = dict(verdict.__dict__)
+                report.update({
+                    "model": ki.name,
+                    "installation_only": True,
+                    "usable": verdict.usable,
+                    "state": verdict.state,
+                    "summary": verdict.summary(),
+                    "checked_at": time.time(),
+                })
+                (root / "installation-test.json").write_text(
+                    json.dumps(report, indent=2, ensure_ascii=False) + "\n",
+                    encoding="utf-8",
+                )
+                if verdict.usable:
+                    setup_flow.clear_request(root)
+                    emit("\nInstallation probe passed: the official software "
+                         "loads and responds. Scientific KI verification was "
+                         "not run.\n")
+                else:
+                    emit(f"\nInstallation probe failed: {verdict.summary()}\n")
+                return
 
             self._record_agent_preflight(ki, live_ki, cfg, root, emit)
             handoff_req = setup_flow.request(root)
@@ -2324,15 +2719,10 @@ class Handler(BaseHTTPRequestHandler):
             for piece in _with_heartbeats(stream):
                 heartbeat() if piece is None else emit(piece)
             kdtstudio.mark_build_finished(job_id)
-            emit("\n\nGeoForge is running the pinned KDT structural gate…\n")
-            acceptance = kdtstudio.verify(job_id)
-            if acceptance["ok"]:
-                emit("KDT gate: PASS for the bare KI. GeoForge Desktop adaptation and import checks are the next, separate step.\n")
-            else:
-                emit(f"KDT gate: FAIL ({len(acceptance['failures'])} issue(s)).\n")
-                for issue in acceptance["failures"][:20]:
-                    emit(f"  - {issue}\n")
-                emit("Ask the same agent to repair the named issues, then run Verify again.\n")
+            emit("\n\nKDT dissection draft is ready. Review its DAG, tools, "
+                 "diagnostics and visualization preview in the Workbench. "
+                 "GeoForge runs the independent gates only when you choose "
+                 "Finish and verify.\n")
         except Exception as error:
             failed = f"{type(error).__name__}: {error}"
             kdtstudio.mark_build_finished(job_id, failed=failed)
@@ -2556,6 +2946,12 @@ class Handler(BaseHTTPRequestHandler):
             pending = setup_flow.request(project)
             action = req.get("action") if isinstance(req.get("action"), dict) else None
             resolved_action = None
+            # The plan-approval card is the flow's request: flowrun.pre() consumes the
+            # click (approve / modify) and moves the state; the generic handler below
+            # must not mark it "ready" first.
+            flow_pending = None
+            if pending and str(pending.get("id", "")).startswith(flowrun.APPROVAL_REQUEST_ID_PREFIX):
+                flow_pending, pending = pending, None
             if pending and pending.get("status") == "waiting":
                 options = {str(item.get("id")): item
                            for item in pending.get("options") or []
@@ -2614,7 +3010,6 @@ class Handler(BaseHTTPRequestHandler):
                     # itself is the handoff. Requests with options stay open
                     # when the user clicks “Ask me”, instead of being cleared.
                     setup_flow.resume(project, "The user replied in the project chat.")
-            projectrun.begin_turn(project, text, s.get("models") or [])
             agent_text = sessions.message_text({"text": text,
                                                 "attachments": attachments})
         want = s.get("provider") or settings.load().get("default_provider") or ""
@@ -2623,10 +3018,55 @@ class Handler(BaseHTTPRequestHandler):
         skill_names = s.get("skills") or []
         mcp_names = s.get("mcps") or []
 
+        # ── the flow decides what this turn may be (plan v3 B1) ──────────────────
+        # resolve the KIs from the ticks AND the text (never guess), consume an
+        # approval click, or answer with a question instead of starting an agent.
+        flow_pre = None
+
+        def _setup_ok(kis_names) -> bool:
+            try:
+                return all(self._status_for(self._ki(n)).get("can_run") for n in kis_names)
+            except KeyError:
+                return False
+
+        try:
+            flow_pre = flowrun.pre(
+                project, text, names, self.catalog,
+                action, flow_pending,
+                note=str((action or {}).get("note") or ""),
+                couplings_dir=flowrun.couplings_dir(),
+                setup_ok=_setup_ok(names))
+        except Exception as e:  # noqa: BLE001 — a flow failure must be visible, not silent
+            flow_pre = None
+            self._open_stream()
+            self._chunk(f"[GeoForge flow error: {type(e).__name__}: {e}]")
+            projectrun.finish_turn(project, failed=str(e))
+            self._end_stream()
+            return
+        if flow_pre is not None and flow_pre.message:
+            self._open_stream()
+            self._chunk(flow_pre.message)
+            with sessions.lock(sid):
+                cur = sessions.load(self.workroot, sid) or s
+                sessions.append_message(self.workroot, cur, {"role": "assistant", "text": flow_pre.message})
+                sessions.save(self.workroot, cur)
+            projectrun.finish_turn(project, request=None)
+            self._end_stream()
+            return
+        if flow_pre is not None and flow_pre.gated and flow_pre.names:
+            if list(flow_pre.names) != list(names):
+                names = list(flow_pre.names)
+                with sessions.lock(sid):
+                    cur = sessions.load(self.workroot, sid) or s
+                    cur["models"] = names
+                    sessions.save(self.workroot, cur)
+                    s = cur
+        projectrun.begin_turn(project, text, names)
+
         # Collect the streamed reply so the transcript survives the turn.
         buf: list[str] = []
         self._open_stream()
-        runtime_events: dict = {"provider": want}
+        runtime_events: dict = {"provider": want, "project": str(project)}
         _register_agent_run(sid, runtime_events)
 
         def out(piece: str) -> bool:
@@ -2639,25 +3079,93 @@ class Handler(BaseHTTPRequestHandler):
 
         failure = None
         cli_state: dict = {}
+        flow_turn = None
         try:
             prior = [dict(message, text=sessions.message_text(message))
                      for message in s["messages"][:-1][-20:]]
             if names:
-                self._chat_with_models(names, want, history + "\nUSER: " + agent_text,
-                                       out, project, llm, prior=prior, bare_task=agent_text,
-                                       skill_names=skill_names, mcp_names=mcp_names,
-                                       session=s, cli_state=cli_state,
-                                       runtime_events=runtime_events)
+                flow_turn = self._chat_with_models(
+                    names, want, history + "\nUSER: " + agent_text,
+                    out, project, llm, prior=prior, bare_task=agent_text,
+                    skill_names=skill_names, mcp_names=mcp_names,
+                    session=s, cli_state=cli_state,
+                    runtime_events=runtime_events, flow_pre=flow_pre)
             else:
                 self._chat_auto(want, history + "\nUSER: " + agent_text,
                                 out, project, llm, prior=prior, bare_task=agent_text,
                                 skill_names=skill_names, mcp_names=mcp_names,
                                 session=s, cli_state=cli_state,
-                                runtime_events=runtime_events)
+                                runtime_events=runtime_events, flow_pre=flow_pre)
+                if flow_pre is not None and flow_pre.gated:
+                    # A validated task-intake handoff (not a model-name match) becomes the
+                    # flow's selection.  Only then may a separate planning turn start.
+                    chosen = flowrun.promote_auto_choice(project, self.catalog, "".join(buf))
+                    if chosen:
+                        names = list(chosen)
+                        with sessions.lock(sid):
+                            cur = sessions.load(self.workroot, sid) or s
+                            cur["models"] = names
+                            sessions.save(self.workroot, cur)
+                            s = cur
+                        out(f"\n\n---\n**Task understood · KI: {', '.join(names)}.** Building the plan…\n\n")
+                        flow_turn = self._chat_with_models(
+                            names, want, history + "\nUSER: " + agent_text,
+                            out, project, llm, prior=prior, bare_task=agent_text,
+                            skill_names=skill_names, mcp_names=mcp_names,
+                            session=s, cli_state=cli_state,
+                            runtime_events=runtime_events,
+                            flow_pre=flowrun.Pre(names=names))
         except Exception as e:
             failure = f"{type(e).__name__}: {e}"
             out(f"\n[GeoForge could not finish this turn: {failure}]")
         finally:
+            # close the flow turn: validate the plan / show the approval card / check
+            # receipts. Its request (if any) is picked up by setup_flow.request() below.
+            try:
+                if flow_turn is not None:
+                    if failure is not None:
+                        flow_turn.provider_succeeded = False
+                    res = flowrun.after(project, flow_turn, "".join(buf),
+                                        provider_note=flowrun.describe_policy(flow_turn),
+                                        setup_ok=_setup_ok(names))
+                    if res.message:
+                        out("\n\n" + res.message)
+                    rejected_revisions = set()
+                    while failure is None and flowrun.claim_planning_repair(res, rejected_revisions):
+                        out("\n\nGeoForge is returning the validation errors to the agent. "
+                            "Still planning only; nothing has been approved or run.\n\n")
+                        repair_turn = self._chat_with_models(
+                            names, want, history + "\nUSER: " + agent_text,
+                            out, project, llm, prior=prior, bare_task=agent_text,
+                            skill_names=skill_names, mcp_names=mcp_names,
+                            session=s, cli_state=cli_state, runtime_events=runtime_events,
+                            flow_pre=flowrun.Pre(names=list(names), replan_reason=res.message))
+                        res = flowrun.after(project, repair_turn, "".join(buf),
+                                            provider_note=flowrun.describe_policy(repair_turn),
+                                            setup_ok=_setup_ok(names))
+                        if res.message:
+                            out("\n\n" + res.message)
+                    if res.retry_planning and res.revision in rejected_revisions:
+                        out("\n\nPlanning repair stopped because the same draft failed in the same way. "
+                            "The draft and validation details are saved; nothing was approved or run.")
+                    if res.continue_now and failure is None:
+                        # auto-approved (nothing needed the user): start the execution
+                        # turn now, in a FRESH agent session with the run contract
+                        out("\n\n---\n**Plan auto-approved** (no decision needed from you). "
+                            "Starting the run in a new session…\n\n")
+                        exec_turn = self._chat_with_models(
+                            names, want, history + "\nUSER: " + agent_text,
+                            out, project, llm, prior=prior, bare_task=agent_text,
+                            skill_names=skill_names, mcp_names=mcp_names,
+                            session=s, cli_state=cli_state,
+                            runtime_events=runtime_events,
+                            flow_pre=flowrun.Pre(names=list(names)))
+                        if exec_turn is not None:
+                            flowrun.after(project, exec_turn, "".join(buf),
+                                          provider_note=flowrun.describe_policy(exec_turn),
+                                          setup_ok=_setup_ok(names))
+            except Exception as e:  # noqa: BLE001
+                out(f"\n[GeoForge flow: could not close the turn — {type(e).__name__}: {e}]")
             generated = [rel for rel, state in _artifact_state(project).items()
                          if artifacts_before.get(rel) != state]
             existing_reply = "".join(buf)
@@ -2666,7 +3174,10 @@ class Handler(BaseHTTPRequestHandler):
                 out("\n\n" + "\n\n".join(
                     f"![Generated plot: {Path(rel).stem.replace('-', ' ')}]({rel})"
                     for rel in missing_links))
-            reply = "".join(buf).strip()
+            # The intake comment is an internal Agent-to-host handoff.  Keep it
+            # in ``buf`` until the flow has parsed it, but never persist it as
+            # conversation text.
+            reply = flowrun.strip_intake_markers("".join(buf)).strip()
             if reply or cli_state or s.get("temporary_read_grants"):
                 with sessions.lock(sid):
                     cur = sessions.load(self.workroot, sid) or s
@@ -2774,7 +3285,7 @@ class Handler(BaseHTTPRequestHandler):
             if state.get("produced"):
                 if cli_state is not None:
                     self._remember_cli_session(cli_state, prov, state, fingerprint)
-                return
+                return state
             state = {}                          # stale id, nothing shown — replay
 
         if not _forward_chat_stream(
@@ -2783,14 +3294,53 @@ class Handler(BaseHTTPRequestHandler):
             return
         if cli_state is not None:
             self._remember_cli_session(cli_state, prov, state, fingerprint)
+        return state
 
     def _chat_auto(self, want: str, task: str, out, project: Path, llm=None,
                    prior=None, bare_task=None, skill_names=None, mcp_names=None,
-                   session=None, cli_state=None, runtime_events=None) -> None:
-        """No models pinned: hand the agent the catalogue and let it route."""
+                   session=None, cli_state=None, runtime_events=None, flow_pre=None) -> None:
+        """No models pinned: hand the agent the catalogue and let it route.
+
+        Under the flow this is the task-intake layer: the Agent understands the natural
+        scientific request, identifies material unknowns and proposes KI(s).  The Desktop
+        validates that structured handoff before a separate planning turn. Nothing runs
+        here and the policy is read-only."""
         kind, _, pname = want.partition(":")
         if not pname:
             kind, pname = "cli", kind
+        if kind == "cli" and not pname:
+            _avail0 = providers.available()
+            pname = _avail0[0].name if _avail0 else ""
+        gated = flow_pre is not None and flow_pre.gated
+        auto_turn = None
+        if gated:
+            try:
+                auto_turn = flowrun.auto_turn(project, kind, pname)
+            except Exception as e:  # noqa: BLE001 — FlowDenied or a flow failure: say so, run nothing
+                out(f"[GeoForge: {e}]")
+                return
+            intake_rules = (
+                "[TASK UNDERSTANDING — NO EXECUTION]\n"
+                "The user's message is a scientific goal, not a command-line model selector. "
+                "First understand the complete goal in ordinary language; then propose the most "
+                "appropriate KI(s) from the catalogue. A model name embedded in Chinese or English "
+                "is a useful preference, not a reason to discard the rest of the sentence. Identify "
+                "the study area, time period, physical process, requested outputs and scenario. "
+                "Ask only a question whose answer would materially change the model, data or "
+                "experiment. If such a fact is missing, summarize what you understood and ask that "
+                "question now. Do not download, prepare inputs, install, plan or run anything.\n"
+                "For a direct API call, use report_project_progress with selected_kis and an intake "
+                "object. For a CLI response, end with one invisible marker exactly like this: "
+                "<!-- GEOFORGE_INTAKE {\"selected_kis\":[\"KI name\"],"
+                "\"ready_for_planning\":false,\"understanding\":\"...\","
+                "\"study_area\":\"...\",\"period\":\"...\",\"process\":\"...\","
+                "\"scenario\":\"...\",\"requested_outputs\":[],"
+                "\"missing\":[\"one critical question\"]} -->. "
+                "Set ready_for_planning=true only when missing is empty and the next turn can build "
+                "a meaningful plan. GeoForge validates the handoff and owns the transition."
+            )
+        else:
+            intake_rules = ""
         local_status = {ki.name: self._status_for(ki) for ki in self.catalog}
         project_rules = SESSION_PROJECT_RULES.format(project=project)
         run_rules = projectrun.prompt_block(project)
@@ -2821,16 +3371,28 @@ class Handler(BaseHTTPRequestHandler):
         mcp_rules = mcp.prompt_block(
             mcp_names, client=pname, direct_api=(kind == "api"))
         language_rules = response_language_rules(bare_task or task)
-        system = (sessions.catalogue_block(self.catalog, local_status) + "\n\n" +
-                  sessions.AUTO_RULES + "\n\n" + project_rules + "\n\n" +
-                  PROJECT_PREPARATION_RULES + "\n\n" + automatic_skill_rules +
-                  "\n\n" + run_rules + "\n\n" + calibration_rules +
-                  "\n\n" + RESPONSE_PRESENTATION_RULES +
-                  "\n\n" + language_rules +
-                  (("\n\n" + skill_rules) if skill_rules else "") +
-                  (("\n\n" + mcp_rules) if mcp_rules else ""))
-        full = (system + "\n\n" + SCOPE_FIRST_RULES
-                + f"\nmodels_root: {self.catalog.models_dir}\n\n[TASK]\n" + task)
+        catalogue_rules = sessions.catalogue_block(self.catalog, local_status)
+        if gated:
+            # Intake is a distinct architectural phase.  Do not mix in the legacy Auto-KI
+            # rules that say "read SKILL.md and follow it", project-preparation rules that
+            # encourage writes/runs, calibration instructions, or the old scope/approval
+            # script.  A provider receiving contradictory contracts will often skip task
+            # understanding and behave like the screenshot's model-name parser.
+            system = (catalogue_rules + "\n\n" + project_rules + "\n\n" + run_rules +
+                      "\n\n" + intake_rules + "\n\n" + RESPONSE_PRESENTATION_RULES +
+                      "\n\n" + language_rules)
+            full = (system + f"\nmodels_root: {self.catalog.models_dir}"
+                    + "\n\n[TASK]\n" + task)
+        else:
+            system = (catalogue_rules + "\n\n" + sessions.AUTO_RULES + "\n\n" +
+                      project_rules + "\n\n" + PROJECT_PREPARATION_RULES + "\n\n" +
+                      automatic_skill_rules + "\n\n" + run_rules + "\n\n" +
+                      calibration_rules + "\n\n" + RESPONSE_PRESENTATION_RULES +
+                      "\n\n" + language_rules +
+                      (("\n\n" + skill_rules) if skill_rules else "") +
+                      (("\n\n" + mcp_rules) if mcp_rules else ""))
+            full = (system + "\n\n" + SCOPE_FIRST_RULES
+                    + f"\nmodels_root: {self.catalog.models_dir}\n\n[TASK]\n" + task)
         if kind == "api":
             prov = api.PROVIDERS.get(pname)
             if prov is None:
@@ -2855,7 +3417,8 @@ class Handler(BaseHTTPRequestHandler):
             _forward_chat_stream(
                 api.run(prov, ki, cfg, system, bare_task or task,
                         model=llm, history=prior,
-                        project_mode=True),
+                        project_mode=True,
+                        flow=(auto_turn.session if auto_turn is not None else None)),
                 out,
             )
             return
@@ -2877,7 +3440,8 @@ class Handler(BaseHTTPRequestHandler):
         pol = policy.Policy(
             model="Auto KI", posture=policy.Posture.WORKSPACE_WRITE)
         pol.add("read", project, "this chat's local project")
-        pol.add("write", project, "scenario inputs, outputs, runs and artifacts")
+        if not gated:
+            pol.add("write", project, "scenario inputs, outputs, runs and artifacts")
         pol.add("read", self.catalog.models_dir, "the bundled KI library")
         for skill_root in skill_roots:
             pol.add("read", skill_root, "installed agent skills")
@@ -2889,20 +3453,23 @@ class Handler(BaseHTTPRequestHandler):
         pol.approved = approved
         for path in (session or {}).get("temporary_read_grants") or []:
             pol.approve("read", path, "approved once by the user for this turn")
-        self._cli_turn(prov, fingerprint_src=system, replay_prompt=full,
+        self._cli_turn(prov, fingerprint_src=system + (auto_turn.fingerprint_extra if auto_turn else ""),
+                       replay_prompt=full,
                        bare_prompt=bare_task, wd=wd, out=out,
                        session=session, cli_state=cli_state,
                        extra_dirs=[str(self.catalog.models_dir), *skill_roots,
                                    *skill_dirs,
                                    *([str(framework)] if framework else [])],
                        cfg=cfg, pol=pol, model=llm,
-                       runtime_events=runtime_events)
+                       runtime_events=runtime_events,
+                       flow_policy=(auto_turn.policy if auto_turn is not None else None))
 
     def _chat_with_models(self, names, want, task, out, project: Path, llm=None,
                           prior=None, bare_task=None, skill_names=None,
                           mcp_names=None, session=None, cli_state=None,
-                          runtime_events=None) -> None:
-        """Pinned models: same path the toggle flow used."""
+                          runtime_events=None, flow_pre=None):
+        """Pinned models: same path the toggle flow used. Returns the flowrun.Turn
+        (or None when the chat is not flow-gated) so the caller can close it."""
         try:
             kis = [self._ki(n) for n in names]
         except KeyError as e:
@@ -2912,9 +3479,24 @@ class Handler(BaseHTTPRequestHandler):
         kind, _, pname = want.partition(":")
         if not pname:
             kind, pname = "cli", kind
+        if kind == "cli" and not pname:
+            # codex R2 #1: know the ACTUAL CLI before refusal / policy, not after avail[0] below
+            _avail0 = providers.available()
+            pname = _avail0[0].name if _avail0 else ""
+        if flow_pre is not None and flow_pre.gated:
+            why = flowrun.provider_refusal(kind, pname)
+            if why:
+                out(f"[GeoForge: {why}]")
+                return None
         setup_wd = self._workdir(ki)
         setup_wd.mkdir(parents=True, exist_ok=True)
         needs_setup = not self._status_for(ki).get("can_run")
+        setup_deferred = False
+        if flow_pre is not None and flow_pre.gated and needs_setup and not flowrun.setup_allowed(project):
+            # codex desktop review #3: under the flow the software is set up AFTER the plan is
+            # approved (APPROVED → SETUP_REQUIRED), never during planning — no compile grants now
+            needs_setup = False
+            setup_deferred = True
         setup_contract = ""
         if needs_setup:
             try:
@@ -2955,14 +3537,44 @@ class Handler(BaseHTTPRequestHandler):
                          (("\n\n" + skill_rules) if skill_rules else "") +
                          (("\n\n" + mcp_rules) if mcp_rules else "") +
                          "\n\n" + SCOPE_FIRST_RULES)
+        # ── the flow's turn: contract wording, extra instructions, tool policy ──
+        flow_turn = None
+        task_extra = ""
+        execute_contract = True
+        if flow_pre is not None and flow_pre.gated and not needs_setup:
+            flow_turn = flowrun.turn(project, resolved, cfg, kind, pname, self.repo_root,
+                                     bare_task or task, flow_pre.replan_reason)
+            if flow_turn is not None:
+                execute_contract = flow_turn.execute
+                task_extra = "\n\n" + flow_turn.extra_prompt
+                if setup_deferred:
+                    task_extra += ("\n\n[SOFTWARE NOT VERIFIED YET] This KI's software is not installed/"
+                                   "verified on this machine. Plan anyway; GeoForge runs the setup after "
+                                   "the plan is approved. Do not try to build or install now.")
+                if flow_turn.drop_scope_rules:
+                    session_rules = session_rules.replace(SCOPE_FIRST_RULES, "")
+                if flow_turn.kind == "planning":
+                    # Do not mix setup/execute instructions with the planning contract.
+                    # The host owns status files and the approval card in this phase.
+                    session_rules = (
+                        f"[PLANNING PROJECT] Inspect existing files under {project}. "
+                        "No input preparation, downloads, installation, preflight execution or model runs. "
+                        "Write only the TWO draft paths specified in PLAN HANDOFF. "
+                        "Do not write setup-request.json or project-agent-status.json; "
+                        "GeoForge handles validation, progress and the approval card.\n\n" +
+                        software_status_rules + "\n\n" + language_rules + "\n\n" + RESPONSE_PRESENTATION_RULES)
+        elif flow_pre is not None and flow_pre.gated and needs_setup:
+            flow_turn = flowrun.setup_turn(project, resolved, cfg, kind, pname)
         if kind == "api":
             prov = api.PROVIDERS.get(pname)
             if prov is None:
                 out(f"[unknown api provider {pname!r}]")
-                return
+                return flow_turn
             run_ki = resolved[0]
-            system = prompt.compose(run_ki, cfg, headless=False)
-            system += "\n\n" + session_rules
+            # every selected KI's contract, in this state's wording (no more resolved[0] only)
+            system = prompt.compose_multi(resolved, cfg, headless=False, execute=execute_contract,
+                                          strict=flow_turn is not None)
+            system += "\n\n" + session_rules + task_extra
             if setup_contract:
                 system += ("\n\n[IF THIS TASK NEEDS THE SOFTWARE]\n"
                            "Own the setup and recovery loop below before running it.\n" +
@@ -2992,17 +3604,20 @@ class Handler(BaseHTTPRequestHandler):
                     # repairs software; otherwise a successful installation
                     # cannot publish the ensuing run, provenance, or plot to
                     # the session that requested it.
-                    project_mode=True),
+                    project_mode=True,
+                    flow=(flow_turn.session if flow_turn is not None else None)),
                 out,
             )
             if needs_setup:
-                self._record_agent_preflight(
+                ok = self._record_agent_preflight(
                     ki, run_ki, cfg, setup_wd, lambda _piece: True)
-            return
+                if ok and flow_turn is not None:
+                    flowrun.setup_verified(project, resolved, cfg)
+            return flow_turn
         avail = providers.available()
         if not avail:
             out("No signed-in agent CLI is ready. Open AI Settings to recheck a local CLI or add an API key.")
-            return
+            return flow_turn
         try:
             prov = providers.get(pname) if pname else avail[0]
         except KeyError:
@@ -3010,7 +3625,8 @@ class Handler(BaseHTTPRequestHandler):
         if not (wd / paths.CONFIG_NAME).exists():
             (wd / paths.CONFIG_NAME).write_text(cfg.dumps(), encoding="utf-8")
         full = prompt.compose_multi(
-            resolved, cfg, task=session_rules + "\n\n" + task)
+            resolved, cfg, execute=execute_contract, strict=flow_turn is not None,
+            task=session_rules + task_extra + "\n\n" + task)
         if setup_contract:
             full += ("\n\n[IF THIS TASK NEEDS THE SOFTWARE]\n"
                      "Own the setup and recovery loop below before running it.\n" +
@@ -3034,6 +3650,17 @@ class Handler(BaseHTTPRequestHandler):
             if self._status_for(selected_ki).get("can_run"):
                 pol.add_verified_install(
                     self._workdir(selected_ki), selected_ki.name)
+                binding = install_locations.info(self.workroot, selected_ki.name)
+                external = binding.get("existing_path")
+                if external:
+                    external_path = Path(external).expanduser().resolve(strict=False)
+                    external_root = (external_path.parent if external_path.is_file()
+                                     else external_path)
+                    pol.add("read", external_root,
+                            f"verified external {selected_ki.name} installation")
+                    pol.add("exec", external_root,
+                            f"executables in the verified external {selected_ki.name} installation")
+                    grants.append(str(external_root))
         if framework:
             pol.add("read", framework, "shared calibration engine")
         if needs_setup:
@@ -3063,23 +3690,52 @@ class Handler(BaseHTTPRequestHandler):
         # The fingerprint covers everything that shapes the instruction block
         # for a pinned-model chat. Change any of it and a resumed session would
         # still be running under the old rules, so it has to be rebuilt.
+        # The flow state, plan hash and approval hash are part of the fingerprint: a
+        # state change (planning → execution) starts a FRESH CLI session, never a
+        # resume of the planning conversation (plan v3 B1 item 4).
+        flow_fp = flow_turn.fingerprint_extra if flow_turn is not None else ""
         fingerprint_src = "\x00".join([
             prov.name, str(llm or ""), *sorted(names or []),
             *sorted(skill_names or []), *sorted(mcp_names or []),
             str(getattr(cfg, "relocation", "")), setup_contract or "",
-            calibration_rules, session_rules,
+            calibration_rules, session_rules, flow_fp,
         ])
-        self._cli_turn(prov, fingerprint_src=fingerprint_src, replay_prompt=full,
+        flow_policy = None
+        if flow_turn is not None:
+            flow_turn.provider_succeeded = False
+            flow_policy = flowrun.policy_for_cli(flow_turn, prov.name, pol)
+            if flow_turn.planning_worktree is not None:
+                wd = flow_turn.planning_worktree
+                # Preserve read access, but never carry setup/project writes into planning.
+                pol.grants = [g for g in pol.grants if g.kind == "read"]
+                pol.approved = [g for g in pol.approved if g.kind == "read"]
+                pol.posture = policy.Posture.LEAST_PRIVILEGE
+                pol.add("write", wd, "isolated planning draft only")
+                grants = grants + [str(wd)]
+        completed = self._cli_turn(prov, fingerprint_src=fingerprint_src, replay_prompt=full,
                        bare_prompt=bare_task, wd=wd, out=out,
                        session=session, cli_state=cli_state,
                        extra_dirs=grants, cfg=cfg, ki_root=ki.root,
-                       pol=pol, model=llm, runtime_events=runtime_events)
+                       pol=pol, model=llm, runtime_events=runtime_events,
+                       flow_policy=flow_policy)
+        if flow_turn is not None:
+            flow_turn.provider_succeeded = bool(completed and completed.get("returncode") == 0)
         if needs_setup:
-            self._record_agent_preflight(
+            ok = self._record_agent_preflight(
                 ki, resolved[0], cfg, setup_wd, lambda _piece: True)
+            if ok and flow_turn is not None:
+                flowrun.setup_verified(project, resolved, cfg)
+        return flow_turn
 
     # --- chat --------------------------------------------------------------
     def _stream_chat(self, req) -> None:
+        """RETIRED (plan v3 B1): this pre-session endpoint sent the run contract with no
+        session rules, no project and no flow gate. Every chat goes through
+        /api/session/<id>/chat now."""
+        return self._json({"error": "this endpoint is retired; use /api/session/<id>/chat",
+                           "hint": "create a session, then post the message to its chat endpoint"}, 410)
+
+    def _stream_chat_legacy_unreachable(self, req) -> None:
         # "models": [..] is the task-first shape; "model": "X" stays accepted.
         names = req.get("models") or ([req["model"]] if req.get("model") else [])
         if not names:
@@ -3150,6 +3806,17 @@ class Handler(BaseHTTPRequestHandler):
         # Least privilege derived from what this KI declares, plus anything the
         # user has previously approved for this workdir.
         pol = policy.Policy.derive(ki, self._manifest(ki), cfg)
+        if self._status_for(ki).get("can_run"):
+            pol.add_verified_install(self._workdir(ki), ki.name)
+            binding = install_locations.info(self.workroot, ki.name)
+            external = binding.get("existing_path")
+            if external:
+                external_path = Path(external).expanduser().resolve(strict=False)
+                external_root = external_path.parent if external_path.is_file() else external_path
+                pol.add("read", external_root, f"verified external {ki.name} installation")
+                pol.add("exec", external_root,
+                        f"executables in the verified external {ki.name} installation")
+                grants.append(str(external_root))
         saved_posture, approved = policy.Policy.load_approved(wd)
         if saved_posture is not None:
             pol.posture = saved_posture
@@ -3163,7 +3830,8 @@ class Handler(BaseHTTPRequestHandler):
 
 
 def run_install(ki, man: Manifest, root: Path, emit, repo_root: Path,
-                *, provider_id: str = "") -> None:
+                *, provider_id: str = "",
+                installation_only: bool = False) -> None:
     """The same six steps as ``kiss init``, streamed line by line."""
     root.mkdir(parents=True, exist_ok=True)
     cfg_file = root / paths.CONFIG_NAME
@@ -3205,19 +3873,20 @@ def run_install(ki, man: Manifest, root: Path, emit, repo_root: Path,
             f"corrupted by your path values: {'; '.join(mrep.corrupted[:3])}"
             if mrep.corrupted else "",
         ]))))
-    emit(f"  {'[1/8] materialise KI':<22} {'ok' if ok else 'FAILED'}"
+    total = 7 if installation_only else 8
+    emit(f"  {f'[1/{total}] materialise KI':<22} {'ok' if ok else 'FAILED'}"
          f"  ({mrep.tokens_replaced} paths written)\n")
     if mrep.undeliverable_files:
         emit(f"      note: {mrep.undeliverable_files} files reference the author's "
              "private tooling; those instructions cannot be followed\n")
     ki = type(ki)(name=ki.name, root=live)
 
-    step("[2/8] python env", install.ensure_python_env(cfg))
+    step(f"[2/{total}] python env", install.ensure_python_env(cfg))
     cfg_file.write_text(cfg.dumps(), encoding="utf-8")
 
-    step("[3/8] ki_tools_common", install.install_ki_tools_common(cfg, repo_root))
-    step("[4/8] system deps", install.check_system_deps(man.system_deps))
-    step("[5/8] python deps", install.install_python_deps(
+    step(f"[3/{total}] ki_tools_common", install.install_ki_tools_common(cfg, repo_root))
+    step(f"[4/{total}] system deps", install.check_system_deps(man.system_deps))
+    step(f"[5/{total}] python deps", install.install_python_deps(
         man.python_deps, cfg.python, env=network_env))
     prefix = cfg.roles["binaries"] / (man.install_dir or ki.name)
     blocker = next((prior for prior in result.steps if not prior.ok), None)
@@ -3232,20 +3901,26 @@ def run_install(ki, man: Manifest, root: Path, emit, repo_root: Path,
     result.binary = binary
     for note in install.place_where_the_ki_expects(ki, binary, cfg, prefix):
         emit(f"      {note}\n")
-    step("[6/8] acquire", s)
+    step(f"[6/{total}] acquire", s)
     if man.depends_on:
         emit(f"      couples with: {', '.join(man.depends_on)}\n")
-    step("[7/8] data", install.check_data(man, cfg))
-    blocker = next((prior for prior in result.steps if not prior.ok), None)
-    if blocker:
-        preflight = install.Step(
-            "preflight", False,
-            f"not run because {blocker.name} did not complete: {blocker.detail}",
-            skipped=True,
-        )
+    if installation_only:
+        verdict = runnable.check(ki, man, cfg, timeout=25, python=cfg.python)
+        step(f"[7/{total}] runnable", install.Step(
+            "runnable", verdict.usable, verdict.summary(),
+        ))
     else:
-        preflight = install.run_preflight(ki, cfg.python, cfg)
-    step("[8/8] preflight", preflight)
+        step("[7/8] data", install.check_data(man, cfg))
+        blocker = next((prior for prior in result.steps if not prior.ok), None)
+        if blocker:
+            preflight = install.Step(
+                "preflight", False,
+                f"not run because {blocker.name} did not complete: {blocker.detail}",
+                skipped=True,
+            )
+        else:
+            preflight = install.run_preflight(ki, cfg.python, cfg)
+        step("[8/8] preflight", preflight)
     written = handoff.write(ki, result, man, cfg, root)
     emit(f"  {'      agent handoff':<22} ok ({len(written)} files)\n\n")
 
@@ -3257,7 +3932,9 @@ def run_install(ki, man: Manifest, root: Path, emit, repo_root: Path,
                    next((s for s in result.steps if not s.ok), None))
     (root / "status.json").write_text(_json.dumps({
         "model": ki.name, "ok": result.ok, "checked_at": checked_at,
-        "verified_at": checked_at if result.ok else None,
+        "verified_at": checked_at if result.ok and not installation_only else None,
+        "installation_only": installation_only,
+        "installation_ready": result.ok if installation_only else None,
         "software_version": (ki.meta or {}).get("version"),
         "primary_error": ({"name": primary.name, "detail": primary.detail[:4000]}
                           if primary else None),
@@ -3266,9 +3943,13 @@ def run_install(ki, man: Manifest, root: Path, emit, repo_root: Path,
                   for s in result.steps],
     }, indent=2), encoding="utf-8")
     install_locations.record(
-        ki.name, root, cfg, ki_root=ki.root, verified=result.ok)
+        ki.name, root, cfg, ki_root=ki.root,
+        verified=result.ok and not installation_only)
 
-    if result.ok:
+    if result.ok and installation_only:
+        emit(f"{ki.name} is installed and responds on this machine. "
+             "Scientific KI verification was not run.  {root}\n")
+    elif result.ok:
         emit(f"{ki.name} is verified on this machine.  {root}\n")
     else:
         emit(f"{ki.name} is not finished — {len(result.failures)} step(s) need attention.\n")
@@ -3303,6 +3984,7 @@ def serve(models_dir: Path | None, port: int = 8765, open_browser: bool = True,
     Handler.library_root = library_root
     Handler.workroot = Path(workroot or Path.home() / "kiss").expanduser()
     Handler.workroot.mkdir(parents=True, exist_ok=True)
+    Handler.csrf_token = secrets.token_urlsafe(32)
 
     if auto_update:
         def activate(snapshot: Path) -> None:

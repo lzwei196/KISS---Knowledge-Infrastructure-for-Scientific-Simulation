@@ -1,0 +1,75 @@
+# Forcing Provider Card: NASA POWER
+entity_type: forcing_provider
+provider_id: nasa_power_v1
+provider_name: "NASA Prediction of Worldwide Energy Resources"
+version: "2.0"
+description: "Point-based agrometeorological data from satellite + reanalysis, 0.5°, hourly, 2001-NRT"
+data_path: "/mnt/disk1/Hydrocraft_server/data/nasa_power_cache/hourly/"
+api_endpoint: "https://power.larc.nasa.gov/api/temporal/hourly"
+
+variables:
+  - canonical_id: precipitation_rate
+    local_name: PRECTOTCORR
+    unit: "mm/day rate (per hour)"
+    valid_range: [0, 100]
+    known_traps:
+      - trap_id: nasa_power_prec_critical
+        description: "PRECTOTCORR hourly API returns mm/day RATE at each hour, NOT mm/hr. Must DIVIDE BY 24 for actual mm/hr."
+        severity: critical
+        detection: "Annual total > 5000 mm for non-tropical station"
+        fix: "precip_mmhr = PRECTOTCORR / 24"
+
+  - canonical_id: air_temperature
+    local_name: T2M
+    unit: degC
+    valid_range: [-60, 55]
+
+  - canonical_id: shortwave_radiation
+    local_name: ALLSKY_SFC_SW_DWN
+    unit: W/m2
+    valid_range: [0, 1200]
+    known_traps:
+      - trap_id: nasa_power_sw_unit
+        description: "Hourly API returns Wh/m² which equals W/m² for 1-hour intervals. NO conversion needed. The old ×277.78 claim was for pre-2026 cached daily data."
+        severity: high
+
+  - canonical_id: longwave_radiation
+    local_name: ALLSKY_SFC_LW_DWN
+    unit: W/m2
+    valid_range: [100, 500]
+
+  - canonical_id: specific_humidity
+    local_name: QV2M
+    unit: g/kg
+    valid_range: [0, 30]
+    known_traps:
+      - trap_id: nasa_power_qv_unit
+        description: "QV2M in g/kg. Must divide by 1000 for kg/kg."
+        severity: high
+        fix: "specific_humidity_kgkg = QV2M / 1000"
+
+  - canonical_id: air_pressure
+    local_name: PS
+    unit: kPa
+    valid_range: [50, 110]
+
+  - canonical_id: wind_speed
+    local_name: WS2M
+    unit: m/s
+    valid_range: [0, 30]
+
+spatial:
+  type: point
+  resolution: 0.5deg
+  extent: {west: -180, east: 180, south: -90, north: 90}
+  crs: EPSG:4326
+
+temporal:
+  resolution: hourly
+  range: {start: "2001-01-01", end: "near-real-time"}
+  calendar: standard
+
+data_format: json_api
+access: api
+cache_path: "/mnt/disk1/Hydrocraft_server/data/nasa_power_cache/hourly/"
+cache_size: "7.2 GB (~8,950 grid cells)"

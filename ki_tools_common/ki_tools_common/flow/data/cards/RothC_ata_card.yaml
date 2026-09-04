@@ -1,0 +1,217 @@
+# ATA Card: RothC
+# Hand-authored 2026-05-22 for Huaihe 30-model system
+
+ata_card_version: '1.0'
+generated: '2026-05-22'
+generator: hand_authored
+identity:
+  model_id: RothC
+  model_name: RothC (Rothamsted Carbon Model) via pyRothC 0.0.4
+  domain: biogeochemistry
+  secondary_domains:
+  - soil_carbon
+  - ghg_emissions
+  - land_surface
+  language: Python 3.12
+  binary_path: /home/server/knowledge-dissection-toolkit/auto_dissect_multi_agent/_work/RothC/venv/bin/python
+inputs:
+- canonical_id: air_temperature
+  local_name: temp
+  unit: degC
+  valid_range:
+  - -20.0
+  - 45.0
+  format: csv
+  semantic_type: temperature
+  unit_confidence: documented
+  mapping_confidence: exact_alias
+  input_category: forcing
+  conversion_notes:
+    from_cmfd: 'K → degC: subtract 273.15'
+  silent_error: Temperature in Kelvin (200-320 range) makes the temperature rate modifier
+    f(T) approach zero — carbon is effectively immobilized, CO2 output near zero.
+- canonical_id: precipitation_rate
+  local_name: precipitation
+  unit: mm/month
+  valid_range:
+  - 0.0
+  - 500.0
+  format: csv
+  semantic_type: flux_density
+  unit_confidence: documented
+  mapping_confidence: exact_alias
+  input_category: forcing
+  conversion_notes:
+    from_cmfd: 'CMFD daily prec (mm/day) summed per calendar month = mm/month'
+  silent_error: Providing mm/day instead of mm/month (30× too small) causes soil always
+    classified as dry; decomposition suppressed.
+- canonical_id: potential_evapotranspiration
+  local_name: evaporation
+  unit: mm/month
+  valid_range:
+  - 0.0
+  - 250.0
+  format: csv
+  semantic_type: flux_density
+  unit_confidence: documented
+  mapping_confidence: exact_alias
+  input_category: forcing
+  conversion_notes:
+    from_vic: 'VIC PET (mm/day) summed per month = mm/month'
+- canonical_id: soil_clay_content
+  local_name: clay
+  unit: percent (0-100)
+  valid_range:
+  - 0.0
+  - 100.0
+  format: csv
+  semantic_type: state
+  unit_confidence: documented
+  mapping_confidence: exact_alias
+  input_category: parameters
+  conversion_notes:
+    from_soilgrids: 'SoilGrids clay (g/kg) / 10 = percent'
+- canonical_id: soil_organic_carbon
+  local_name: soc_initial
+  unit: t C/ha
+  valid_range:
+  - 0.0
+  - 500.0
+  format: csv
+  semantic_type: state
+  unit_confidence: documented
+  mapping_confidence: exact_alias
+  input_category: initial_conditions
+  conversion_notes:
+    from_soilgrids: 'SoilGrids SOC (dg/kg) × bulk_density × depth / 10 = t C/ha'
+    from_ldndc: 'LDNDC soil_carbon_stock (g C/m2) / 100 = t C/ha'
+- canonical_id: carbon_input_rate
+  local_name: dpm_rpm_input
+  unit: t C/ha/month
+  valid_range:
+  - 0.0
+  - 2.0
+  format: csv
+  semantic_type: flux_density
+  unit_confidence: documented
+  mapping_confidence: exact_alias
+  input_category: forcing
+  conversion_notes:
+    from_dssat: 'DSSAT residue_carbon (kg/ha/yr) × 0.001 / 12 = t C/ha/month'
+    from_ldndc: 'LDNDC litter_C (g C/m2/day) × 30.44 / 100 = t C/ha/month (DPM+RPM split typically 59/41)'
+  silent_error: Carbon input in kg/ha/yr not converted to t C/ha/month (off by 12000×).
+    RothC diverges with unrealistic SOC accumulation.
+outputs:
+- canonical_id: soil_organic_carbon
+  local_name: total_SOC
+  unit: t C/ha
+  valid_range:
+  - 0.0
+  - 500.0
+  format: csv
+  semantic_type: state
+  unit_confidence: documented
+  mapping_confidence: exact_alias
+  output_section: primary
+  origin: simulated
+  origin_confidence: high
+- canonical_id: co2_emission
+  local_name: CO2_evolution
+  unit: t C/ha/month
+  valid_range:
+  - 0.0
+  - 5.0
+  format: csv
+  semantic_type: flux_density
+  unit_confidence: documented
+  mapping_confidence: exact_alias
+  output_section: primary
+  origin: simulated
+  origin_confidence: high
+  conversion_notes:
+    to_ldndc: 't C/ha/month × 100 / 30.44 = g C/m2/day'
+    to_ghg_budget: 't C/ha/month × 44/12 × 1000 = kg CO2/ha/month'
+- canonical_id: soil_organic_carbon
+  local_name: soc_fractions
+  unit: t C/ha (per fraction DPM/RPM/BIO/HUM/IOM)
+  valid_range:
+  - 0.0
+  - 400.0
+  format: csv
+  semantic_type: state
+  unit_confidence: documented
+  mapping_confidence: exact_alias
+  output_section: diagnostic
+  origin: simulated
+  origin_confidence: high
+spatial:
+  type: point
+  resolution: field_to_1deg
+  crs: EPSG:4326
+  source: skill_md
+temporal:
+  resolution: monthly
+  calendar: standard
+  source: format_spec
+risks:
+  known_traps:
+  - canonical_var: air_temperature
+    trap_id: temperature_in_kelvin
+    description: RothC rate modifier f(T) = 47.91 / (1 + exp(106 / (T + 18.27))). At
+      T=300K (≈27°C in Kelvin), f(T) ≈ 0.0 → all decomposition halted. Carbon never
+      mineralizes. CO2 near zero but no error.
+    detection: CO2_evolution < 0.001 t C/ha/month for temperate warm conditions
+    fix: 'CMFD/MSWX temperature: subtract 273.15 before passing to RothC'
+    is_unit_trap: true
+    automatable: true
+    severity: high
+  - canonical_var: precipitation_rate
+    trap_id: prec_daily_not_monthly
+    description: pyRothC soil moisture modifier uses monthly rainfall vs PET ratio.
+      Passing mm/day makes every month appear very dry (ratio << 1) → decomposition
+      suppressed by ~3×.
+    detection: Soil always classified as dry (b=0.2) regardless of climate
+    fix: Sum daily CMFD/MSWX precipitation to monthly totals before passing to RothC
+    is_unit_trap: true
+    automatable: true
+    severity: high
+  - canonical_var: carbon_input_rate
+    trap_id: carbon_input_unit_conversion
+    description: Carbon input must be t C/ha/month. DSSAT reports residue in kg/ha/yr;
+      LPJmL/LDNDC report litter in g C/m2/day. Off by 12000× if not converted.
+    detection: SOC growing at 50+ t C/ha/yr (unrealistic)
+    fix: 'DSSAT kg/ha/yr ÷ 12000 = t C/ha/month; LDNDC g C/m2/day × 30.44 / 100 = t C/ha/month'
+    is_unit_trap: true
+    automatable: true
+    severity: high
+  unit_conversions:
+  - from_unit: kg/ha/yr
+    to_unit: t C/ha/month
+    factor: 8.333e-5
+    applies_to: [carbon_input_rate]
+  - from_unit: g C/m2/day
+    to_unit: t C/ha/month
+    factor: 0.3044
+    applies_to: [carbon_input_rate, co2_emission]
+coupling:
+  chain_position: consumer_producer
+  native_formats:
+  - csv
+  exchange_format: csv
+  coupling_role: earth_system
+quality:
+  has_format_spec: true
+  has_skill_md: false
+  has_triplets: false
+  n_inputs: 6
+  n_outputs: 3
+  n_inputs_canonical: 6
+  n_outputs_canonical: 3
+  n_unmapped: 0
+  n_traps: 3
+  n_conversions: 2
+  spatial_complete: true
+  temporal_complete: true
+  unmapped_variables: []
+  validation_issues: []
+  card_status: complete

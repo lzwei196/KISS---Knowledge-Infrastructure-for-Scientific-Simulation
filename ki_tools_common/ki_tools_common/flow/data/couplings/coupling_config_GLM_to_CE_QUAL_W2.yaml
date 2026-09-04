@@ -1,0 +1,374 @@
+# Coupling Config v2: GLM -> CE_QUAL_W2
+
+coupling_config_version: '2.0'
+generated: '2026-05-23'
+generator: ata_pipeline2_coupling_gen.py v2
+metadata:
+  edge_id: GLM_to_CE_QUAL_W2
+  source_model: GLM
+  target_model: CE_QUAL_W2
+  source_domain: lake
+  target_domain: lake
+  edge_type: type4_cross_scale_same_domain
+  n_forward_variables: 2
+  n_combine_variables: 0
+  n_plausible_feedback: 0
+  n_review_feedback: 2
+  is_feedback: false
+forward_edges:
+- canonical_id: air_temperature
+  source_canonical_id: water_temperature
+  target_canonical_id: air_temperature
+  match_type: family_match
+  source_local_name: temperature_profile
+  source_unit: degC
+  target_local_name: air_temperature
+  target_unit: degC
+- canonical_id: dewpoint_temperature
+  source_canonical_id: water_temperature
+  target_canonical_id: dewpoint_temperature
+  match_type: family_match
+  source_local_name: temperature_profile
+  source_unit: degC
+  target_local_name: dewpoint_temperature
+  target_unit: degC
+combine_edges: []
+plausible_feedback: []
+review_feedback:
+- canonical_id: air_temperature
+  source_local_name: temperature_curtain
+  target_local_name: air_temperature
+  note: Flagged for review — physical plausibility uncertain
+- canonical_id: water_temperature
+  source_local_name: temperature_curtain
+  target_local_name: inflow_temperature
+  note: Flagged for review — physical plausibility uncertain
+compatibility:
+- canonical_id: air_temperature
+  source_canonical_id: water_temperature
+  target_canonical_id: air_temperature
+  match_type: family_match
+  primitives_needed:
+  - exchange_data
+  - map_space
+  - align_time
+  - validate_boundary
+  details:
+    convert_units:
+      status: not_needed
+      units_match: true
+    exchange_data: &id001
+      from_format: netcdf
+      to_format: fortran_fixed
+      conversion_needed: true
+      variable_mapping:
+        source_name: temperature_profile
+        target_name: air_temperature
+      canonical_id: air_temperature
+    map_space: &id003
+      from_type: 1d_vertical
+      to_type: point
+      method: unknown
+      canonical_id: air_temperature
+    align_time: &id005
+      from_resolution: daily
+      to_resolution: hourly
+      direction: disaggregate
+      aggregation_method: distribute_uniform
+      semantic_type: temperature
+      canonical_id: air_temperature
+    family_mapping: &id007
+      source_canonical: water_temperature
+      target_canonical: air_temperature
+      note: Source provides water_temperature, target needs air_temperature. These are in the same family (temperature) —
+        may need splitting/derivation.
+      canonical_id: air_temperature
+    validate_boundary: &id009
+      checks:
+      - no_nan
+      - 'range: [-50.0, 55.0]'
+      canonical_id: air_temperature
+- canonical_id: dewpoint_temperature
+  source_canonical_id: water_temperature
+  target_canonical_id: dewpoint_temperature
+  match_type: family_match
+  primitives_needed:
+  - exchange_data
+  - map_space
+  - align_time
+  - validate_boundary
+  details:
+    convert_units:
+      status: not_needed
+      units_match: true
+    exchange_data: &id002
+      from_format: netcdf
+      to_format: fortran_fixed
+      conversion_needed: true
+      variable_mapping:
+        source_name: temperature_profile
+        target_name: dewpoint_temperature
+      canonical_id: dewpoint_temperature
+    map_space: &id004
+      from_type: 1d_vertical
+      to_type: point
+      method: unknown
+      canonical_id: dewpoint_temperature
+    align_time: &id006
+      from_resolution: daily
+      to_resolution: hourly
+      direction: disaggregate
+      aggregation_method: distribute_uniform
+      semantic_type: temperature
+      canonical_id: dewpoint_temperature
+    family_mapping: &id008
+      source_canonical: water_temperature
+      target_canonical: dewpoint_temperature
+      note: Source provides water_temperature, target needs dewpoint_temperature. These are in the same family (temperature)
+        — may need splitting/derivation.
+      canonical_id: dewpoint_temperature
+    validate_boundary: &id010
+      checks:
+      - no_nan
+      - 'range: [-60.0, 40.0]'
+      canonical_id: dewpoint_temperature
+primitives_needed:
+- align_time
+- exchange_data
+- map_space
+- validate_boundary
+execution_order:
+- align_time
+- map_space
+- exchange_data
+- validate_boundary
+primitive_configs:
+  convert_units: []
+  exchange_data:
+  - *id001
+  - *id002
+  map_space:
+  - *id003
+  - *id004
+  align_time:
+  - *id005
+  - *id006
+  family_mapping:
+  - *id007
+  - *id008
+  validate_boundary:
+  - *id009
+  - *id010
+risks:
+  total_traps: 20
+  automatable: 15
+  judgment_required: 5
+  traps:
+  - canonical_var: air_temperature
+    model: CE_QUAL_W2
+    trap_id: dewpoint_not_rh
+    description: Passing RH or VP instead of dewpoint temperature
+    detection: Wrong evaporation rates
+    fix: 'Convert VP to TDEW: TDEW = (237.3 * ln(VP/0.6108)) / (17.27 - ln(VP/0.6108))'
+    is_unit_trap: false
+    automatable: true
+  - canonical_var: air_temperature
+    model: CE_QUAL_W2
+    trap_id: integer_jday
+    description: Julian day as integer instead of decimal — shifts diurnal radiation cycle
+    detection: Phase-shifted temperature compared to observations
+    fix: JDAY = day_of_year + hour/24 + minute/1440
+    is_unit_trap: false
+    automatable: true
+  - canonical_var: air_temperature
+    model: CE_QUAL_W2
+    trap_id: constituent_column_mismatch
+    description: Inflow WQ columns do not match active constituent count — silent corruption
+    detection: Wrong constituent values (e.g., temperature read as DO)
+    fix: cin_br*.npt must have exactly N data columns matching N active constituents
+    is_unit_trap: true
+    automatable: true
+  - canonical_var: air_temperature
+    model: CE_QUAL_W2
+    trap_id: dt_001
+    description: '{''description'': ''Water temperature systematically 3-5 C too warm year-round'', ''error_pattern'': '''',
+      ''detection_method'': ''value_comparison''}'
+    detection: '{''root_cause'': ''Cloud cover provided as fraction (0-1) instead of tenths (0-10)'', ''explanation'': ''CE-QUAL-W2
+      expects cloud cover in TENTHS (0-10). If cloud cover is passed as fraction (0-1), the model'
+    fix: '{''action'': ''Multiply cloud cover by 10 if source data is in fraction (0-1)'', ''tool_to_run'': ''convert_met_to_w2'',
+      ''manual_steps'': [''Check cloud cover values in met_wb*.npt: max should be ~8-10, not 0.8'
+    is_unit_trap: true
+    automatable: true
+  - canonical_var: air_temperature
+    model: CE_QUAL_W2
+    trap_id: dt_002
+    description: '{''description'': ''Dewpoint temperature always near -40 C or unreasonable values'', ''error_pattern'':
+      '''', ''detection_method'': ''value_comparison''}'
+    detection: '{''root_cause'': ''Vapor pressure units wrong in dewpoint conversion (Pa vs kPa vs hPa)'', ''explanation'':
+      ''The VP-to-TDEW formula TDEW = (237.3*ln(VP/0.6108))/(17.27-ln(VP/0.6108)) requires VP in kPa. CMF'
+    fix: '{''action'': ''Ensure VP is in kPa before dewpoint conversion'', ''tool_to_run'': ''convert_met_to_w2'', ''manual_steps'':
+      [''Check VP values: should be 0.1-5.0 kPa (not 100-5000 Pa)'', ''If VP > 10, divide by 100'
+    is_unit_trap: true
+    automatable: true
+  - canonical_var: air_temperature
+    model: CE_QUAL_W2
+    trap_id: dt_004
+    description: '{''description'': ''Circulation pattern wrong, surface temperatures asymmetric'', ''error_pattern'': '''',
+      ''detection_method'': ''value_comparison''}'
+    detection: '{''root_cause'': ''Wind direction in degrees but model version expects radians (or vice versa)'', ''explanation'':
+      ''CE-QUAL-W2 v4.x typically uses wind direction in degrees (0-360). Some v3.x versions use r'
+    fix: '{''action'': ''Check WDIC card in w2_con.npt; v4.x uses degrees, v3.x may use radians'', ''tool_to_run'': '''',
+      ''manual_steps'': [''Check model version documentation for wind direction units'', ''If wind directio'
+    is_unit_trap: true
+    automatable: false
+  - canonical_var: air_temperature
+    model: CE_QUAL_W2
+    trap_id: dt_018
+    description: '{''description'': ''Dam release temperature wrong — too warm in winter or too cold in summer'', ''error_pattern'':
+      '''', ''detection_method'': ''value_comparison''}'
+    detection: '{''root_cause'': ''Outlet elevation in wrong reference frame (depth from surface vs m ASL)'', ''explanation'':
+      ''CE-QUAL-W2 outlet elevations must be in meters above sea level (m ASL), matching the bathymetr'
+    fix: '{''action'': ''Convert outlet elevation to m ASL: E_outlet = E_surface - depth'', ''tool_to_run'': ''configure_w2_outflow'',
+      ''manual_steps'': [''Check outlet elevation: should be between min(ELBOT) and ELWS'', "'
+    is_unit_trap: true
+    automatable: true
+  - canonical_var: air_temperature
+    model: GLM
+    trap_id: ice_silently_disabled
+    description: Missing dt_iceon_avg silently disables ice model
+    detection: Surface temp ~0.002 C, zero ice
+    fix: Set dt_iceon_avg = 0.02, min_ice_thickness = 0.001
+    is_unit_trap: true
+    automatable: true
+  - canonical_var: air_temperature
+    model: GLM
+    trap_id: dt_003
+    description: '{''description'': ''Negative shortwave radiation values in forcing CSV. May cause NaN in temperature.'',
+      ''error_pattern'': ''NaN'', ''detection_method'': ''value_comparison''}'
+    detection: '{''root_cause'': ''Night-time shortwave radiation not clipped to zero after temporal interpolation'', ''explanation'':
+      ''When interpolating 3-hourly forcing to hourly, linear interpolation can produce small '
+    fix: '{''action'': ''Apply max(0, SW) after interpolation'', ''tool_to_run'': ''convert_met_to_glm'', ''manual_steps'':
+      [''Check min ShortWave value in met CSV — must be >= 0''], ''prevention'': ''convert_met_to_glm appli'
+    is_unit_trap: true
+    automatable: true
+  - canonical_var: air_temperature
+    model: GLM
+    trap_id: dt_004
+    description: '{''description'': ''Inflow temperature always 0 degC or NaN. Artificial cold layer forms at insertion depth.'',
+      ''error_pattern'': '''', ''detection_method'': ''value_comparison''}'
+    detection: '{''root_cause'': ''Temperature column missing from inflow CSV or not estimated from air temperature'', ''explanation'':
+      ''GLM reads TEMP from inflow CSV. If the column is missing or all zeros, the inflow wat'
+    fix: '{''action'': ''Estimate inflow temperature from air temperature using T_water = 0.9*T_air + 1.5'', ''tool_to_run'':
+      ''convert_inflow_to_glm'', ''manual_steps'': [''Verify TEMP column exists in inflow CSV'', ''Chec'
+    is_unit_trap: true
+    automatable: true
+  - canonical_var: air_temperature
+    model: GLM
+    trap_id: dt_013
+    description: '{''description'': ''GLM crashes with NaN in temperature. Simulation aborts mid-run.'', ''error_pattern'':
+      ''NaN'', ''detection_method'': ''log_match''}'
+    detection: '{''root_cause'': ''Extremely large wind speed or unrealistic forcing causing numerical instability'', ''explanation'':
+      ''Very high wind speeds (>50 m/s sustained), zero timestep, or extreme temperature swing'
+    fix: '{''action'': ''Check forcing data for outliers. Ensure dt >= 60 seconds.'', ''tool_to_run'': '''', ''manual_steps'':
+      [''Check WindSpeed column for values > 30 m/s'', ''Check AirTemp for sudden jumps > 20 degC betw'
+    is_unit_trap: true
+    automatable: true
+  - canonical_var: air_temperature
+    model: GLM
+    trap_id: dt_014
+    description: '{''description'': ''Ice model produces unrealistic thickness (>5m). Permanent ice cover in warm climate.'',
+      ''error_pattern'': '''', ''detection_method'': ''value_comparison''}'
+    detection: '{''root_cause'': ''Snow accumulation without melt in warm/tropical climate due to temperature data issues'',
+      ''explanation'': ''For tropical lakes (latitude < 23), the snowice model should produce negligible'
+    fix: '{''action'': ''For tropical lakes, verify temperature data. Consider increasing min_layer_thick.'', ''tool_to_run'':
+      '''', ''manual_steps'': [''Check if AirTemp is consistently below 0 degC (wrong for tropical)'''
+    is_unit_trap: true
+    automatable: true
+  - canonical_var: air_temperature
+    model: GLM
+    trap_id: dt_018
+    description: '{''description'': ''Temperature heatmap shows artifacts at depth boundaries. Stripy patterns.'', ''error_pattern'':
+      '''', ''detection_method'': ''value_comparison''}'
+    detection: '{''root_cause'': ''Output nsave too large — misses diurnal cycle and layer dynamics'', ''explanation'': ''If
+      nsave is set too high (e.g., 168 = weekly), the output captures only snapshots of the evolving lay'
+    fix: '{''action'': ''Set nsave to 24 (daily) or lower for thermal analysis'', ''tool_to_run'': ''generate_glm_nml'', ''manual_steps'':
+      [''Edit nsave in &output block to 24 (daily, with dt=3600)''], ''prevention'': ''gener'
+    is_unit_trap: false
+    automatable: false
+  - canonical_var: air_temperature
+    model: GLM
+    trap_id: dt_019
+    description: '{''description'': ''Stratification never develops in deep lake. Surface-to-bottom temp difference < 2 degC.'',
+      ''error_pattern'': '''', ''detection_method'': ''value_comparison''}'
+    detection: '{''root_cause'': ''Kw (light extinction) too high — all solar energy absorbed near surface'', ''explanation'':
+      ''High Kw values (>3 m^-1) cause all shortwave radiation to be absorbed in the top 1-2 meters. N'
+    fix: '{''action'': ''Use literature Kw values. Clear lakes: 0.2-0.5, moderate: 0.5-1.5, turbid: 1.5-3.0'', ''tool_to_run'':
+      ''calibrate_glm'', ''manual_steps'': [''Check Kw value in &light block'', ''For clear oligotrop'
+    is_unit_trap: true
+    automatable: false
+  - canonical_var: air_temperature
+    model: GLM
+    trap_id: dt_020
+    description: '{''description'': ''Summer surface temperatures 3-5 degC too warm. Excessive heating.'', ''error_pattern'':
+      '''', ''detection_method'': ''value_comparison''}'
+    detection: '{''root_cause'': ''Longwave radiation double-counted — both computed internally and provided in forcing'',
+      ''explanation'': "GLM has two longwave modes: ''LW_IN'' (incoming LW provided in forcing CSV) and ''LW'
+    fix: '{''action'': "Set lw_type consistently: ''LW_IN'' if forcing has measured/modeled LW, ''LW_CC'' if only cloud cover",
+      ''tool_to_run'': ''generate_glm_nml'', ''manual_steps'': [''Check if LongWave column in met CSV'
+    is_unit_trap: true
+    automatable: true
+  - canonical_var: air_temperature
+    model: GLM
+    trap_id: dt_022
+    description: '{''description'': ''Artificial cold or warm layer forms at wrong depth. Density instability.'', ''error_pattern'':
+      '''', ''detection_method'': ''value_comparison''}'
+    detection: '{''root_cause'': ''Inflow salinity set to non-zero when lake is freshwater'', ''explanation'': ''GLM computes
+      inflow density from both temperature AND salinity. If the inflow CSV has SALT = 0.5 psu (a small '
+    fix: '{''action'': ''Set inflow SALT = 0.0 for all freshwater lakes'', ''tool_to_run'': ''convert_inflow_to_glm'', ''manual_steps'':
+      [''Check SALT column in inflow CSV — should be 0.0 for freshwater'', ''convert_inflow_'
+    is_unit_trap: true
+    automatable: true
+  - canonical_var: air_temperature
+    model: GLM
+    trap_id: dt_023
+    description: '{''description'': ''Surface T asymptotes to 0.002 C but never crosses 0 C. No ice forms despite air temp
+      reaching -15 C. All mixing/wind/LW parameters exhaustively tested.'', ''error_pattern'': '''', ''detecti'
+    detection: '{''root_cause'': ''Missing dt_iceon_avg parameter in &snowice block (see dt_027). Originally diagnosed as
+      thermal inertia issue, but true cause was the missing ice onset parameter.'', ''explanation'': ''Exha'
+    fix: '{''action'': ''Add dt_iceon_avg=0.02 and min_ice_thickness=0.001 to &snowice block'', ''tool_to_run'': ''generate_glm_nml'',
+      ''manual_steps'': [''See dt_027 for full fix''], ''prevention'': ''generate_glm_nml now al'
+    is_unit_trap: true
+    automatable: false
+  - canonical_var: air_temperature
+    model: GLM
+    trap_id: dt_026
+    description: '{''description'': ''subdaily=.true. with 3-hourly CMFD forcing produces flat temperature (max ~4.5 C). No
+      seasonal cycle despite correct forcing data.'', ''error_pattern'': '''', ''detection_method'': ''value_co'
+    detection: '{''root_cause'': ''Timestamp alignment issue between 3-hourly CMFD forcing and GLM internal dt=3600s. GLM
+      may not correctly interpolate between 3-hourly records.'', ''explanation'': ''With met_miyun.csv (3-h'
+    fix: '{''action'': ''Use daily forcing with subdaily=.false. for CMFD data until 3-hourly parsing is debugged'', ''tool_to_run'':
+      ''convert_met_to_glm'', ''manual_steps'': [''Average 3-hourly forcing to daily before p'
+    is_unit_trap: true
+    automatable: false
+  - canonical_var: air_temperature
+    model: GLM
+    trap_id: dt_027
+    description: '{''description'': ''Zero ice formation despite sub-zero air temperatures. Surface temp asymptotes to 0.002
+      C but never freezes. All ice columns remain zero.'', ''error_pattern'': '''', ''detection_method'': ''va'
+    detection: '{''root_cause'': ''Missing dt_iceon_avg and min_ice_thickness parameters in &snowice block. Without these,
+      GLM ice model is silently disabled.'', ''explanation'': ''The &snowice block in most GLM examples on'
+    fix: '{''action'': ''Add dt_iceon_avg and min_ice_thickness to &snowice block'', ''tool_to_run'': ''generate_glm_nml'',
+      ''manual_steps'': [''Add to &snowice: dt_iceon_avg = 0.02'', ''Add to &snowice: min_ice_thickness ='
+    is_unit_trap: true
+    automatable: true
+  - canonical_var: air_temperature
+    model: GLM
+    trap_id: dt_029
+    description: '{''description'': ''AED2 runs successfully but phytoplankton biomass collapses to near-zero within weeks.
+      Chlorophyll-a is unrealistically low (<0.1 ug/L) even for eutrophic lakes.'', ''error_pattern'': ''PH'
+    detection: '{''root_cause'': ''Inflow CSV has no nutrient columns — AED2 receives zero external nutrient loading'', ''explanation'':
+      ''When the inflow CSV only contains FLOW, TEMP, SALT (no NIT_nit, NIT_amm, PHS_frp, et'
+    fix: '{''action'': ''Add nutrient concentrations to inflow CSV using configure_inflow_wq.py'', ''tool_to_run'': ''configure_inflow_wq'',
+      ''manual_steps'': [''Run configure_inflow_wq.py --inflow_csv <path> --trophic <s'
+    is_unit_trap: true
+    automatable: true

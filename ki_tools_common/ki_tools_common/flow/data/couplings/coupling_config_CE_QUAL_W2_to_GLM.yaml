@@ -1,0 +1,225 @@
+# Coupling Config v2: CE_QUAL_W2 -> GLM
+
+coupling_config_version: '2.0'
+generated: '2026-05-22'
+generator: ata_pipeline2_coupling_gen.py v2
+metadata:
+  edge_id: CE_QUAL_W2_to_GLM
+  source_model: CE_QUAL_W2
+  target_model: GLM
+  source_domain: lake
+  target_domain: lake
+  edge_type: type4_cross_scale_same_domain
+  n_forward_variables: 1
+  n_combine_variables: 0
+  n_plausible_feedback: 0
+  n_review_feedback: 4
+  is_feedback: false
+forward_edges:
+- canonical_id: discharge
+  source_canonical_id: discharge
+  target_canonical_id: discharge
+  match_type: exact_canonical
+  source_local_name: discharge
+  source_unit: m3/s
+  target_local_name: inflow_discharge
+  target_unit: m3/s
+combine_edges: []
+plausible_feedback: []
+review_feedback:
+- canonical_id: air_temperature
+  source_local_name: temperature_profile
+  target_local_name: air_temperature
+  note: Flagged for review — physical plausibility uncertain
+- canonical_id: dewpoint_temperature
+  source_local_name: temperature_profile
+  target_local_name: dewpoint_temperature
+  note: Flagged for review — physical plausibility uncertain
+- canonical_id: air_temperature
+  source_local_name: surface_temperature
+  target_local_name: air_temperature
+  note: Flagged for review — physical plausibility uncertain
+- canonical_id: dewpoint_temperature
+  source_local_name: surface_temperature
+  target_local_name: dewpoint_temperature
+  note: Flagged for review — physical plausibility uncertain
+compatibility:
+- canonical_id: discharge
+  source_canonical_id: discharge
+  target_canonical_id: discharge
+  match_type: exact_canonical
+  primitives_needed:
+  - exchange_data
+  - map_space
+  - align_time
+  - validate_boundary
+  details:
+    convert_units:
+      status: not_needed
+      units_match: true
+    exchange_data: &id001
+      from_format: ascii_text
+      to_format: netcdf
+      conversion_needed: true
+      source: card_level_format_check
+      variable_mapping:
+        source_name: discharge
+        target_name: inflow_discharge
+      canonical_id: discharge
+    map_space: &id002
+      from_type: point
+      to_type: 1d_vertical
+      method: unknown
+      canonical_id: discharge
+    align_time: &id003
+      from_resolution: hourly
+      to_resolution: daily
+      direction: aggregate
+      aggregation_method: mean
+      semantic_type: volumetric_flow
+      canonical_id: discharge
+    validate_boundary: &id004
+      checks:
+      - no_nan
+      - 'range: [0.0, None]'
+      canonical_id: discharge
+primitives_needed:
+- align_time
+- exchange_data
+- map_space
+- validate_boundary
+execution_order:
+- align_time
+- map_space
+- exchange_data
+- validate_boundary
+primitive_configs:
+  convert_units: []
+  exchange_data:
+  - *id001
+  map_space:
+  - *id002
+  align_time:
+  - *id003
+  validate_boundary:
+  - *id004
+risks:
+  total_traps: 11
+  automatable: 8
+  judgment_required: 3
+  traps:
+  - canonical_var: discharge
+    model: CE_QUAL_W2
+    trap_id: double_counting_runoff
+    description: Main channel + distributed tributary inflows double-count catchment area
+    detection: Water level rising too fast
+    fix: Subtract main inflow contributing area from distributed tributary area
+    is_unit_trap: false
+    automatable: true
+  - canonical_var: discharge
+    model: CE_QUAL_W2
+    trap_id: dt_009
+    description: '{''description'': ''Model reads past end of met/inflow file, crashes or produces partial results'', ''error_pattern'':
+      ''END.OF.FILE|EOF|JDAY.*exceed'', ''detection_method'': ''log_match''}'
+    detection: '{''root_cause'': ''Met or inflow file has fewer timesteps than the simulation period (TMSTRT to TMEND)'',
+      ''explanation'': ''All time-series input files (met, qin, tin, qot) must cover the FULL simulation pe'
+    fix: '{''action'': ''Ensure all time-series files cover TMSTRT to TMEND Julian days'', ''tool_to_run'': '''', ''manual_steps'':
+      [''Check last JDAY in each input file: tail -1 met_wb1.npt'', ''Must be >= TMEND in w2_con.'
+    is_unit_trap: true
+    automatable: true
+  - canonical_var: discharge
+    model: CE_QUAL_W2
+    trap_id: dt_013
+    description: '{''description'': ''Water flows upstream in some segments, unrealistic longitudinal patterns'', ''error_pattern'':
+      '''', ''detection_method'': ''value_comparison''}'
+    detection: '{''root_cause'': ''Bottom elevation increases in the downstream direction at some segments'', ''explanation'':
+      ''CE-QUAL-W2 assumes gravity-driven flow from upstream to downstream. If the bottom elevation at'
+    fix: '{''action'': ''Ensure bottom elevations are monotonically non-increasing downstream'', ''tool_to_run'': ''build_reservoir_grid'',
+      ''manual_steps'': [''Sort segments by distance and check: ELBOT[i] >= ELBOT[i+1]'''
+    is_unit_trap: false
+    automatable: false
+  - canonical_var: discharge
+    model: CE_QUAL_W2
+    trap_id: dt_015
+    description: '{''description'': ''Constituent concentration always zero despite non-zero inflow concentrations'', ''error_pattern'':
+      '''', ''detection_method'': ''value_comparison''}'
+    detection: '{''root_cause'': ''Constituent flag OFF in w2_con.npt but concentration data provided in cin_br*.npt'', ''explanation'':
+      ''The CONSTITU card in w2_con.npt has ON/OFF flags for each water quality constituent.'
+    fix: '{''action'': ''Ensure constituent ON/OFF flags exactly match cin_br*.npt column count and order'', ''tool_to_run'':
+      ''configure_wq'', ''manual_steps'': [''Count ON flags in CONSTITU card'', ''Count data columns (e'
+    is_unit_trap: false
+    automatable: true
+  - canonical_var: discharge
+    model: CE_QUAL_W2
+    trap_id: dt_020
+    description: '{''description'': ''CaMa-Flood inflow arrives at wrong segment, inflow effect displaced spatially'', ''error_pattern'':
+      '''', ''detection_method'': ''value_comparison''}'
+    detection: '{''root_cause'': ''Spatial mismatch between CaMa grid cell and W2 inflow segment'', ''explanation'': ''The
+      CaMa-Flood outlet cell for the upstream catchment must map to the correct W2 branch inflow segment. '
+    fix: '{''action'': ''Verify CaMa outlet cell coordinates match W2 inflow segment location'', ''tool_to_run'': '''', ''manual_steps'':
+      [''Plot CaMa outlet cell and W2 upstream segment on the same map'', ''They should be '
+    is_unit_trap: true
+    automatable: true
+  - canonical_var: discharge
+    model: CE_QUAL_W2
+    trap_id: dt_024
+    description: '{''description'': ''Model stops with NEGATIVE THICKNESS during reservoir drawdown'', ''error_pattern'':
+      ''NEGATIVE.*THICK|LAYER.*THICKNESS.*NEGATIVE'', ''detection_method'': ''log_match''}'
+    detection: '{''root_cause'': ''Water surface drops below a layer boundary during drawdown simulation'', ''explanation'':
+      ''When the reservoir water level drops significantly (drawdown for flood control or power generati'
+    fix: '{''action'': ''Increase minimum layer thickness; reduce outflow during drawdown periods'', ''tool_to_run'': '''',
+      ''manual_steps'': [''Check DLT CON for minimum layer thickness setting'', ''Reduce outflow to preve'
+    is_unit_trap: false
+    automatable: false
+  - canonical_var: discharge
+    model: GLM
+    trap_id: aed2_no_inflow_nutrients
+    description: AED2 with zero inflow nutrient loading depletes nutrients rapidly
+    detection: Nutrients drop to zero within weeks
+    fix: Use configure_inflow_wq.py to add nutrient columns to inflow CSV
+    is_unit_trap: false
+    automatable: true
+  - canonical_var: discharge
+    model: GLM
+    trap_id: dt_010
+    description: '{''description'': ''num_inflows is 0 but inflow CSV files are referenced. Inflow is silently ignored.'',
+      ''error_pattern'': '''', ''detection_method'': ''value_comparison''}'
+    detection: '{''root_cause'': ''Inconsistency between num_inflows count and inflow file list'', ''explanation'': ''If num_inflows
+      = 0, GLM ignores all inflow_fl entries. The lake runs without any river input, which may b'
+    fix: '{''action'': ''Set num_inflows to match the number of inflow CSV files'', ''tool_to_run'': ''generate_glm_nml'',
+      ''manual_steps'': [''Count inflow CSV files and set num_inflows accordingly''], ''prevention'': ''gene'
+    is_unit_trap: false
+    automatable: false
+  - canonical_var: discharge
+    model: GLM
+    trap_id: dt_012
+    description: '{''description'': ''Unable to open inflow file. GLM exits during setup.'', ''error_pattern'': ''Unable to
+      open'', ''detection_method'': ''log_match''}'
+    detection: '{''root_cause'': ''inflow_fl path does not match actual file location'', ''explanation'': ''Same as dt_011
+      but for inflow files. The inflow_fl path must be resolvable from the GLM working directory.\n'', ''aff'
+    fix: '{''action'': ''Verify all file paths in namelist exist before running GLM'', ''tool_to_run'': ''run_glm'', ''manual_steps'':
+      [''run_glm preflight check validates all referenced file paths''], ''prevention'': ''run_g'
+    is_unit_trap: false
+    automatable: true
+  - canonical_var: discharge
+    model: GLM
+    trap_id: dt_016
+    description: '{''description'': ''Inflow timing offset — flow arrives 1 day early or late'', ''error_pattern'': '''',
+      ''detection_method'': ''value_comparison''}'
+    detection: '{''root_cause'': ''Timezone mismatch between forcing and inflow data'', ''explanation'': ''If the meteorological
+      CSV uses UTC timestamps but the inflow CSV uses local time (or vice versa), there is a systema'
+    fix: '{''action'': ''Ensure all CSV timestamps use the same timezone as GLM timezone parameter'', ''tool_to_run'': '''',
+      ''manual_steps'': [''Check timezone parameter in &time block'', ''Verify met CSV and inflow CSV us'
+    is_unit_trap: true
+    automatable: true
+  - canonical_var: discharge
+    model: GLM
+    trap_id: dt_017
+    description: '{''description'': ''CaMa-Flood discharge is inconsistent with GLM inflow. Water balance does not close.'',
+      ''error_pattern'': '''', ''detection_method'': ''value_comparison''}'
+    detection: '{''root_cause'': ''CaMa grid cell does not correspond to the actual lake inlet'', ''explanation'': ''When
+      extracting CaMa-Flood discharge for GLM inflow, the grid cell must be the one immediately upstream of'
+    fix: '{''action'': ''Verify spatial alignment of CaMa output point with GLM inflow location'', ''tool_to_run'': '''',
+      ''manual_steps'': [''Check CaMa river network to find the correct upstream cell'', ''Compare total in'
+    is_unit_trap: true
+    automatable: true

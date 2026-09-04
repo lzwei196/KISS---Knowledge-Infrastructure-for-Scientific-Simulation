@@ -1,0 +1,388 @@
+ata_card_version: '1.0'
+generated: '2026-04-17'
+generator: ata_pipeline1_card_gen.py
+identity:
+  model_id: VIC
+  model_name: VIC 5.1.0
+  domain: hydrology
+  secondary_domains: []
+  language: C
+  binary_path: /mnt/disk1/Hydrocraft_server/model/VIC-5.1.0/vic/drivers/classic/vic_classic.exe
+inputs:
+- canonical_id: air_temperature
+  local_name: air_temperature
+  unit: degC
+  valid_range:
+  - -60.0
+  - 60.0
+  format: ascii_text
+  semantic_type: temperature
+  unit_confidence: documented
+  mapping_confidence: exact_alias
+  input_category: forcing
+  conversion_notes:
+    conversion_from_cmfd: 'K -> degC: subtract 273.15; mean of 8 3-hourly timesteps'
+- canonical_id: precipitation_rate
+  local_name: precipitation
+  unit: mm/timestep
+  valid_range:
+  - 0.0
+  - 500.0
+  format: ascii_text
+  semantic_type: flux_density
+  unit_confidence: documented
+  mapping_confidence: exact_alias
+  input_category: forcing
+  conversion_notes:
+    conversion_from_cmfd: 'kg/m2/s -> mm/3hr: multiply by 10800'
+- canonical_id: air_pressure
+  local_name: air_pressure
+  unit: kPa
+  valid_range:
+  - 50.0
+  - 110.0
+  format: unspecified
+  semantic_type: unknown
+  unit_confidence: documented
+  mapping_confidence: exact_alias
+  input_category: forcing
+  conversion_notes:
+    conversion_from_cmfd: 'Pa -> kPa: divide by 1000'
+- canonical_id: shortwave_radiation
+  local_name: shortwave_radiation
+  unit: W/m2
+  valid_range:
+  - 0.0
+  - 1400.0
+  format: unspecified
+  semantic_type: energy_flux
+  unit_confidence: documented
+  mapping_confidence: exact_alias
+  input_category: forcing
+  conversion_notes:
+    conversion_from_cmfd: 'W/m2 -> W/m2: no conversion needed'
+- canonical_id: longwave_radiation
+  local_name: longwave_radiation
+  unit: W/m2
+  valid_range:
+  - 0.0
+  - 600.0
+  format: unspecified
+  semantic_type: energy_flux
+  unit_confidence: documented
+  mapping_confidence: exact_alias
+  input_category: forcing
+- canonical_id: vapor_pressure
+  local_name: vapor_pressure
+  unit: kPa
+  valid_range:
+  - 0.0
+  - 10.0
+  format: unspecified
+  semantic_type: unknown
+  unit_confidence: documented
+  mapping_confidence: exact_alias
+  input_category: forcing
+- canonical_id: wind_speed
+  local_name: wind_speed
+  unit: m/s
+  valid_range:
+  - 0.0
+  - 80.0
+  format: unspecified
+  semantic_type: unknown
+  unit_confidence: documented
+  mapping_confidence: exact_alias
+  input_category: forcing
+- canonical_id: leaf_area_index
+  local_name: LAI
+  unit: m2/m2
+  semantic_type: ratio
+  mapping_confidence: inferred
+  origin: coupled_model
+  origin_confidence: high
+  format: unspecified
+- canonical_id: soil_moisture
+  local_name: sm_init
+  unit: mm
+  semantic_type: depth
+  mapping_confidence: inferred
+  origin: coupled_model
+  origin_confidence: high
+  format: unspecified
+- canonical_id: snow_water_equivalent
+  local_name: swe_init
+  unit: mm
+  semantic_type: depth
+  mapping_confidence: inferred
+  origin: coupled_model
+  origin_confidence: high
+  format: unspecified
+outputs:
+- canonical_id: surface_runoff
+  local_name: runoff
+  unit: mm/timestep
+  valid_range:
+  - 0
+  - null
+  format: unspecified
+  semantic_type: flux_density
+  unit_confidence: documented
+  mapping_confidence: exact_alias
+  output_section: primary
+  origin: simulated
+  origin_confidence: high
+- canonical_id: baseflow
+  local_name: baseflow
+  unit: mm/timestep
+  valid_range:
+  - 0
+  - null
+  format: unspecified
+  semantic_type: flux_density
+  unit_confidence: documented
+  mapping_confidence: exact_alias
+  output_section: primary
+  origin: simulated
+  origin_confidence: high
+- canonical_id: evapotranspiration
+  local_name: evapotranspiration
+  unit: mm/timestep
+  valid_range:
+  - 0
+  - 20.0
+  format: unspecified
+  semantic_type: flux_density
+  unit_confidence: documented
+  mapping_confidence: exact_alias
+  output_section: primary
+  origin: simulated
+  origin_confidence: high
+- canonical_id: soil_moisture
+  local_name: soil_moisture
+  unit: mm
+  valid_range:
+  - 0
+  - null
+  format: unspecified
+  semantic_type: state
+  unit_confidence: documented
+  mapping_confidence: exact_alias
+  output_section: primary
+  origin: simulated
+  origin_confidence: high
+- canonical_id: precipitation_rate
+  local_name: precipitation
+  unit: mm/timestep
+  valid_range:
+  - 0
+  - 500.0
+  format: unspecified
+  semantic_type: flux_density
+  unit_confidence: documented
+  mapping_confidence: exact_alias
+  output_section: primary
+  origin: echoed_input
+  origin_confidence: high
+- canonical_id: surface_runoff
+  local_name: total_runoff
+  unit: mm/day
+  valid_range: null
+  format: unspecified
+  semantic_type: flux_density
+  unit_confidence: documented
+  mapping_confidence: exact_alias
+  output_section: netcdf_postprocessed
+  origin: simulated
+  origin_confidence: high
+- canonical_id: snow_water_equivalent
+  local_name: swe
+  unit: mm
+  semantic_type: depth
+  mapping_confidence: inferred
+  origin: simulated
+  origin_confidence: high
+  output_section: primary
+  format: unspecified
+  valid_range:
+  - 0
+  - null
+- canonical_id: actual_evapotranspiration
+  local_name: AET
+  unit: mm/timestep
+  semantic_type: flux_density
+  mapping_confidence: exact_alias
+  origin: simulated
+  origin_confidence: high
+  output_section: primary
+  format: unspecified
+  valid_range:
+  - 0
+  - 20
+- canonical_id: water_table_depth
+  local_name: zwt
+  unit: m
+  semantic_type: depth
+  mapping_confidence: inferred
+  origin: simulated
+  origin_confidence: medium
+  output_section: secondary
+  format: unspecified
+  valid_range:
+  - 0
+  - 50
+spatial:
+  type: regular_grid
+  resolution: unspecified
+  crs: EPSG:4326
+  source: none
+temporal:
+  resolution: 3-hourly
+  calendar: standard
+  source: skill_md
+risks:
+  known_traps:
+  - canonical_var: air_temperature
+    trap_id: path_inconsistency
+    description: Output files scattered across vic_temp vs basin/vic_temp directories
+    detection: Check all paths in global_param.txt resolve correctly
+    fix: Unify all paths under outputs/{basin_name}/
+    is_unit_trap: false
+    automatable: true
+    severity: medium
+  - canonical_var: air_temperature
+    trap_id: conv_temperature
+    description: 'Conversion trap: CMFD (K) -> VIC (degC)'
+    detection: Values ~300 = still in Kelvin; wrong ET, wrong snow
+    fix: Apply subtract factor= offset=-273.15
+    is_unit_trap: true
+    automatable: true
+    severity: high
+  - canonical_var: air_pressure
+    trap_id: conv_pressure
+    description: 'Conversion trap: CMFD (Pa) -> VIC (kPa)'
+    detection: Pressure ~101325 instead of ~101.3
+    fix: Apply multiply factor=0.001 offset=
+    is_unit_trap: true
+    automatable: true
+    severity: high
+  - canonical_var: precipitation_rate
+    trap_id: conv_precipitation
+    description: 'Conversion trap: CMFD (kg/m2/s) -> VIC (mm/3hr)'
+    detection: Runoff 10800x too high (raw kg/m2/s) or near zero
+    fix: Apply multiply factor=10800 offset=
+    is_unit_trap: true
+    automatable: true
+    severity: high
+  - trap_id: frozen_soil_corrupted
+    triplet_ref: ''
+    description: FROZEN_SOIL line corrupted by config_paths.py regex substitution
+    affected_output: Model fails to start
+    detection: Error message 'is neither TRUE nor FALSE'
+    fix: Manually set FROZEN_SOIL to FALSE in global_param.txt
+    is_unit_trap: false
+    automatable: true
+    severity: medium
+    source: format_spec
+  - trap_id: lai_src_corrupted
+    triplet_ref: ''
+    description: LAI_SRC line has trailing path appended by config_paths.py
+    affected_output: Model fails to start or wrong LAI source
+    detection: Check global_param.txt for extra text after FROM_VEGPARAM
+    fix: Manually correct to exactly FROM_VEGPARAM
+    is_unit_trap: false
+    automatable: true
+    severity: medium
+    source: format_spec
+  - trap_id: forcing_prefix_mismatch
+    triplet_ref: ''
+    description: FORCING1 prefix in global_param.txt does not match actual forcing
+      filenames
+    affected_output: 'Fatal: Unable to open File'
+    detection: Compare FORCING1 prefix with ls forcing_final/ | head -1
+    fix: Update FORCING1 to match actual file naming pattern
+    is_unit_trap: false
+    automatable: true
+    severity: medium
+    source: format_spec
+  - trap_id: time_range_mismatch
+    triplet_ref: ''
+    description: Simulation time range exceeds forcing data availability
+    affected_output: 'Fatal: Not enough records in forcing file'
+    detection: Compare STARTYEAR/ENDYEAR with forcing file content
+    fix: 'Synchronize time range in three places: forcing_1d.py, process_forcing.py,
+      global_param.txt'
+    is_unit_trap: false
+    automatable: true
+    severity: medium
+    source: format_spec
+  - trap_id: path_inconsistency
+    triplet_ref: ''
+    description: Output files scattered across vic_temp vs basin/vic_temp directories
+    affected_output: File not found errors at various stages
+    detection: Check all paths in global_param.txt resolve correctly
+    fix: Unify all paths under outputs/{basin_name}/
+    is_unit_trap: false
+    automatable: true
+    severity: medium
+    source: format_spec
+  - trap_id: root_zone_sum_warning
+    triplet_ref: ''
+    description: Root zone fractions sum to more than 1
+    affected_output: Warning only — VIC auto-normalizes
+    detection: ''
+    fix: ''
+    is_unit_trap: false
+    automatable: false
+    severity: medium
+    source: format_spec
+  unit_conversions:
+  - canonical_var: precipitation_rate
+    source_unit: CMFD (kg/m2/s)
+    target_unit: VIC (mm/3hr)
+    operation: multiply
+    factor: 10800
+    offset: null
+    consequence_if_wrong: Runoff 10800x too high (raw kg/m2/s) or near zero
+    severity: critical
+    automatable: true
+  - canonical_var: air_temperature
+    source_unit: CMFD (K)
+    target_unit: VIC (degC)
+    operation: subtract
+    factor: null
+    offset: -273.15
+    consequence_if_wrong: Values ~300 = still in Kelvin; wrong ET, wrong snow
+    severity: critical
+    automatable: true
+  - canonical_var: air_pressure
+    source_unit: CMFD (Pa)
+    target_unit: VIC (kPa)
+    operation: multiply
+    factor: 0.001
+    offset: null
+    consequence_if_wrong: Pressure ~101325 instead of ~101.3
+    severity: critical
+    automatable: true
+coupling:
+  chain_position: bidirectional
+  native_formats:
+  - ascii_text
+  exchange_format: ascii_text
+  coupling_role: earth_system
+quality:
+  has_format_spec: true
+  has_skill_md: true
+  has_triplets: false
+  n_inputs: 7
+  n_outputs: 6
+  n_inputs_canonical: 7
+  n_outputs_canonical: 6
+  n_unmapped: 0
+  n_traps: 10
+  n_conversions: 3
+  spatial_complete: true
+  temporal_complete: true
+  unmapped_variables: []
+  validation_issues: []
+  card_status: complete

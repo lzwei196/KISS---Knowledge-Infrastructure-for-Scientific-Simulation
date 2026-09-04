@@ -563,6 +563,93 @@ def _text_from_stream_json(line: str) -> str | None:
     return None
 
 
+_SENSITIVE_ACTIVITY_VALUE = re.compile(
+    r"(?i)(api[_-]?key|access[_-]?token|auth[_-]?token|password|passwd|secret)"
+    r"(\s*(?:=|:)\s*)([^\s,'\"}]+)"
+)
+_SENSITIVE_ACTIVITY_BEARER = re.compile(
+    r"(?i)(authorization\s*:\s*bearer\s+)([^\s'\"]+)"
+)
+_SENSITIVE_ACTIVITY_FLAG = re.compile(
+    r"(?i)(--?(?:token|password|passwd|secret|api[_-]?key)\s+)([^\s'\"]+)"
+)
+
+
+def _safe_tool_activity(line: str, cwd: Path | None = None) -> tuple[str, str] | None:
+    """Extract a short, redacted description of a CLI tool call.
+
+    The visible marker intentionally carries only the tool name.  The local
+    status endpoint can be more useful without exposing an entire vendor
+    event: retain one bounded command/path summary in memory and redact common
+    credential assignments.  Unknown stream shapes simply return ``None``.
+    """
+    raw = line.strip()
+    if not raw.startswith("{"):
+        return None
+    try:
+        event = json.loads(raw)
+    except json.JSONDecodeError:
+        return None
+
+    calls: list[tuple[str, object]] = []
+    message = event.get("message")
+    if isinstance(message, dict):
+        for block in message.get("content") or []:
+            if (isinstance(block, dict) and block.get("type") == "tool_use"
+                    and block.get("name")):
+                calls.append((str(block["name"]), block.get("input") or {}))
+    if event.get("role") == "assistant":
+        for call in event.get("tool_calls") or []:
+            if not isinstance(call, dict):
+                continue
+            function = call.get("function")
+            if isinstance(function, dict) and function.get("name"):
+                calls.append((str(function["name"]),
+                              function.get("arguments") or {}))
+            elif call.get("name"):
+                calls.append((str(call["name"]), call.get("input") or
+                              call.get("arguments") or {}))
+    if event.get("type") in ("tool_use", "tool_call") and event.get("name"):
+        calls.append((str(event["name"]), event.get("input") or
+                      event.get("arguments") or {}))
+    if not calls:
+        return None
+
+    name, arguments = calls[-1]
+    if isinstance(arguments, str):
+        try:
+            parsed = json.loads(arguments)
+            arguments = parsed if isinstance(parsed, dict) else {"arguments": arguments}
+        except json.JSONDecodeError:
+            arguments = {"arguments": arguments}
+    if not isinstance(arguments, dict):
+        arguments = {}
+
+    preferred = ("command", "cmd", "argv", "tool_path", "path", "file_path",
+                 "query", "pattern", "url", "arguments")
+    detail: object = ""
+    for key in preferred:
+        if arguments.get(key) not in (None, "", []):
+            detail = arguments[key]
+            break
+    if isinstance(detail, list):
+        detail = " ".join(str(item) for item in detail[:16])
+    elif isinstance(detail, dict):
+        detail = " ".join(f"{key}={value}" for key, value in list(detail.items())[:8])
+    text = " ".join(str(detail or "").split())
+    text = _SENSITIVE_ACTIVITY_VALUE.sub(r"\1\2[redacted]", text)
+    text = _SENSITIVE_ACTIVITY_BEARER.sub(r"\1[redacted]", text)
+    text = _SENSITIVE_ACTIVITY_FLAG.sub(r"\1[redacted]", text)
+    home = str(Path.home())
+    if home:
+        text = text.replace(home + os.sep, "~/")
+    if cwd:
+        work = str(Path(cwd))
+        if work:
+            text = text.replace(work + os.sep, "./")
+    return name[:100], text[:260]
+
+
 def _session_id_from_stream_json(line: str) -> str | None:
     """The id this CLI would need to resume the conversation later.
 
@@ -582,6 +669,31 @@ def _session_id_from_stream_json(line: str) -> str | None:
     return sid if isinstance(sid, str) and sid else None
 
 
+def _strip_flags(argv: list[str], flags: tuple[str, ...]) -> list[str]:
+    """Remove ``--flag`` and, for value-taking flags, the value that follows it."""
+    valued = {"--permission-mode", "--sandbox", "--approval-mode", "--tools"}
+    variadic = {"--allowedTools", "--allowed-tools", "--disallowedTools", "--add-dir"}
+    out: list[str] = []
+    skip = False
+    many = False
+    for tok in argv:
+        if many and not tok.startswith("-"):
+            continue
+        many = False
+        if skip:
+            skip = False
+            continue
+        key = tok.split("=", 1)[0]
+        if key in flags:
+            if key in variadic and "=" not in tok:
+                many = True
+            elif key in valued and "=" not in tok:
+                skip = True
+            continue
+        out.append(tok)
+    return out
+
+
 def run(provider: Provider, prompt: str, cwd: Path,
         *, extra_dirs: list[str] | None = None,
         cfg=None, ki_root: Path | None = None, pol=None,
@@ -589,8 +701,15 @@ def run(provider: Provider, prompt: str, cwd: Path,
         timeout: int | None = None,
         resume: str | None = None,
         session_out: dict | None = None,
-        runtime_events: dict | None = None) -> Iterator[str]:
+        runtime_events: dict | None = None,
+        flow_policy=None) -> Iterator[str]:
     """Spawn the CLI and yield displayable text as it arrives.
+
+    ``flow_policy`` (kiss_cli.flowrun.Turn.policy, a ki_tools_common.flow ProviderPolicy)
+    makes the project's flow STATE own the tool policy: its ``argv_delta`` replaces the
+    base least-privilege mapping's argv (a second ``--allowedTools`` would not merge),
+    its ``drop_flags`` are removed from the argv, and its enforcement label is what the
+    user is told.
 
     When ``cfg`` is given the agent is started **inside the relocation
     namespace**, together with everything it goes on to spawn. This is not
@@ -656,6 +775,10 @@ def run(provider: Provider, prompt: str, cwd: Path,
         unique_dirs.append(str(raw))
     cli_extra_dirs = unique_dirs
 
+    # Codex --add-dir grants WRITES, not reads. Planning may only write its
+    # isolated draft workspace; normal sandbox reads still reach the KI roots.
+    if flow_policy is not None and getattr(flow_policy, "planning_worktree", False) and provider.name == "codex":
+        cli_extra_dirs = []
     argv = provider.build(prompt, extra_dirs=cli_extra_dirs, model=model,
                           resume=resume)
     from .settings import with_provider_proxy
@@ -687,9 +810,19 @@ def run(provider: Provider, prompt: str, cwd: Path,
         if not kimi_scoped:
             mapper = getattr(_pol, provider.policy_map, _pol.coarse_args)
             extra_args, enforcement = mapper(pol)
+            if flow_policy is not None:
+                # the flow state's argv replaces the base mapping (plan v3 B6/B7)
+                drop = tuple(getattr(flow_policy, "drop_flags", ()) or ())
+                base_kept = _strip_flags(extra_args, drop + ("--allowedTools",))
+                extra_args = base_kept + list(getattr(flow_policy, "argv_delta", []) or [])
+                argv = _strip_flags(argv, drop)
+                enforcement = _pol.Enforcement(getattr(flow_policy, "enforcement").value)
             argv = argv + extra_args
             if enforcement is not _pol.Enforcement.EXACT:
                 yield f"[{_pol.describe(enforcement, provider.label)}]\n\n"
+        elif flow_policy is not None:
+            drop = tuple(getattr(flow_policy, "drop_flags", ()) or ())
+            argv = _strip_flags(argv, drop)
 
     if cfg is not None and getattr(cfg, "relocation", "sandbox") == "sandbox":
         from .paths import have_sandbox, sandbox_command
@@ -804,6 +937,10 @@ def run(provider: Provider, prompt: str, cwd: Path,
             if isinstance(process_event, dict):
                 process_event["last_event_at"] = time.time()
             if provider.output == "stream-json":
+                tool_activity = _safe_tool_activity(line, cwd)
+                if isinstance(process_event, dict) and tool_activity:
+                    process_event["activity"] = tool_activity[0]
+                    process_event["activity_detail"] = tool_activity[1]
                 if session_out is not None and not session_out.get("session_id"):
                     sid = _session_id_from_stream_json(line)
                     if sid:
@@ -813,8 +950,11 @@ def run(provider: Provider, prompt: str, cwd: Path,
                     if isinstance(process_event, dict):
                         process_event["last_output_at"] = time.time()
                         tool = re.search(r"\[\[GEOF_TOOL:([^\]]+)\]\]", text)
-                        process_event["activity"] = (tool.group(1) if tool
-                                                     else "responding")
+                        if tool:
+                            process_event["activity"] = tool.group(1)
+                        else:
+                            process_event["activity"] = "responding"
+                            process_event.pop("activity_detail", None)
                     produced = True
                     if session_out is not None:
                         # Flagged the instant real output exists, not at exit:

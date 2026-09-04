@@ -21,6 +21,7 @@ The agent does not judge any of this — it reads the verdict and acts.
 
 from __future__ import annotations
 
+import ast
 import os
 import platform
 import re
@@ -106,6 +107,7 @@ class Verdict:
     imports_ok: bool = True
     needs_binary: bool = True
     detail: str = ""
+    python: str = ""
 
     @property
     def usable(self) -> bool:
@@ -150,19 +152,112 @@ class Verdict:
                 "present": self.present, "shaped": self.shaped,
                 "linked": self.linked, "responds": self.responds,
                 "kind": self.kind, "missing": self.missing,
-                "detail": self.detail, "summary": self.summary()}
+                "detail": self.detail, "python": self.python,
+                "summary": self.summary()}
 
 
 # ---------------------------------------------------------------- locating
 
+def _static_path(node: ast.AST, names: dict[str, str]) -> str | None:
+    """Evaluate the small path-expression subset used by generated preflights."""
+    if isinstance(node, ast.Constant) and isinstance(node.value, str):
+        return node.value
+    if isinstance(node, ast.Name):
+        return names.get(node.id)
+    if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Div):
+        left, right = _static_path(node.left, names), _static_path(node.right, names)
+        return str(Path(left) / right) if left is not None and right is not None else None
+    if isinstance(node, ast.Attribute):
+        value = _static_path(node.value, names)
+        if value is not None and node.attr == "parent":
+            return str(Path(value).parent)
+    if not isinstance(node, ast.Call):
+        return None
+
+    args = [_static_path(arg, names) for arg in node.args]
+    if isinstance(node.func, ast.Name) and node.func.id in {"Path", "str"}:
+        return args[0] if args and args[0] is not None else None
+    if isinstance(node.func, ast.Attribute):
+        chain = []
+        target: ast.AST = node.func
+        while isinstance(target, ast.Attribute):
+            chain.append(target.attr)
+            target = target.value
+        if isinstance(target, ast.Name):
+            chain.append(target.id)
+        dotted = ".".join(reversed(chain))
+        if dotted == "os.path.join" and args and all(a is not None for a in args):
+            return os.path.join(*args)
+        if dotted == "os.path.dirname" and args and args[0] is not None:
+            return os.path.dirname(args[0])
+        if dotted == "os.path.abspath" and args and args[0] is not None:
+            return os.path.abspath(args[0])
+        if node.func.attr == "resolve":
+            base = _static_path(node.func.value, names)
+            return str(Path(base).resolve()) if base is not None else None
+    return None
+
+
 def declared(ki) -> list[str]:
-    """Executable paths the KI's own preflight names, tokens and all."""
+    """Executable paths the KI's preflight names, tokens and all.
+
+    Generated preflights also check data, documentation, and Python
+    environments.  Treating the first literal ``check_file`` as the model
+    binary made CRHM's elevation NetCDF look executable.  Read only calls whose
+    own ``executable`` argument is true, while resolving their simple Path or
+    ``os.path`` assignments without executing the preflight.
+    """
     pre = getattr(ki, "preflight", None)
     if not pre or not Path(pre).is_file():
         return []
     text = Path(pre).read_text(encoding="utf-8", errors="replace")
-    return [m.group(1) for m in
-            re.finditer(r"""check_file\(\s*['"]([^'"]+)['"]""", text)]
+    try:
+        tree = ast.parse(text)
+    except SyntaxError:
+        return []
+
+    names = {"__file__": str(Path(pre))}
+    path_index, executable_index = 0, None
+    for stmt in tree.body:
+        if isinstance(stmt, (ast.FunctionDef, ast.AsyncFunctionDef)) and stmt.name == "check_file":
+            params = [arg.arg for arg in stmt.args.args]
+            if "path" in params:
+                path_index = params.index("path")
+            if "executable" in params:
+                executable_index = params.index("executable")
+            break
+
+    # Resolve module-level constants in source order.  A few generated KIs use
+    # Path division; older ones use os.path.dirname/join.
+    for stmt in tree.body:
+        if isinstance(stmt, ast.Assign):
+            value = _static_path(stmt.value, names)
+            if value is not None:
+                for target in stmt.targets:
+                    if isinstance(target, ast.Name):
+                        names[target.id] = value
+
+    out: list[str] = []
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        func_name = (node.func.id if isinstance(node.func, ast.Name)
+                     else node.func.attr if isinstance(node.func, ast.Attribute)
+                     else "")
+        if func_name != "check_file":
+            continue
+        explicit = next((kw.value for kw in node.keywords
+                         if kw.arg == "executable"), None)
+        if explicit is None and executable_index is not None and len(node.args) > executable_index:
+            explicit = node.args[executable_index]
+        if not (isinstance(explicit, ast.Constant) and explicit.value is True):
+            continue
+        if len(node.args) <= path_index:
+            continue
+        value = _static_path(node.args[path_index], names)
+        if value and value not in out:
+            out.append(value)
+    return out
 
 
 def declared_dirs(ki) -> list[str]:
@@ -219,6 +314,57 @@ def missing_imports(mods: list[str], python: str, cwd: Path | None = None) -> li
         return []
     return [ln.split(_MARK, 1)[1].strip() for ln in r.stdout.splitlines()
             if _MARK in ln]
+
+
+def _package_module(man) -> str:
+    """The import name promised by a pip manifest, when it promises one."""
+    acquire = getattr(man, "acquire", None) if man is not None else None
+    if not acquire or getattr(acquire, "strategy", "") != "pip":
+        return ""
+    raw = getattr(acquire, "produces", None) or getattr(acquire, "package", None) or ""
+    # A distribution may be pinned or use extras; imports use underscores.
+    raw = re.split(r"[<>=!~\[; ]", str(raw), maxsplit=1)[0].strip()
+    return raw.replace("-", "_") if re.fullmatch(r"[A-Za-z0-9_.-]+", raw) else ""
+
+
+def _python_candidates(cfg, configured: str) -> list[str]:
+    """Likely interpreters an install agent may have created in this workspace.
+
+    Agent providers do not share one venv convention.  Accept the small set of
+    conventional, project-contained layouts instead of requiring every model
+    to rewrite ``kiss.toml`` perfectly before GeoForge can see a successful
+    install.  The selected path is returned in the verdict and persisted by
+    the setup handler.
+    """
+    candidates: list[Path | str] = []
+    roles = getattr(cfg, "roles", {}) if cfg is not None else {}
+    root = Path(getattr(cfg, "root", Path.cwd())) if cfg is not None else Path.cwd()
+    binaries = Path(roles.get("binaries", root / "binaries"))
+    python_env = Path(roles.get("python_env", root / "venv"))
+    for base in (python_env, root / "venv", root / ".venv",
+                 binaries / "venv", binaries / ".venv"):
+        candidates.extend((base / "bin" / "python", base / "Scripts" / "python.exe"))
+    if binaries.is_dir():
+        candidates.extend(binaries.glob("*/venv/bin/python"))
+        candidates.extend(binaries.glob("*/.venv/bin/python"))
+        candidates.extend(binaries.glob("*/venv/Scripts/python.exe"))
+        candidates.extend(binaries.glob("*/.venv/Scripts/python.exe"))
+    candidates.append(configured)
+    out: list[str] = []
+    for candidate in candidates:
+        value = str(candidate)
+        resolved = shutil.which(value) or (value if Path(value).is_file() else "")
+        if resolved and resolved not in out:
+            out.append(resolved)
+    return out
+
+
+def select_python(cfg, configured: str, modules: list[str], cwd: Path | None = None) -> str:
+    """Choose the project-contained interpreter that imports the model."""
+    for candidate in _python_candidates(cfg, configured):
+        if not modules or not missing_imports(modules, candidate, cwd):
+            return candidate
+    return configured
 
 
 def find_binary(ki, man=None, cfg=None, harvested: dict | None = None) -> Path | None:
@@ -361,13 +507,24 @@ def check(ki, man=None, cfg=None, harvested: dict | None = None,
     # of, and a missing module explains a binary failure more often than the
     # other way round.
     mods = declared_imports(ki)
+    package_module = _package_module(man)
+    if package_module and package_module not in mods:
+        mods.append(package_module)
+    py = select_python(cfg, py, mods, getattr(ki, "root", None))
+    v.python = py
     if mods:
         v.missing = missing_imports(mods, py, getattr(ki, "root", None))
         v.imports_ok = not v.missing
 
     lang = str((getattr(ki, "meta", None) or {}).get("language") or "").lower()
     b = find_binary(ki, man, cfg, harvested)
-    v.needs_binary = b is not None or bool(declared(ki)) or lang in COMPILED
+    # A pip-delivered Python model is the imported package. ``produces`` in
+    # older manifests often names that module, not a filesystem executable;
+    # turning it into <binaries>/<model>/<module> caused a false red after a
+    # completely successful install (COSIPY is the real case).
+    python_package = bool(package_module) and lang == "python"
+    v.needs_binary = (not python_package and
+                      (b is not None or bool(declared(ki)) or lang in COMPILED))
 
     if not v.needs_binary and not mods:
         # SUMMA's preflight declares no file and no import. Passing it because

@@ -1,0 +1,132 @@
+# Coupling Config v2: CaMa_Flood -> SWAT_Plus
+
+coupling_config_version: '2.0'
+generated: '2026-05-23'
+generator: ata_pipeline2_coupling_gen.py v2
+metadata:
+  edge_id: CaMa_Flood_to_SWAT_Plus
+  source_model: CaMa_Flood
+  target_model: SWAT_Plus
+  source_domain: routing
+  target_domain: hydrology
+  edge_type: type6_cross_domain_feedback
+  n_forward_variables: 1
+  n_combine_variables: 0
+  n_plausible_feedback: 2
+  n_review_feedback: 0
+  is_feedback: true
+forward_edges:
+- canonical_id: discharge
+  source_canonical_id: discharge
+  target_canonical_id: discharge
+  match_type: exact_canonical
+  source_local_name: discharge
+  source_unit: m3/s
+  target_local_name: upstream_discharge
+  target_unit: m3/s
+combine_edges: []
+plausible_feedback:
+- canonical_id: surface_runoff
+  source_local_name: discharge
+  target_local_name: runoff
+- canonical_id: discharge
+  source_local_name: discharge
+  target_local_name: lateral_inflow
+review_feedback: []
+compatibility:
+- canonical_id: discharge
+  source_canonical_id: discharge
+  target_canonical_id: discharge
+  match_type: exact_canonical
+  primitives_needed:
+  - validate_boundary
+  details:
+    convert_units:
+      status: not_needed
+      units_match: true
+    exchange_data:
+      status: not_needed
+      variable_mapping:
+        source_name: discharge
+        target_name: upstream_discharge
+    validate_boundary: &id001
+      checks:
+      - no_nan
+      canonical_id: discharge
+primitives_needed:
+- validate_boundary
+execution_order:
+- validate_boundary
+primitive_configs:
+  convert_units: []
+  exchange_data: []
+  validate_boundary:
+  - *id001
+risks:
+  total_traps: 6
+  automatable: 5
+  judgment_required: 1
+  traps:
+  - canonical_var: discharge
+    model: CaMa_Flood
+    trap_id: dt_cama_003
+    description: '{''description'': ''CaMa-Flood runs but river channel widths are unrealistically wide or narrow, causing
+      wrong water depths and discharge timing'', ''error_pattern'': '''', ''detection_method'': ''value_comparis'
+    detection: '{''root_cause'': ''calc_rivwth was run using the global diminfo file instead of the regional diminfo file'',
+      ''explanation'': ''The calc_rivwth tool reads the diminfo file to determine grid dimensions (nrows'
+    fix: '{''action'': ''Re-run calc_rivwth with the regional diminfo file'', ''tool_to_run'': '''', ''manual_steps'': [''cd
+      map/{basin}_15min'', ''Verify regional diminfo exists: cat diminfo_{basin}_025deg.txt'', ''Run: ./sr'
+    is_unit_trap: true
+    automatable: true
+  - canonical_var: discharge
+    model: CaMa_Flood
+    trap_id: dt_cama_005
+    description: '{''description'': ''CaMa-Flood produces discharge at completely wrong locations -- river network does not
+      match the basin'', ''error_pattern'': '''', ''detection_method'': ''value_comparison''}'
+    detection: '{''root_cause'': ''CaMa map files from a previous basin were reused instead of regenerating for the new basin'',
+      ''explanation'': "Each basin requires its own set of CaMa-Flood map files because the river n'
+    fix: '{''action'': ''Regenerate all CaMa map files for the new basin'', ''tool_to_run'': ''tools/configure_simulation.py'',
+      ''manual_steps'': [''Create new map dir: mkdir map/{new_basin}_15min'', ''Run configure_simulat'
+    is_unit_trap: true
+    automatable: false
+  - canonical_var: discharge
+    model: SWAT_Plus
+    trap_id: qual2e_blowup
+    description: QUAL2E in-stream routing has numerical instability at extreme flows
+    detection: Any nutrient concentration > 1e6 mg/L or NaN values
+    fix: Set wq_cha=0 in codes.bsn; use basin_ls_day HRU-level outputs
+    is_unit_trap: false
+    automatable: true
+  - canonical_var: discharge
+    model: SWAT_Plus
+    trap_id: dt_008
+    description: '{''description'': ''Delineated watershed area is much larger (>2x) or smaller (<0.5x) than expected. Model
+      runs successfully but discharge is completely wrong.'', ''error_pattern'': '''', ''detection_method'': '
+    detection: '{''root_cause'': ''Outlet point snapped to the wrong stream — typically a larger river at a confluence, or
+      a smaller tributary.'', ''explanation'': ''The pour-point snapping algorithm finds the highest-accum'
+    fix: '{''action'': ''Compare delineated area to known/published area. If wrong, adjust outlet coordinates or manually
+      specify the snap point.'', ''tool_to_run'': ''delineate_watershed'', ''manual_steps'': [''Check del'
+    is_unit_trap: false
+    automatable: true
+  - canonical_var: discharge
+    model: SWAT_Plus
+    trap_id: dt_v006
+    description: '{''description'': ''SWAT+ channel discharge appears 200x too high when compared to VIC routing output'',
+      ''error_pattern'': ''SWAT+ discharge.*100x|ratio.*[5-9]\\.'', ''detection_method'': ''value_comparison''}'
+    detection: '{''root_cause'': ''SWAT+ channel output flo_out is in ha-m/day, not m³/s'', ''explanation'': "SWAT+ channel
+      daily output (channel_day.txt) reports flo_out in hectare-meters per day (ha-m/day), not cubic met'
+    fix: '{''action'': ''Convert SWAT+ channel flow: Q_cms = flo_out_ham * 10000 / 86400'', ''tool_to_run'': ''compare_swatplus_vic'',
+      ''manual_steps'': [''Read units row (line 3) from channel output'', "If flo_out unit is'
+    is_unit_trap: true
+    automatable: true
+  - canonical_var: discharge
+    model: SWAT_Plus
+    trap_id: dt_wq_001
+    description: '{''pattern'': ''channel_day.txt no3_out values > 1e6 kgN or NaN in solp_out'', ''description'': ''QUAL2E
+      in-stream routing produces physically impossible nutrient concentrations (>1e9 mg/L) during flood even'
+    detection: '{''root_cause'': ''Rev 59.3 wq_semianalyt function numerically unstable for extreme flow events'', ''explanation'':
+      ''During monsoon peak flows, the semi-analytical QUAL2E solver diverges. Small channels gen'
+    fix: '{''steps'': [''Do NOT use channel_day.txt no3_out/orgn_out for nutrient loads'', ''Use basin_ls_day.txt (sedorgn,
+      surqno3) for HRU-level nutrient export'', ''Use basin_nb_yr.txt for basin N budget (fertn, de'
+    is_unit_trap: false
+    automatable: true

@@ -1,0 +1,158 @@
+# Coupling Config v2: SFINCS -> UrbanSim
+# Hand-authored 2026-05-22 — annual maximum flood inundation depth -> parcel-level flood risk for land use simulation
+
+coupling_config_version: '2.0'
+generated: '2026-05-22'
+generator: hand_authored
+metadata:
+  edge_id: SFINCS_to_UrbanSim
+  source_model: SFINCS
+  target_model: UrbanSim
+  source_domain: flood
+  target_domain: urban
+  edge_type: type3b_cross_domain
+  n_forward_variables: 1
+  n_combine_variables: 0
+  n_plausible_feedback: 0
+  n_review_feedback: 0
+  is_feedback: false
+  coupling_frequency: annual
+  note: >
+    SFINCS provides the annual maximum flood inundation depth on a high-resolution
+    grid. UrbanSim uses flood depth as a parcel-level attribute that suppresses
+    development activity in flood-prone zones: developers avoid low-lying parcels,
+    residents relocate after repeated flooding, and zoning changes follow flood
+    maps. This coupling runs ONCE per simulation year: extract SFINCS annual max,
+    disaggregate to parcels, update UrbanSim's parcel table before the next annual
+    land-use run. It is a PARAMETER UPDATE coupling, not an inline forcing.
+forward_edges:
+- canonical_id: floodplain_depth
+  source_canonical_id: floodplain_depth
+  target_canonical_id: discharge
+  match_type: transform_semantic
+  source_local_name: flood_depth
+  source_unit: m
+  target_local_name: flood_depth_at_parcels
+  target_unit: m
+  note: >
+    UrbanSim's ATA card uses canonical_id 'discharge' for flood_depth_at_parcels
+    (m) — this is a card-level naming inconsistency. The physical quantity is
+    flood depth in metres, which is what SFINCS floodplain_depth provides.
+    Units match (m). This transform_semantic edge renames the canonical ID.
+combine_edges: []
+plausible_feedback: []
+compatibility:
+- canonical_id: floodplain_depth
+  source_canonical_id: floodplain_depth
+  target_canonical_id: discharge
+  match_type: transform_semantic
+  primitives_needed:
+  - map_space
+  - align_time
+  - exchange_data
+  - validate_boundary
+  details:
+    map_space: &ms1
+      status: parcel_zonal_max
+      note: >
+        SFINCS outputs flood_depth on a 10-100 m raster grid (variable: h or
+        computed as zs - dem). UrbanSim parcels are polygons (typically 0.01-5 ha).
+        Compute the MAXIMUM flood depth within each parcel polygon using zonal
+        statistics (rasterio/rasterstats). Maximum is more conservative than mean
+        for development suppression purposes.
+        Output: GeoDataFrame with columns: parcel_id, flood_depth_m_annual_max.
+        Join to UrbanSim parcels HDF store on parcel_id.
+      canonical_id: floodplain_depth
+    align_time: &a1
+      status: annual_max
+      note: >
+        SFINCS runs at sub-daily timestep. UrbanSim updates annually. Extract the
+        single maximum flood depth across all SFINCS output timesteps within the
+        simulation year. For the Huaihe, the monsoon season (June-September) will
+        dominate; use the multi-day event maximum, not a single peak timestep.
+      canonical_id: floodplain_depth
+    exchange_data: &e1
+      status: annual_parameter_update
+      variable_mapping:
+        source_name: flood_depth
+        target_name: flood_depth_at_parcels
+      note: >
+        Update the UrbanSim parcels table in the HDF store before each annual
+        UrbanSim run:
+          store = pd.HDFStore('urbansim_data.h5')
+          parcels = store['parcels']
+          parcels['flood_depth'] = flood_depth_series  # indexed by parcel_id
+          store['parcels'] = parcels
+          store.close()
+        UrbanSim's hedonic price model and developer model read flood_depth as
+        a continuous disamenity attribute; no threshold lookup needed.
+        Do NOT update mid-run — UrbanSim reads parcel attributes at year start.
+      canonical_id: floodplain_depth
+    validate_boundary: &v1
+      checks:
+      - no_nan
+      - 'range: [0.0, 10.0]'
+      note: >
+        Parcel flood depth > 10 m in an urban area implies either a dam-break
+        scenario or a SFINCS boundary condition error. For typical Huaihe urban
+        flooding: 95th percentile < 2 m, 99th percentile < 4 m.
+        Zero depth (no flooding) is valid and expected for most parcels in most years.
+      canonical_id: floodplain_depth
+primitives_needed:
+- map_space
+- align_time
+- exchange_data
+- validate_boundary
+execution_order:
+- map_space
+- align_time
+- exchange_data
+- validate_boundary
+primitive_configs:
+  map_space:
+  - *ms1
+  align_time:
+  - *a1
+  exchange_data:
+  - *e1
+  validate_boundary:
+  - *v1
+risks:
+  total_traps: 2
+  automatable: 1
+  judgment_required: 1
+  traps:
+  - canonical_var: floodplain_depth
+    model: SFINCS->UrbanSim
+    trap_id: canonical_id_mismatch_discharge_vs_flood_depth
+    description: >
+      UrbanSim's ATA card registers flood_depth_at_parcels under canonical_id
+      'discharge' (a naming inconsistency in the card). Coupling pipelines that
+      match on canonical_id will find no overlap between SFINCS floodplain_depth
+      and UrbanSim discharge, and will fail with "no shared canonical variables".
+      This edge CANNOT be auto-generated by pipeline2.
+    detection: pipeline2 fails with "No coupling edge: SFINCS shares no canonical variables with UrbanSim"
+    fix: >
+      Use this hand-authored config. When the UrbanSim ATA card is next revised,
+      change the canonical_id of flood_depth_at_parcels from 'discharge' to
+      'floodplain_depth'. Then pipeline2 will find an exact match.
+    is_unit_trap: false
+    automatable: false
+  - canonical_var: floodplain_depth
+    model: SFINCS->UrbanSim
+    trap_id: parameter_update_timing
+    description: >
+      UrbanSim reads parcel attributes (including flood_depth) at the START of
+      each annual simulation. If the SFINCS→UrbanSim transfer runs AFTER UrbanSim
+      has already read the parcel table for that year, the flood signal has no
+      effect until the FOLLOWING year. This introduces a 1-year lag in the
+      flood-response feedback.
+    detection: UrbanSim land use unchanged despite simulated major flood event
+    fix: >
+      Enforce execution order: SFINCS annual-max extraction → parcel table update
+      → UrbanSim annual run. Use coupled_orchestrator tier assignments to guarantee
+      SFINCS (tier 9) runs before UrbanSim parcel update (tier 9 post-process)
+      which runs before next-year UrbanSim simulation. See coupling_graph.yaml
+      execution_dag for the SFINCS→UrbanSim edge timing.
+    is_unit_trap: false
+    automatable: true

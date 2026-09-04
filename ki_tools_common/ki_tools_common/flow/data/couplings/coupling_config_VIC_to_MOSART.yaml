@@ -1,0 +1,219 @@
+# Coupling Config v2: VIC -> MOSART
+
+coupling_config_version: '2.0'
+generated: '2026-04-28'
+generator: ata_pipeline2_coupling_gen.py v2
+metadata:
+  edge_id: VIC_to_MOSART
+  source_model: VIC
+  target_model: MOSART
+  source_domain: hydrology
+  target_domain: routing
+  edge_type: type3b_cross_domain
+  n_forward_variables: 2
+  n_combine_variables: 1
+  n_plausible_feedback: 0
+  n_review_feedback: 0
+  is_feedback: false
+forward_edges:
+- canonical_id: surface_runoff
+  source_canonical_id: surface_runoff
+  target_canonical_id: surface_runoff
+  match_type: exact_canonical
+  source_local_name: runoff
+  source_unit: mm/timestep
+  target_local_name: QOVER
+  target_unit: mm/s
+- canonical_id: baseflow
+  source_canonical_id: baseflow
+  target_canonical_id: baseflow
+  match_type: exact_canonical
+  source_local_name: baseflow
+  source_unit: mm/timestep
+  target_local_name: QDRAI
+  target_unit: mm/s
+combine_edges:
+- target_canonical_id: surface_runoff
+  target_local_name: QOVER
+  target_unit: mm/s
+  sources: &id001
+  - canonical_id: surface_runoff
+    local_name: runoff
+    unit: mm/timestep
+  - canonical_id: surface_runoff
+    local_name: total_runoff
+    unit: mm/day
+  - canonical_id: baseflow
+    local_name: baseflow
+    unit: mm/timestep
+  combine_method: sum
+  note: total_runoff = surface_runoff + baseflow
+  match_type: combine_rule
+plausible_feedback: []
+review_feedback: []
+compatibility:
+- canonical_id: surface_runoff
+  source_canonical_id: surface_runoff
+  target_canonical_id: surface_runoff
+  match_type: exact_canonical
+  primitives_needed:
+  - convert_units
+  - align_time
+  - validate_boundary
+  details:
+    convert_units: &id002
+      from_unit: mm/timestep
+      to_unit: mm/s
+      known: false
+      canonical_id: surface_runoff
+    exchange_data:
+      status: not_needed
+      variable_mapping:
+        source_name: runoff
+        target_name: QOVER
+    align_time: &id004
+      from_resolution: 3-hourly
+      to_resolution: sub-hourly
+      direction: disaggregate
+      aggregation_method: distribute_uniform
+      semantic_type: flux_density
+      canonical_id: surface_runoff
+    validate_boundary: &id006
+      checks:
+      - non_negative
+      - no_nan
+      - 'range: [0.0, 100.0]'
+      canonical_id: surface_runoff
+- canonical_id: baseflow
+  source_canonical_id: baseflow
+  target_canonical_id: baseflow
+  match_type: exact_canonical
+  primitives_needed:
+  - convert_units
+  - align_time
+  - validate_boundary
+  details:
+    convert_units: &id003
+      from_unit: mm/timestep
+      to_unit: mm/s
+      known: false
+      canonical_id: baseflow
+    exchange_data:
+      status: not_needed
+      variable_mapping:
+        source_name: baseflow
+        target_name: QDRAI
+    align_time: &id005
+      from_resolution: 3-hourly
+      to_resolution: sub-hourly
+      direction: disaggregate
+      aggregation_method: distribute_uniform
+      semantic_type: flux_density
+      canonical_id: baseflow
+    validate_boundary: &id007
+      checks:
+      - non_negative
+      - no_nan
+      - 'range: [0.0, 50.0]'
+      canonical_id: baseflow
+primitives_needed:
+- align_time
+- combine_sources
+- convert_units
+- validate_boundary
+execution_order:
+- combine_sources
+- align_time
+- convert_units
+- validate_boundary
+primitive_configs:
+  combine_sources:
+  - target_canonical_id: surface_runoff
+    target_local_name: QOVER
+    target_unit: mm/s
+    sources: *id001
+    method: sum
+    note: total_runoff = surface_runoff + baseflow
+  convert_units:
+  - *id002
+  - *id003
+  exchange_data: []
+  align_time:
+  - *id004
+  - *id005
+  validate_boundary:
+  - *id006
+  - *id007
+risks:
+  total_traps: 7
+  automatable: 3
+  judgment_required: 4
+  traps:
+  - canonical_var: surface_runoff
+    model: MOSART
+    trap_id: T001
+    description: Discharge is approximately 86400x higher than expected values
+    detection: Runoff input units are mm/day but config assumes mm/s (no conversion applied)
+    fix: "Convert runoff to mm/s before use:\n  Q_mm_s = Q_mm_day / 86400.0\nOr use convert_runoff_forcing.py with --source-units\
+      \ mm/day\n"
+    is_unit_trap: true
+    automatable: false
+  - canonical_var: surface_runoff
+    model: MOSART
+    trap_id: T002
+    description: Discharge is approximately 1000x higher than expected
+    detection: Runoff units are m/s but mosartwmpy expects mm/s
+    fix: "Convert m/s to mm/s:\n  Q_mm_s = Q_m_s * 1000.0\nOr use convert_runoff_forcing.py with --source-units m/s\n"
+    is_unit_trap: true
+    automatable: false
+  - canonical_var: surface_runoff
+    model: MOSART
+    trap_id: T003
+    description: All output variables are zero or NaN
+    detection: Grid mosart_mask excludes all cells, or runoff file has zero values at grid locations
+    fix: 'Check mosart_mask: ds = xr.open_dataset(grid_path); print((ds[''fdir''].values > 0).sum())
+
+      Check runoff has data: ds = xr.open_dataset(runoff_path); print(ds[''QOVER''].values.max())
+
+      Verify lat/lon coordi'
+    is_unit_trap: false
+    automatable: true
+  - canonical_var: surface_runoff
+    model: MOSART
+    trap_id: T014
+    description: Runoff spikes unrealistically at monthly boundaries
+    detection: Multi-file runoff switching causes discontinuity; method='pad' selects closest past time
+    fix: 'Ensure runoff files overlap or have continuous time coverage.
+
+      The ''pad'' selection method means the last available timestep in the current file
+
+      is used until a new file provides a closer timestamp.
+
+      Con'
+    is_unit_trap: false
+    automatable: false
+  - canonical_var: surface_runoff
+    model: MOSART
+    trap_id: T016
+    description: BMI set_value for runoff has no effect on simulation
+    detection: When runoff.read_from_file is true, file values overwrite BMI-set values each timestep
+    fix: "Set in config.yaml:\n  runoff:\n    read_from_file: false\nThen provide runoff via BMI before each update():\n \
+      \ model.set_value('surface_runoff_flux', runoff_array)  # mm/s\n  model.update()\n"
+    is_unit_trap: true
+    automatable: false
+  - canonical_var: surface_runoff
+    model: VIC->MOSART
+    trap_id: unit_mismatch_surface_runoff
+    description: 'Unit mismatch: source [mm/timestep] vs target [mm/s]'
+    detection: Check surface_runoff units at coupling boundary
+    fix: Convert mm/timestep -> mm/s
+    is_unit_trap: true
+    automatable: true
+  - canonical_var: baseflow
+    model: VIC->MOSART
+    trap_id: unit_mismatch_baseflow
+    description: 'Unit mismatch: source [mm/timestep] vs target [mm/s]'
+    detection: Check baseflow units at coupling boundary
+    fix: Convert mm/timestep -> mm/s
+    is_unit_trap: true
+    automatable: true

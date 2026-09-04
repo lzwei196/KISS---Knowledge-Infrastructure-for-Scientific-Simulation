@@ -16,6 +16,8 @@ from __future__ import annotations
 import json
 import os
 import sys
+import tempfile
+import threading
 import urllib.request
 from pathlib import Path
 from urllib.parse import urlsplit
@@ -36,6 +38,7 @@ PROXY_ENV_KEYS = (
 # rewrite the user's Terminal environment. Remember what Finder/shell supplied
 # when GeoForge started so switching Auto/Manual/Off remains reversible.
 _BASE_PROXY_ENV = {key: os.environ.get(key) for key in PROXY_ENV_KEYS}
+_SETTINGS_LOCK = threading.RLock()
 
 
 def _path() -> Path:
@@ -43,24 +46,51 @@ def _path() -> Path:
 
 
 def load() -> dict:
-    try:
-        return json.loads(_path().read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        return {}
+    with _SETTINGS_LOCK:
+        try:
+            return json.loads(_path().read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            return {}
 
 
 def save(data: dict) -> None:
+    """Atomically replace the private settings file.
+
+    The temporary file is created as 0600 before any key bytes are written,
+    then fsynced and replaced in the same directory.  The module lock also
+    makes ``update``'s read-modify-write transaction indivisible inside this
+    desktop process.
+    """
     p = _path()
-    p.parent.mkdir(parents=True, exist_ok=True)
-    try:
-        p.parent.chmod(0o700)      # keys live here; the file mode alone is not
-    except OSError:                # enough when the directory is group-writable
-        pass
-    p.write_text(json.dumps(data, indent=2), encoding="utf-8")
-    try:
-        p.chmod(0o600)
-    except OSError:
-        pass
+    with _SETTINGS_LOCK:
+        p.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            p.parent.chmod(0o700)
+        except OSError:
+            pass
+        fd, raw_tmp = tempfile.mkstemp(prefix=".settings-", suffix=".json",
+                                       dir=p.parent)
+        tmp = Path(raw_tmp)
+        try:
+            os.fchmod(fd, 0o600)
+            payload = json.dumps(data, indent=2).encode("utf-8")
+            with os.fdopen(fd, "wb") as stream:
+                fd = -1
+                stream.write(payload)
+                stream.flush()
+                os.fsync(stream.fileno())
+            os.replace(tmp, p)
+            try:
+                p.chmod(0o600)
+            except OSError:
+                pass
+        finally:
+            if fd >= 0:
+                os.close(fd)
+            try:
+                tmp.unlink()
+            except FileNotFoundError:
+                pass
 
 
 def apply_to_env() -> None:
@@ -213,58 +243,60 @@ def update(payload: dict) -> None:
     A key value that looks like our own mask ("…abcd") means unchanged; an
     empty string means delete; anything else is the new key.
     """
-    s = load()
-    s.setdefault("api_keys", {})
-    for k, v in (payload.get("api_keys") or {}).items():
-        if k not in KEY_NAMES or (v or "").startswith("…"):
-            continue
-        if v:
-            s["api_keys"][k] = v
-            os.environ[k] = v
-        else:
-            s["api_keys"].pop(k, None)
-            os.environ.pop(k, None)
-    if "default_provider" in payload:
-        dp = payload["default_provider"]
-        if dp:
+    with _SETTINGS_LOCK:
+        s = load()
+        s.setdefault("api_keys", {})
+        for k, v in (payload.get("api_keys") or {}).items():
+            if k not in KEY_NAMES or (v or "").startswith("…"):
+                continue
+            if v:
+                s["api_keys"][k] = v
+                os.environ[k] = v
+            else:
+                s["api_keys"].pop(k, None)
+                os.environ.pop(k, None)
+        if "default_provider" in payload:
+            dp = payload["default_provider"]
+            if dp:
+                from . import api as _api
+                from . import providers as _prov
+                kind, _, pname = dp.partition(":")
+                ok = ((pname in _prov.PROVIDERS) if kind == "cli" else
+                      (pname in _api.PROVIDERS) if kind == "api" else False)
+                if not ok:
+                    raise ValueError(f"unknown provider {dp!r}")
+            s["default_provider"] = dp
+        if "kimi_security_mode" in payload:
+            mode = payload["kimi_security_mode"]
+            if mode not in KIMI_SECURITY_MODES:
+                raise ValueError(f"unknown Kimi security mode {mode!r}")
+            s["kimi_security_mode"] = mode
+        if "proxy_mode" in payload:
+            mode = payload["proxy_mode"]
+            if mode not in PROXY_MODES:
+                raise ValueError(f"unknown proxy mode {mode!r}")
+            s["proxy_mode"] = mode
+        if "proxy_url" in payload:
+            raw = str(payload.get("proxy_url") or "").strip()
+            if raw:
+                s["proxy_url"] = _normalise_proxy_url(raw)
+            else:
+                s.pop("proxy_url", None)
+        if proxy_mode(s) == "manual" and not s.get("proxy_url"):
+            raise ValueError("proxy address is required in manual mode")
+        if "proxy_providers" in payload:
+            requested = payload.get("proxy_providers")
+            if not isinstance(requested, list) or not all(
+                    isinstance(item, str) for item in requested):
+                raise ValueError("proxy providers must be a list")
             from . import api as _api
             from . import providers as _prov
-            kind, _, pname = dp.partition(":")
-            ok = (pname in _prov.PROVIDERS) if kind == "cli" else                  (pname in _api.PROVIDERS) if kind == "api" else False
-            if not ok:
-                raise ValueError(f"unknown provider {dp!r}")
-        s["default_provider"] = dp
-    if "kimi_security_mode" in payload:
-        mode = payload["kimi_security_mode"]
-        if mode not in KIMI_SECURITY_MODES:
-            raise ValueError(f"unknown Kimi security mode {mode!r}")
-        s["kimi_security_mode"] = mode
-    if "proxy_mode" in payload:
-        mode = payload["proxy_mode"]
-        if mode not in PROXY_MODES:
-            raise ValueError(f"unknown proxy mode {mode!r}")
-        s["proxy_mode"] = mode
-    if "proxy_url" in payload:
-        raw = str(payload.get("proxy_url") or "").strip()
-        if raw:
-            s["proxy_url"] = _normalise_proxy_url(raw)
-        else:
-            s.pop("proxy_url", None)
-    if proxy_mode(s) == "manual" and not s.get("proxy_url"):
-        raise ValueError("proxy address is required in manual mode")
-    if "proxy_providers" in payload:
-        requested = payload.get("proxy_providers")
-        if not isinstance(requested, list) or not all(
-                isinstance(item, str) for item in requested):
-            raise ValueError("proxy providers must be a list")
-        from . import api as _api
-        from . import providers as _prov
-        allowed = ({GITHUB_PROXY_TARGET} |
-                   {f"cli:{name}" for name in _prov.PROVIDERS} |
-                   {f"api:{name}" for name in _api.PROVIDERS})
-        unknown = sorted(set(requested) - allowed)
-        if unknown:
-            raise ValueError(f"unknown proxy providers: {', '.join(unknown)}")
-        s["proxy_providers"] = sorted(set(requested))
-        s["proxy_targets_version"] = 1
-    save(s)
+            allowed = ({GITHUB_PROXY_TARGET} |
+                       {f"cli:{name}" for name in _prov.PROVIDERS} |
+                       {f"api:{name}" for name in _api.PROVIDERS})
+            unknown = sorted(set(requested) - allowed)
+            if unknown:
+                raise ValueError(f"unknown proxy providers: {', '.join(unknown)}")
+            s["proxy_providers"] = sorted(set(requested))
+            s["proxy_targets_version"] = 1
+        save(s)

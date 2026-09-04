@@ -1,0 +1,86 @@
+# Forcing Provider Card: ERA5
+entity_type: forcing_provider
+provider_id: era5_v1
+provider_name: "ERA5 ECMWF Reanalysis"
+version: "5th generation"
+description: "Global atmospheric reanalysis, 0.25°, hourly, 1940-present"
+reference: "Hersbach et al., 2020, QJRMS"
+
+variables:
+  - canonical_id: precipitation_rate
+    local_name: tp
+    unit: "m/hr (accumulated per hour)"
+    valid_range: [0, 0.1]
+    known_traps:
+      - trap_id: era5_prec_accum
+        description: "ERA5 tp is accumulated since last forecast initialization (00 or 12 UTC). Must difference consecutive steps for hourly rate. Unit is meters, not mm."
+        severity: critical
+        fix: "precip_mm = (tp[t] - tp[t-1]) * 1000; reset at forecast init times"
+
+  - canonical_id: air_temperature
+    local_name: t2m
+    unit: K
+    valid_range: [190, 340]
+
+  - canonical_id: dewpoint_temperature
+    local_name: d2m
+    unit: K
+    valid_range: [190, 320]
+
+  - canonical_id: shortwave_radiation
+    local_name: ssrd
+    unit: "J/m2 (accumulated per hour)"
+    valid_range: [0, 5e6]
+    known_traps:
+      - trap_id: era5_rad_accum
+        description: "ssrd is accumulated J/m² since forecast init. Difference consecutive steps and divide by 3600 for W/m²."
+        severity: critical
+        fix: "sw_wm2 = (ssrd[t] - ssrd[t-1]) / 3600"
+
+  - canonical_id: longwave_radiation
+    local_name: strd
+    unit: "J/m2 (accumulated per hour)"
+    valid_range: [0, 2e6]
+    known_traps:
+      - trap_id: era5_lw_accum
+        description: "Same accumulation issue as ssrd."
+        severity: critical
+
+  - canonical_id: air_pressure
+    local_name: sp
+    unit: Pa
+    valid_range: [50000, 110000]
+
+  - canonical_id: wind_speed
+    local_name: "u10, v10"
+    unit: m/s
+    valid_range: [-50, 50]
+    known_traps:
+      - trap_id: era5_wind_components
+        description: "ERA5 provides u10 and v10 (eastward/northward components). Must compute speed = sqrt(u10² + v10²)."
+        severity: medium
+
+  - canonical_id: specific_humidity
+    local_name: q
+    unit: kg/kg
+    valid_range: [0, 0.04]
+
+  - canonical_id: sea_surface_height
+    local_name: msl
+    unit: Pa
+    valid_range: [95000, 105000]
+
+spatial:
+  type: regular_grid
+  resolution: 0.25deg
+  extent: {west: -180, east: 180, south: -90, north: 90}
+  crs: EPSG:4326
+
+temporal:
+  resolution: hourly
+  range: {start: "1940-01-01", end: "near-real-time"}
+  calendar: standard
+
+data_format: netcdf
+access: cds_api
+note: "Requires CDS API key. Download via cdsapi Python package."

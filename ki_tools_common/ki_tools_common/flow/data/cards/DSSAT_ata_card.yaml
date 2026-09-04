@@ -1,0 +1,592 @@
+ata_card_version: '1.0'
+generated: '2026-04-17'
+generator: ata_pipeline1_card_gen.py
+identity:
+  model_id: DSSAT
+  model_name: DSSAT-CSM v4.8.5 Build 41
+  domain: crop
+  secondary_domains:
+  - soil_nitrogen
+  - soil_water
+  language: Fortran 90
+  binary_path: /home/server/DSSAT/build/bin/dscsm048
+inputs:
+- canonical_id: precipitation_rate
+  local_name: precipitation
+  unit: mm/day
+  valid_range:
+  - 0.0
+  - 500.0
+  format: fortran_fixed
+  semantic_type: flux_density
+  unit_confidence: documented
+  mapping_confidence: exact_alias
+  input_category: forcing
+  conversion_notes:
+    conversion_from_cmfd: 'kg/m2/s -> mm/day: multiply by 86400; or mm/3hr -> mm/day:
+      sum 8 timesteps'
+- canonical_id: shortwave_radiation
+  local_name: solar_radiation
+  unit: MJ/m2/day
+  valid_range:
+  - 0.0
+  - 35.0
+  format: fortran_fixed
+  semantic_type: energy_flux
+  unit_confidence: documented
+  mapping_confidence: exact_alias
+  input_category: forcing
+  conversion_notes:
+    conversion_from_cmfd: 'W/m2 -> MJ/m2/day: multiply by 0.0864'
+  silent_error: If W/m2 is used directly (values 50-400), crop gets zero or excessive
+    radiation. Zero yield or abnormal growth.
+- canonical_id: air_temperature_max
+  local_name: temperature_max
+  unit: degC
+  valid_range:
+  - -50.0
+  - 60.0
+  format: fortran_fixed
+  semantic_type: temperature
+  unit_confidence: documented
+  mapping_confidence: exact_alias
+  input_category: forcing
+  conversion_notes:
+    conversion_from_cmfd: 'K -> degC: subtract 273.15'
+  silent_error: Temperature in Kelvin causes crop never to mature (phenology requires
+    degC)
+- canonical_id: air_temperature_min
+  local_name: temperature_min
+  unit: degC
+  valid_range:
+  - -60.0
+  - 50.0
+  format: fortran_fixed
+  semantic_type: temperature
+  unit_confidence: documented
+  mapping_confidence: exact_alias
+  input_category: forcing
+  conversion_notes:
+    conversion_from_cmfd: 'K -> degC: subtract 273.15'
+- canonical_id: wind_speed
+  local_name: wind_speed
+  unit: km/day
+  valid_range:
+  - 0.0
+  - 900.0
+  format: unspecified
+  semantic_type: unknown
+  unit_confidence: documented
+  mapping_confidence: exact_alias
+  input_category: forcing
+  conversion_notes:
+    conversion_from_cmfd: 'm/s -> km/day: multiply by 86.4'
+- canonical_id: soil_salinity
+  local_name: soil_salinity
+  unit: dS/m
+  semantic_type: concentration
+  mapping_confidence: inferred
+  origin: coupled_model
+  origin_confidence: high
+  format: unspecified
+- canonical_id: soil_organic_carbon
+  local_name: soil_organic_carbon
+  unit: gC/kg
+  semantic_type: mass_fraction
+  mapping_confidence: inferred
+  origin: coupled_model
+  origin_confidence: high
+  format: unspecified
+outputs:
+- canonical_id: grain_yield
+  local_name: grain_yield
+  unit: kg/ha
+  valid_range:
+  - 0
+  - 20000
+  format: unspecified
+  semantic_type: rate
+  unit_confidence: documented
+  mapping_confidence: exact_alias
+  output_section: primary
+  origin: simulated
+  origin_confidence: high
+- canonical_id: biomass
+  local_name: total_biomass
+  unit: kg/ha
+  valid_range:
+  - 0
+  - 40000
+  format: unspecified
+  semantic_type: state
+  unit_confidence: documented
+  mapping_confidence: exact_alias
+  output_section: primary
+  origin: simulated
+  origin_confidence: high
+- canonical_id: grain_yield
+  local_name: harvest_index
+  unit: fraction
+  valid_range:
+  - 0.0
+  - 0.7
+  format: unspecified
+  semantic_type: rate
+  unit_confidence: documented
+  mapping_confidence: exact_alias
+  output_section: primary
+  origin: simulated
+  origin_confidence: high
+- canonical_id: null
+  local_name: anthesis_date
+  unit: YYDDD
+  valid_range: null
+  format: unspecified
+  semantic_type: unknown
+  unit_confidence: documented
+  mapping_confidence: unmapped
+  output_section: primary
+  origin: unknown
+  origin_confidence: low
+- canonical_id: null
+  local_name: maturity_date
+  unit: YYDDD
+  valid_range: null
+  format: unspecified
+  semantic_type: unknown
+  unit_confidence: documented
+  mapping_confidence: unmapped
+  output_section: primary
+  origin: unknown
+  origin_confidence: low
+- canonical_id: null
+  local_name: daily_crop_growth
+  unit: various (m2/m2 for LAI, kg/ha for biomass)
+  valid_range: null
+  format: unspecified
+  semantic_type: unknown
+  unit_confidence: documented
+  mapping_confidence: unmapped
+  output_section: daily
+  origin: unknown
+  origin_confidence: low
+- canonical_id: null
+  local_name: daily_soil_water
+  unit: cm3/cm3
+  valid_range: null
+  format: unspecified
+  semantic_type: unknown
+  unit_confidence: documented
+  mapping_confidence: unmapped
+  output_section: daily
+  origin: unknown
+  origin_confidence: low
+- canonical_id: null
+  local_name: daily_et
+  unit: mm/day
+  valid_range: null
+  format: unspecified
+  semantic_type: unknown
+  unit_confidence: documented
+  mapping_confidence: unmapped
+  output_section: daily
+  origin: unknown
+  origin_confidence: low
+- canonical_id: n2o_emission
+  local_name: n2o_emission
+  unit: kgN/ha/day
+  valid_range: null
+  format: unspecified
+  semantic_type: flux_density
+  unit_confidence: documented
+  mapping_confidence: exact_alias
+  output_section: ghg
+  origin: simulated
+  origin_confidence: high
+- canonical_id: crop_residue_carbon
+  local_name: residue_above
+  unit: kgC/ha
+  semantic_type: mass_per_area
+  mapping_confidence: inferred
+  origin: simulated
+  origin_confidence: high
+  output_section: primary
+  format: unspecified
+  valid_range:
+  - 0
+  - 50000
+- canonical_id: root_biomass
+  local_name: root_wt
+  unit: kgDM/ha
+  semantic_type: mass_per_area
+  mapping_confidence: inferred
+  origin: simulated
+  origin_confidence: high
+  output_section: primary
+  format: unspecified
+  valid_range:
+  - 0
+  - 20000
+spatial:
+  type: point
+  resolution: 40deg
+  crs: EPSG:4326
+  source: skill_md
+temporal:
+  resolution: daily
+  calendar: standard
+  source: format_spec
+risks:
+  known_traps:
+  - canonical_var: shortwave_radiation
+    trap_id: solar_unit_wrong
+    description: Solar radiation in W/m2 instead of MJ/m2/day causes zero yield
+    detection: SRAD values > 35 in .WTH file
+    fix: Multiply by 0.0864
+    is_unit_trap: true
+    automatable: true
+    severity: high
+  - canonical_var: shortwave_radiation
+    trap_id: dt_005
+    description: '{''description'': "Simulation terminates with ErrCode 2 — solar
+      radiation (SRAD) is negative or exceeds 100 MJ/m2/day. WARNING.OUT shows ''Solar
+      radiation data error on YR DOY''.", ''error_pattern'': ''Solar'
+    detection: '{''root_cause'': ''DailyWeatherCheck in IPWTH_alt.for (line ~1283)
+      checks IF(SRAD<0.0) ErrCode=2 and IF(SRAD>100.) ErrCode=2. The value read from
+      the weather file is outside the valid physical range.'', '''
+    fix: '{''action'': ''Fix the SRAD values in the weather file to be within 0-100
+      MJ/m2/day.'', ''tool_to_run'': '''', ''manual_steps'': [''Open the weather file
+      and find the line number reported in the error.'', ''Check '
+    is_unit_trap: true
+    automatable: true
+    severity: high
+  - canonical_var: shortwave_radiation
+    trap_id: dt_009
+    description: '{''description'': "WARNING.OUT contains ''Warning: SRAD < 0.1 MJ.m-2.d-1''
+      and ''SRAD will be set equal to 0.1 MJ.m-2.d-1''. Simulation continues with
+      clamped SRAD value.", ''error_pattern'': ''Warning: SRAD <'
+    detection: '{''root_cause'': ''DailyWeatherCheck (IPWTH_alt.for, line ~1337) checks
+      IF(SRAD.LT.0.1) and silently resets SRAD to 0.1. A warning is issued but the
+      simulation continues. This masks data quality issues.'''
+    fix: '{''action'': ''Investigate and fix the source of very low SRAD values in
+      the weather file.'', ''tool_to_run'': '''', ''manual_steps'': [''Check WARNING.OUT
+      for the specific dates with low SRAD.'', ''Open the weath'
+    is_unit_trap: true
+    automatable: true
+    severity: high
+  - canonical_var: shortwave_radiation
+    trap_id: dt_013
+    description: '{''description'': ''SRAD values in weather file are 100-400+ (W/m2
+      instead of MJ/m2/day). Either triggers ErrCode 2 (SRAD > 100) or, if marginal,
+      produces overpredicted biomass.'', ''error_pattern'': ''Solar'
+    detection: '{''root_cause'': ''DSSAT expects SRAD in MJ/m2/day. Many data sources
+      (NASA POWER, weather APIs) provide instantaneous or daily-average irradiance
+      in W/m2. The conversion is SRAD_MJ = SRAD_Wm2 * 0.0864.'''
+    fix: '{''action'': ''Convert SRAD from W/m2 to MJ/m2/day by multiplying by 0.0864.'',
+      ''tool_to_run'': '''', ''manual_steps'': [''Identify the source units of solar
+      radiation data.'', ''If in W/m2 (daily average shortwa'
+    is_unit_trap: true
+    automatable: true
+    severity: high
+  - canonical_var: precipitation_rate
+    trap_id: dt_014
+    description: '{''description'': ''Simulation terminates with Error 7 from IPSOIL
+      — saturated water content (SAT) is less than drained upper limit (DUL) in one
+      or more soil layers.'', ''error_pattern'': ''Error key: IPSOIL'
+    detection: '{''root_cause'': ''IPSOIL_Inp.for (line ~499) checks IF((DUL(J)-SAT(J)).GT.0.0)
+      CALL ERROR(ERRKEY,7,FILES,LINSOL). This enforces the physical constraint SAT
+      >= DUL.'', ''explanation'': ''Soil water content f'
+    fix: '{''action'': ''Correct the soil water parameters so that SAT >= DUL >= LL
+      in every layer.'', ''tool_to_run'': '''', ''manual_steps'': [''Open the .SOL
+      file and find the soil profile identified by the error.'', ''F'
+    is_unit_trap: false
+    automatable: true
+    severity: medium
+  - canonical_var: precipitation_rate
+    trap_id: dt_015
+    description: '{''description'': ''Simulation terminates with Error 8 from IPSOIL
+      — lower limit (LL) exceeds drained upper limit (DUL) in one or more soil layers.'',
+      ''error_pattern'': ''Error key: IPSOIL.*Error.*8|LL.*DUL'
+    detection: '{''root_cause'': ''IPSOIL_Inp.for (line ~502) checks IF((LL(J)-DUL(J)).GT.0.0)
+      CALL ERROR(ERRKEY,8,FILES,LINSOL). This enforces DUL >= LL.'', ''explanation'':
+      ''The lower limit of plant-extractable water (LL'
+    fix: '{''action'': ''Correct soil water parameters so that DUL >= LL in every
+      layer.'', ''tool_to_run'': '''', ''manual_steps'': [''Open the .SOL file and
+      locate the layer reported in the error.'', ''Swap SLLL and SDUL '
+    is_unit_trap: true
+    automatable: true
+    severity: high
+  - canonical_var: precipitation_rate
+    trap_id: dt_025
+    description: '{''description'': ''Simulation terminates with Error 4 — simulation
+      start date (SDATE) is after the planting date (YRPLT). The model cannot simulate
+      pre-planting soil dynamics.'', ''error_pattern'': ''Error.'
+    detection: '{''root_cause'': ''The simulation start date (SDATE) must precede
+      or equal the planting date (YRPLT) to allow initialization of soil water and
+      nitrogen dynamics before planting. When SDATE > YRPLT, the m'
+    fix: '{''action'': ''Set SDATE to a date before the planting date.'', ''tool_to_run'':
+      '''', ''manual_steps'': [''Open the FileX and check SDATE in *SIMULATION CONTROLS
+      and YRPLT in *PLANTING DETAILS.'', ''Ensure SDATE '
+    is_unit_trap: true
+    automatable: false
+    severity: high
+  - canonical_var: precipitation_rate
+    trap_id: dt_042
+    description: '{''description'': ''Summary.OUT shows HWAH=0 and the simulation
+      completed (no error). The crop grew but never reached physiological maturity
+      or the harvested fraction was zero.'', ''error_pattern'': ''HWAH\\'
+    detection: '{''root_cause'': ''HWAH (harvested weight at harvest) can be zero
+      if: (1) the crop never reached maturity (MDAT not set), (2) HPC (harvest percentage)
+      was 0, (3) the grain-filling phase was terminated by'
+    fix: '{''action'': ''Investigate why the crop did not produce grain by examining
+      PlantGro.OUT and WARNING.OUT.'', ''tool_to_run'': '''', ''manual_steps'': [''Check
+      Summary.OUT: is MDAT (maturity date) present or -99?'''
+    is_unit_trap: false
+    automatable: true
+    severity: medium
+  - canonical_var: grain_yield
+    trap_id: rice_cultivar_china_only
+    description: 'setup_rice_experiment.py originally selected China-only cultivars
+      (CN02xx) for non-China locations (e.g., Bangladesh). Now fixed: auto-selects
+      IR 72 or region-appropriate cultivars for non-China locat'
+    detection: Rice yield <2000 kg/ha for irrigated tropical location
+    fix: Use IB0118 (IR 72) or other IRRI cultivar for South/SE Asia
+    is_unit_trap: false
+    automatable: true
+    severity: medium
+  - canonical_var: grain_yield
+    trap_id: boro_aman_detection
+    description: 'Bangladesh rice cropping (boro Dec-Apr, aman Jun-Nov) requires season-specific
+      cultivar and planting date. Default single-season logic may pick wrong season.
+
+      '
+    detection: Yield outside 3000-6000 kg/ha for Bangladesh
+    fix: Explicitly set planting DOY for target season (boro ~335, aman ~180)
+    is_unit_trap: false
+    automatable: true
+    severity: medium
+  - canonical_var: grain_yield
+    trap_id: dt_003
+    description: '{''description'': "Simulation runs without error but uses generic
+      default soil properties. Yields are implausible. The .SOL file was never read.
+      SLNO field in FileX contains ''-99'' or blanks.", ''error_pa'
+    detection: '{''root_cause'': "When SLNO(1:3)==''-99'' or SLNO(1:3)==''   '', IPSOIL_Inp.for
+      skips the entire soil file read and silently sets SLPF=1.0 and NLAYR=1. No warning
+      is issued.", ''explanation'': "In IPSOIL_Inp.'
+    fix: '{''action'': ''Set a valid 10-character soil profile ID in the *FIELDS section
+      of the FileX.'', ''tool_to_run'': "grep -n ''SLNO\\|ID_SOIL'' <FILEX>", ''manual_steps'':
+      [''Open the FileX and locate the *FIELDS s'
+    is_unit_trap: false
+    automatable: true
+    severity: medium
+  - canonical_var: grain_yield
+    trap_id: dt_023
+    description: '{''description'': ''Simulation completes without error but produces
+      implausible phenology or yield. The wrong crop model was selected (e.g., CSCRP
+      instead of CRGRO for a legume), reading wrong coefficien'
+    detection: '{''root_cause'': ''IPVAR.for uses a SELECT CASE(MODEL(1:5)) to determine
+      the READ format for cultivar parameters. If the wrong model is specified, the
+      READ still succeeds (same VARNO match) but the parse'
+    fix: '{''action'': ''Verify the MODEL field matches the intended crop model for
+      the species.'', ''tool_to_run'': '''', ''manual_steps'': [''Check the MODEL
+      field in the FileX *SIMULATION CONTROLS section.'', ''Verify it'
+    is_unit_trap: true
+    automatable: true
+    severity: high
+  - canonical_var: grain_yield
+    trap_id: dt_030
+    description: '{''description'': ''No error raised. Excessive initial NO3 concentrations
+      (e.g., > 100 ppm per layer) cause unrealistically high early-season nitrogen
+      uptake and biomass. Yields are inflated.'', ''error_pa'
+    detection: '{''root_cause'': ''DSSAT does not impose upper bounds on initial NO3
+      or NH4 concentrations. Very high initial N (e.g., from incorrectly entering
+      kg/ha instead of ppm, or copying from a different context)'
+    fix: '{''action'': ''Set realistic initial NO3 and NH4 values based on soil test
+      data or typical values for the region.'', ''tool_to_run'': '''', ''manual_steps'':
+      [''Review the SNO3 and SNH4 values in the FileX *INIT'
+    is_unit_trap: true
+    automatable: true
+    severity: high
+  - canonical_var: grain_yield
+    trap_id: dt_041
+    description: '{''description'': ''Summary.OUT contains all -99 values for yield
+      and biomass columns. The simulation produced no meaningful results despite completing.'',
+      ''error_pattern'': ''HWAH.*-99|HWAM.*-99|CWAM.*-99'''
+    detection: '{''root_cause'': ''All output summary variables are initialized to
+      -99 (OPSUM.for, line ~368: SUMDAT%HWAH=-99.0). If the simulation terminates
+      before harvest or the crop model never writes summary data, '
+    fix: '{''action'': ''Diagnose why the simulation did not produce results by checking
+      ERROR.OUT and WARNING.OUT.'', ''tool_to_run'': '''', ''manual_steps'': [''Check
+      ERROR.OUT for any runtime errors that terminated the'
+    is_unit_trap: false
+    automatable: true
+    severity: medium
+  - canonical_var: grain_yield
+    trap_id: dt_051
+    description: '{''description'': "CROPGRO-based crops (soybean, peanut, dry bean,
+      cotton, chickpea, etc.) produce zero yield despite normal phenology. PlantGro.OUT
+      shows LAI stuck near zero while leaf number advances '
+    detection: '{''root_cause'': "The photosynthesis method (PHOTO) in the FileX simulation
+      controls is set to ''R'' (radiation-use efficiency) instead of ''L'' (leaf-level).
+      CROPGRO requires PHOTO=L; using PHOTO=R causes '
+    fix: '{''action'': ''Set PHOTO=L for CROPGRO-based crops in the FileX simulation
+      controls.'', ''tool_to_run'': ''dssat_workdir_setup.py (fixed in v4.0)'', ''manual_steps'':
+      [''In the FileX, find the line: @N METHODS  '
+    is_unit_trap: true
+    automatable: false
+    severity: high
+  - canonical_var: wind_speed
+    trap_id: dt_012
+    description: '{''description'': ''No error raised. Wind speed values are implausibly
+      high (>500 km/day) or implausibly low (<1 km/day). ET calculations, canopy resistance,
+      and disease models produce incorrect results.'
+    detection: '{''root_cause'': ''DSSAT expects wind speed (WIND column) in km/day.
+      External data sources commonly provide wind in m/s. The conversion factor is
+      86.4 (m/s * 86400 s/day / 1000 m/km). If m/s values are u'
+    fix: '{''action'': ''Convert wind speed from m/s to km/day by multiplying by 86.4.'',
+      ''tool_to_run'': '''', ''manual_steps'': [''Identify the source units of wind
+      speed data (most APIs provide m/s).'', ''Multiply all W'
+    is_unit_trap: true
+    automatable: true
+    severity: high
+  - canonical_var: wind_speed
+    trap_id: dt_039
+    description: '{''description'': ''Simulation appears to hang indefinitely. CPU
+      usage is 100% but no output is produced. The auto-planting routine (AUTPLT)
+      cannot find a day within the planting window that meets soil m'
+    detection: '{''root_cause'': ''AUTPLT.for evaluates planting conditions daily
+      within the window [PWDINF, PWDINL]. If conditions are never met, YRPLT stays
+      at 9999999 until YRDOY > PWDINL, at which point CropStatus=1'
+    fix: '{''action'': ''Review and relax the auto-planting criteria, or narrow the
+      planting window.'', ''tool_to_run'': '''', ''manual_steps'': [''Check the auto-planting
+      parameters in the FileX: PWDINF, PWDINL, PTTN, PT'
+    is_unit_trap: false
+    automatable: true
+    severity: medium
+  - canonical_var: wind_speed
+    trap_id: dt_046
+    description: '{''description'': ''Weather, soil, or genotype files not found despite
+      existing at the expected paths. DSSATPRO path lookup fails silently.'', ''error_pattern'':
+      ''Weather file not found.*Neither.*nor.*were '
+    detection: '{''root_cause'': ''Three compounding issues on Linux: (1) DSSATPRO.v48
+      contains Windows backslashes that are invalid on Linux, (2) directory names
+      are case-sensitive (Soil vs SOIL), (3) sed-based path re'
+    fix: '{''action'': ''Copy all needed files into the working directory. Do not
+      rely on DSSATPRO path resolution for cross-platform runs.'', ''tool_to_run'':
+      '''', ''manual_steps'': [''Copy weather file: cp Weather/*.WT'
+    is_unit_trap: false
+    automatable: false
+    severity: medium
+  - trap_id: solar_unit_wrong
+    triplet_ref: dt_002
+    description: Solar radiation in W/m2 instead of MJ/m2/day causes zero yield
+    affected_output: Summary.OUT HWAM = 0 or near-zero
+    detection: SRAD values > 35 in .WTH file
+    fix: Multiply by 0.0864
+    is_unit_trap: true
+    automatable: true
+    severity: high
+    source: format_spec
+  - trap_id: temp_in_kelvin
+    triplet_ref: dt_003
+    description: Temperature in Kelvin instead of degC causes crop never to mature
+    affected_output: Summary.OUT MPTS = -99 (crop did not mature)
+    detection: TMAX or TMIN values > 200 in .WTH file
+    fix: Subtract 273.15
+    is_unit_trap: true
+    automatable: true
+    severity: high
+    source: format_spec
+  - trap_id: fortran_path_truncation
+    triplet_ref: dt_004
+    description: Paths longer than 72 characters cause FOTEFX runtime error
+    affected_output: Binary crashes with FOTEFX or file-not-found
+    detection: FOTEFX in stdout/stderr
+    fix: Use dssat_workdir_setup.py which creates short /tmp/ paths
+    is_unit_trap: false
+    automatable: true
+    severity: medium
+    source: format_spec
+  - trap_id: missing_cde_files
+    triplet_ref: dt_001
+    description: Missing .CDE code definition files cause MODEL.ERR crash
+    affected_output: Binary fails to start
+    detection: MODEL.ERR file created or immediate crash
+    fix: Symlink all CDE+SDA files from /home/server/DSSAT/Data/
+    is_unit_trap: false
+    automatable: true
+    severity: medium
+    source: format_spec
+  - trap_id: filex_too_many_treatments
+    triplet_ref: dt_005
+    description: FileX with >500 treatments causes NL exceeded error
+    affected_output: Binary crashes
+    detection: '''NL exceeded'' in stdout'
+    fix: Split into multiple experiment files
+    is_unit_trap: false
+    automatable: true
+    severity: medium
+    source: format_spec
+  - trap_id: rice_cultivar_china_only
+    triplet_ref: ''
+    description: 'setup_rice_experiment.py originally selected China-only cultivars
+      (CN02xx) for non-China locations (e.g., Bangladesh). Now fixed: auto-selects
+      IR 72 or region-appropriate cultivars for non-China locat'
+    affected_output: Low yield for tropical/subtropical rice outside China
+    detection: Rice yield <2000 kg/ha for irrigated tropical location
+    fix: Use IB0118 (IR 72) or other IRRI cultivar for South/SE Asia
+    is_unit_trap: false
+    automatable: true
+    severity: medium
+    source: format_spec
+  - trap_id: boro_aman_detection
+    triplet_ref: ''
+    description: 'Bangladesh rice cropping (boro Dec-Apr, aman Jun-Nov) requires season-specific
+      cultivar and planting date. Default single-season logic may pick wrong season.
+
+      '
+    affected_output: Incorrect yield due to wrong planting window
+    detection: Yield outside 3000-6000 kg/ha for Bangladesh
+    fix: Explicitly set planting DOY for target season (boro ~335, aman ~180)
+    is_unit_trap: false
+    automatable: true
+    severity: medium
+    source: format_spec
+  unit_conversions: []
+coupling:
+  chain_position: consumer_endpoint
+  native_formats:
+  - fortran_fixed
+  exchange_format: fortran_fixed
+  coupling_role: earth_system
+quality:
+  has_format_spec: true
+  has_skill_md: true
+  has_triplets: true
+  n_inputs: 5
+  n_outputs: 9
+  n_inputs_canonical: 5
+  n_outputs_canonical: 4
+  n_unmapped: 5
+  n_traps: 25
+  n_conversions: 0
+  spatial_complete: true
+  temporal_complete: true
+  unmapped_variables:
+  - name: anthesis_date
+    direction: output
+    reason: unmapped
+  - name: maturity_date
+    direction: output
+    reason: unmapped
+  - name: daily_crop_growth
+    direction: output
+    reason: unmapped
+  - name: daily_soil_water
+    direction: output
+    reason: unmapped
+  - name: daily_et
+    direction: output
+    reason: unmapped
+  validation_issues: []
+  card_status: complete

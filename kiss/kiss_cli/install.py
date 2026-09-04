@@ -23,6 +23,24 @@ from . import tls
 from .manifest import Manifest
 
 
+_IMPORT_PATH_MARKER = "__GEOFORGE_IMPORT_PATH__="
+
+
+def _marked_import_path(output: str) -> Path | None:
+    """Extract our package path without treating import chatter as a filename.
+
+    Some scientific packages print warnings, banners, or plugin diagnostics to
+    stdout while they are imported.  The old probe passed that entire combined
+    stream to ``Path``, which could turn a successful installation into
+    ``ENAMETOOLONG``.  A marker also remains reliable if an ``atexit`` handler
+    prints after our probe line.
+    """
+    if _IMPORT_PATH_MARKER not in output:
+        return None
+    value = output.rpartition(_IMPORT_PATH_MARKER)[2].splitlines()[0].strip()
+    return Path(value) if value else None
+
+
 @dataclass
 class Step:
     name: str
@@ -116,14 +134,25 @@ def _acq_pip(man, prefix, python, env=None):
     if rc != 0:
         return Step("acquire[pip]", False, out.strip()[-400:], commands=[" ".join(cmd)]), None
     mod = (man.acquire.produces or pkg).replace("-", "_")
-    rc2, out2 = _run(
-        [python, "-c", f"import {mod}; print({mod}.__file__)"], env=env)
+    probe = (
+        "import importlib; "
+        f"m=importlib.import_module({mod!r}); "
+        "p=getattr(m,'__file__',None) or "
+        "next(iter(getattr(m,'__path__',())), ''); "
+        f"print('\\n{_IMPORT_PATH_MARKER}'+str(p))"
+    )
+    rc2, out2 = _run([python, "-c", probe], env=env)
     if rc2 != 0:
         return Step("acquire[pip]", False,
                     f"installed {pkg} but `import {mod}` fails: {out2.strip()[-200:]}",
                     commands=[" ".join(cmd)]), None
+    location = _marked_import_path(out2)
+    if location is None:
+        return Step("acquire[pip]", False,
+                    f"installed {pkg} and imported {mod}, but its location could not be read",
+                    commands=[" ".join(cmd)]), None
     return Step("acquire[pip]", True, f"{pkg} importable as {mod}",
-                commands=[" ".join(cmd)]), Path(out2.strip())
+                commands=[" ".join(cmd)]), location
 
 
 def _acq_download(man, prefix, python, env=None):

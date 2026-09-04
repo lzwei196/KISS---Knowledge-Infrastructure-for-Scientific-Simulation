@@ -1,0 +1,549 @@
+ata_card_version: '1.0'
+generated: '2026-04-17'
+generator: ata_pipeline1_card_gen.py
+identity:
+  model_id: SHAW
+  model_name: SHAW v3.03
+  domain: soil_physics
+  secondary_domains:
+  - freeze_thaw
+  - snow
+  - energy_balance
+  language: Fortran 77
+  binary_path: /mnt/disk1/Hydrocraft_server/model/shaw/Code/shaw303
+inputs:
+- canonical_id: air_temperature
+  local_name: air_temperature_hourly
+  unit: degC
+  valid_range:
+  - -60.0
+  - 55.0
+  format: fortran_free
+  semantic_type: temperature
+  unit_confidence: documented
+  mapping_confidence: exact_alias
+  input_category: forcing
+- canonical_id: air_temperature_max
+  local_name: temperature_max_min_daily
+  unit: degC
+  valid_range:
+  - -60.0
+  - 55.0
+  format: fortran_free
+  semantic_type: temperature
+  unit_confidence: documented
+  mapping_confidence: exact_alias
+  input_category: forcing
+- canonical_id: wind_speed
+  local_name: wind_speed
+  unit: m/s (IFLAGSI=1) or mph/miles_day (IFLAGSI=0)
+  valid_range:
+  - 0.0
+  - 80.0
+  format: unspecified
+  semantic_type: unknown
+  unit_confidence: documented
+  mapping_confidence: exact_alias
+  input_category: forcing
+- canonical_id: relative_humidity
+  local_name: relative_humidity
+  unit: percent (0-100)
+  valid_range:
+  - 0.0
+  - 100.0
+  format: unspecified
+  semantic_type: fraction
+  unit_confidence: documented
+  mapping_confidence: exact_alias
+  input_category: forcing
+- canonical_id: dewpoint_temperature
+  local_name: dewpoint_temperature
+  unit: degC
+  valid_range:
+  - -60.0
+  - 40.0
+  format: unspecified
+  semantic_type: temperature
+  unit_confidence: documented
+  mapping_confidence: exact_alias
+  input_category: forcing
+- canonical_id: precipitation_rate
+  local_name: precipitation
+  unit: mm (IFLAGSI=1) or inches (IFLAGSI=0)
+  valid_range:
+  - 0.0
+  - 200.0
+  format: per-timestep accumulation
+  semantic_type: flux_density
+  unit_confidence: documented
+  mapping_confidence: exact_alias
+  input_category: forcing
+- canonical_id: shortwave_radiation
+  local_name: solar_radiation
+  unit: W/m2
+  valid_range:
+  - 0.0
+  - 1400.0
+  format: instantaneous (hourly) or average daily
+  semantic_type: energy_flux
+  unit_confidence: documented
+  mapping_confidence: exact_alias
+  input_category: forcing
+  conversion_notes:
+    conversion_from_cmfd: If CMFD gives MJ/m2/day, multiply by 11.574 to get average
+      W/m2
+- canonical_id: crop_residue_carbon
+  local_name: residue_carbon
+  unit: kgC/ha
+  semantic_type: mass_per_area
+  mapping_confidence: inferred
+  origin: coupled_model
+  origin_confidence: high
+  format: unspecified
+- canonical_id: root_biomass
+  local_name: root_biomass
+  unit: kgDM/ha
+  semantic_type: mass_per_area
+  mapping_confidence: inferred
+  origin: coupled_model
+  origin_confidence: high
+  format: unspecified
+outputs:
+- canonical_id: soil_temperature
+  local_name: soil_temperature_profiles
+  unit: degC
+  valid_range:
+  - -30.0
+  - 50.0
+  format: ascii_text
+  semantic_type: temperature
+  unit_confidence: documented
+  mapping_confidence: exact_alias
+  output_section: primary
+  origin: simulated
+  origin_confidence: high
+- canonical_id: soil_moisture
+  local_name: soil_moisture_profiles
+  unit: fraction (volumetric)
+  valid_range:
+  - 0.0
+  - 0.6
+  format: ascii_text
+  semantic_type: state
+  unit_confidence: documented
+  mapping_confidence: exact_alias
+  output_section: primary
+  origin: simulated
+  origin_confidence: high
+- canonical_id: frost_depth
+  local_name: frost_thaw_depth
+  unit: m
+  valid_range:
+  - 0.0
+  - 5.0
+  format: ascii_text
+  semantic_type: state
+  unit_confidence: documented
+  mapping_confidence: exact_alias
+  output_section: primary
+  origin: simulated
+  origin_confidence: high
+- canonical_id: snow_depth
+  local_name: snow_depth_swe
+  unit: m (depth), mm (SWE)
+  valid_range:
+  - 0.0
+  - 5.0
+  format: unspecified
+  semantic_type: state
+  unit_confidence: documented
+  mapping_confidence: exact_alias
+  output_section: primary
+  origin: simulated
+  origin_confidence: high
+- canonical_id: null
+  local_name: energy_balance
+  unit: W/m2
+  valid_range: null
+  format: ascii_text
+  semantic_type: unknown
+  unit_confidence: documented
+  mapping_confidence: unmapped
+  output_section: primary
+  origin: unknown
+  origin_confidence: low
+- canonical_id: null
+  local_name: water_balance
+  unit: mm
+  valid_range: null
+  format: ascii_text
+  semantic_type: unknown
+  unit_confidence: documented
+  mapping_confidence: unmapped
+  output_section: primary
+  origin: unknown
+  origin_confidence: low
+spatial:
+  type: 1d_vertical
+  resolution: unspecified
+  crs: EPSG:4326
+  source: none
+temporal:
+  resolution: hourly
+  calendar: standard
+  source: format_spec
+risks:
+  known_traps:
+  - canonical_var: shortwave_radiation
+    trap_id: solar_mj_not_wm2
+    description: Solar radiation in MJ/m2/day not converted to W/m2 — 11.6x too low
+    detection: Very low energy input, cold bias
+    fix: Multiply MJ/m2/day by 11.574 to get average W/m2
+    is_unit_trap: true
+    automatable: true
+    severity: high
+  - canonical_var: shortwave_radiation
+    trap_id: shaw_020
+    description: Solar radiation in wrong time convention
+    detection: SHAW expects solar radiation (SUNHOR) as instantaneous value at the
+      measurement hour (W/m2). Some datasets provide cumulative or period-average
+      radiation, leading to wrong diurnal energy partition
+    fix: CMFD/MSWX provide period-average W/m2 — this is acceptable for SHAW. NASA
+      POWER hourly provides instantaneous — also fine. For daily mode, provide average
+      daily radiation in W/m2.
+    is_unit_trap: true
+    automatable: false
+    severity: high
+  - canonical_var: shortwave_radiation
+    trap_id: shaw_029
+    description: Solar radiation in MJ/m2/day not converted to W/m2 for daily mode
+    detection: Manitoba MAWP stations report daily total solar radiation as TotRS_MJ
+      (MJ/m2/day). SHAW daily mode expects average daily solar radiation in W/m2.
+      Without conversion, values are ~11.6x too low (e.g., 3
+    fix: 'Convert: W_m2 = MJ_m2_day * 1e6 / 86400 (= multiply by 11.574). Verify:
+      daily average solar should be 30-300 W/m2 depending on latitude and season.
+      If values are < 10, the MJ→W conversion was likely m'
+    is_unit_trap: true
+    automatable: true
+    severity: high
+  - canonical_var: wind_speed
+    trap_id: shaw_005
+    description: Daily wind speed in miles/day not m/s when IFLAGSI=0
+    detection: For MTSTEP=1 (daily) with IFLAGSI=0, SHAW expects wind in miles/day
+      (NOT mph). This is different from hourly format where it expects mph. Using
+      m/s here gives ~53.7x wrong wind
+    fix: Use IFLAGSI=1 consistently with HydroCraft forcing. Daily wind is m/s with
+      IFLAGSI=1.
+    is_unit_trap: false
+    automatable: false
+    severity: medium
+  - canonical_var: wind_speed
+    trap_id: shaw_021
+    description: SHAW residue RESTKB value wrong for crop type
+    detection: RESTKB controls wind influence on heat/vapor transfer through residue.
+      Using RESTKB=4.0 (wheat) for corn stalks underestimates wind exposure, keeping
+      residue too moist
+    fix: RESTKB=4.0 for small/lying residue (wheat, grass). RESTKB=8.5 for large/standing
+      residue (corn stalks). The configure_residue.py tool selects correct values
+      per crop.
+    is_unit_trap: false
+    automatable: false
+    severity: medium
+  - canonical_var: wind_speed
+    trap_id: shaw_023
+    description: Windows backslash paths in SHAW input files on Linux
+    detection: SHAW distribution uses Windows backslash paths (e.g., US-Rms-Input\US-Rms.sit).
+      On Linux, backslash is a literal character in filenames, not a path separator,
+      causing 'file not found' errors
+    fix: 'Replace ALL backslashes with forward slashes in .inp AND .sit files. Both
+      files reference other files: .inp references .sit/.wea/.moi/.tem, and .sit references
+      plant growth files (.gro). Use: sed -i '''
+    is_unit_trap: false
+    automatable: false
+    severity: medium
+  - canonical_var: precipitation_rate
+    trap_id: mtstep_format_mismatch
+    description: MTSTEP=0 (hourly) but weather file is daily format — zero precip
+    detection: Zero precipitation despite data in .wea file
+    fix: Set MTSTEP=1 for daily weather data
+    is_unit_trap: false
+    automatable: true
+    severity: medium
+  - canonical_var: precipitation_rate
+    trap_id: hrnoon_wrong
+    description: HRNOON=0.01 instead of ~12.3 — precip assigned to hour 0
+    detection: All precip concentrated at midnight
+    fix: 'Compute from longitude: HRNOON = 12.0 - (lon - tz_meridian) / 15'
+    is_unit_trap: false
+    automatable: true
+    severity: medium
+  - canonical_var: precipitation_rate
+    trap_id: shaw_003
+    description: Wind speed units mismatch with IFLAGSI flag
+    detection: IFLAGSI=0 expects wind in mph (hourly) or miles/day (daily). CMFD/MSWX/NASA
+      POWER provide wind in m/s. Using m/s with IFLAGSI=0 gives ~2.2x wrong wind speed,
+      causing wrong ET and energy balance
+    fix: 'Always set IFLAGSI=1 when using CMFD, MSWX, or NASA POWER forcing. IFLAGSI=1
+      means all SI units: wind in m/s, precipitation in mm.'
+    is_unit_trap: true
+    automatable: false
+    severity: high
+  - canonical_var: precipitation_rate
+    trap_id: shaw_004
+    description: Precipitation units mismatch with IFLAGSI flag
+    detection: IFLAGSI=0 expects precipitation in inches. CMFD/MSWX provide mm. Using
+      mm with IFLAGSI=0 gives ~25.4x wrong precipitation
+    fix: Set IFLAGSI=1 for metric units (mm). This is the most common SHAW setup error.
+    is_unit_trap: true
+    automatable: false
+    severity: high
+  - canonical_var: precipitation_rate
+    trap_id: shaw_016
+    description: PONDMX=0 causes all excess water to run off immediately
+    detection: With PONDMX=0 (max ponding depth), any water exceeding infiltration
+      capacity runs off instantly. This overestimates runoff and underestimates infiltration
+      on flat terrain
+    fix: 'Set PONDMX > 0 for flat sites. Typical values: 0.5-2.0 cm for flat agricultural
+      land, 0.0 for steep slopes. Check site topography.'
+    is_unit_trap: false
+    automatable: false
+    severity: medium
+  - canonical_var: precipitation_rate
+    trap_id: shaw_019
+    description: Initial moisture too high causes saturation excess in first timestep
+    detection: Setting initial moisture near saturation (theta > 0.45) at all depths
+      causes immediate drainage and runoff in the first timestep, creating a large
+      water balance artifact in the first day
+    fix: Use field capacity (typically 0.25-0.35 m3/m3) as initial moisture. Run a
+      1-year spinup and discard the first year from analysis.
+    is_unit_trap: false
+    automatable: false
+    severity: medium
+  - canonical_var: precipitation_rate
+    trap_id: shaw_026
+    description: MTSTEP=0 (hourly) but weather file has daily data (8 columns)
+    detection: SHAW reads weather differently based on MTSTEP flag in .inp Line B.
+      MTSTEP=0 expects 9 hourly columns (JD JH JYR TA WIND HUM PRECIP SNODEN SUNHOR).
+      MTSTEP=1 expects 8 daily columns (JD JYR TMAX TMIN T
+    fix: 'Set MTSTEP=1 in .inp Line B for daily weather data. Set MTSTEP=0 for hourly
+      data. The daily format has NO hour column and uses TMAX/TMIN instead of hourly
+      TA. Verify column count: 8=daily, 9=hourly. T'
+    is_unit_trap: true
+    automatable: true
+    severity: high
+  - canonical_var: precipitation_rate
+    trap_id: shaw_027
+    description: Weather file has columns in YR DOY order instead of DOY YR
+    detection: "SHAW daily format (MTSTEP=1) expects JD first, then JYR:\n  JD JYR\
+      \ TMAX TMIN TDEW WIND PRECIP SOLAR\nIf the file has YR first (YR DOY ...), SHAW\
+      \ reads year as day-of-year and vice versa. For year 19 and"
+    fix: 'Always write DOY first, then year: JD JYR. This applies to ALL SHAW data
+      files (.wea, .tem, .moi). Verify: first column should be 1-366 (day of year),
+      second column should be 2-digit year (19, 20, etc'
+    is_unit_trap: true
+    automatable: true
+    severity: high
+  - canonical_var: air_temperature
+    trap_id: shaw_012
+    description: 99999 sentinel value in temperature file
+    detection: Temperature value 99999 means 'no measurement' and SHAW will interpolate.
+      But if ALL values at a time step are 99999, SHAW may crash or produce garbage
+    fix: Ensure at least some nodes have valid temperatures in each profile. Use set_initial_conditions.py
+      to generate complete profiles.
+    is_unit_trap: false
+    automatable: false
+    severity: medium
+  - canonical_var: air_temperature
+    trap_id: shaw_013
+    description: SHAW uses 2-digit year codes
+    detection: SHAW uses 2-digit year codes (86 = 1986, 05 = 2005). If full 4-digit
+      years are written (2005), SHAW may misparse the weather/moisture/temperature
+      files
+    fix: 'Convert 4-digit years to 2-digit: year % 100. For year < 2000, values >
+      50 are interpreted as 1900s. For year >= 2000, values < 50 are 2000s.'
+    is_unit_trap: true
+    automatable: true
+    severity: high
+  - canonical_var: air_temperature
+    trap_id: shaw_014
+    description: Snow density set to 0 in weather file
+    detection: SNODEN=0 is valid — it tells SHAW to compute snow density from air
+      temperature. This is NOT an error, just potentially less accurate than measured
+      density
+    fix: SNODEN=0 is the recommended default when snow density data is unavailable.
+      SHAW uses an empirical T-density relationship.
+    is_unit_trap: false
+    automatable: false
+    severity: medium
+  - canonical_var: air_temperature
+    trap_id: shaw_017
+    description: Measurement height (HEIGHT) less than canopy height
+    detection: SHAW requires HEIGHT > max canopy height. If HEIGHT < plant height,
+      the wind/temperature profile extrapolation becomes physically impossible
+    fix: 'Set HEIGHT to at least 1m above the maximum expected canopy height. Typical:
+      2-3m for crops, 15m+ for forests.'
+    is_unit_trap: false
+    automatable: false
+    severity: medium
+  - canonical_var: air_temperature
+    trap_id: shaw_025
+    description: SHAW year format in .inp PEST section uses 4-digit years but model
+      expects 2-digit elsewhere
+    detection: The PEST comparison section at the bottom of .inp (lines 27+) uses
+      4-digit years, while weather/moisture/temperature data uses 2-digit years. Mixing
+      conventions in the same file is confusing but corre
+    fix: This is by design. PEST section lines use 4-digit years. Weather/moisture/temp
+      data files use 2-digit years. Do NOT 'fix' the PEST section to 2-digit.
+    is_unit_trap: false
+    automatable: false
+    severity: medium
+  - canonical_var: air_temperature
+    trap_id: shaw_028
+    description: Solar noon (HRNOON) parameter set to wrong value in .sit Line C
+    detection: HRNOON in .sit Line C controls the timing of the diurnal temperature,
+      radiation, and wind cycles. A value of 0.01 (instead of ~12.0-12.5) shifts the
+      entire diurnal cycle, making SHAW compute sunrise/s
+    fix: "HRNOON = 12.0 + (standard_meridian - longitude) / 15.0 For Manitoba (100.37W,\
+      \ Central time zone, std meridian=105W):\n  HRNOON = 12.0 + (105 - 100.37) /\
+      \ 15 = 12.3 hours\nFor Saskatchewan (104.7W): HRNOO"
+    is_unit_trap: true
+    automatable: false
+    severity: high
+  - canonical_var: air_temperature
+    trap_id: shaw_030
+    description: Simulation start date must be 1 day AFTER first weather line
+    detection: SHAW's DAY2HR subroutine reads the PREVIOUS day's TMAX/TMIN for temperature
+      interpolation (lines 3388-3395 in Shaw303.for). If JSTART in .sit equals the
+      first DOY in .wea, SHAW has no previous day dat
+    fix: 'Set JSTART in .sit Line B to be at least 1 day AFTER the first line in the
+      .wea file. Example: if .wea starts at DOY 305, set JSTART=306. The first .wea
+      line provides the "previous day" data for inter'
+    is_unit_trap: false
+    automatable: true
+    severity: medium
+  - canonical_var: air_temperature
+    trap_id: shaw_031
+    description: Copy-first rule violated — .sit generated from scratch instead of
+      template
+    detection: 'Generating SHAW .sit files from scratch (even following the manual)
+      misses implicit format requirements: exact line structure (Lines A-J), flag-dependent
+      sections (F-series only if MCANFLG=1/3), soil '
+    fix: ALWAYS use setup_shaw_from_template.py which copies the validated JackPine
+      .sit/.inp/.tem/.moi templates and updates only site-specific values. Never generate
+      .sit from scratch. This follows cross-mod
+    is_unit_trap: true
+    automatable: false
+    severity: high
+  - trap_id: mtstep_format_mismatch
+    triplet_ref: shaw_026
+    description: MTSTEP=0 (hourly) but weather file is daily format — zero precip
+    affected_output: All water balance outputs
+    detection: Zero precipitation despite data in .wea file
+    fix: Set MTSTEP=1 for daily weather data
+    is_unit_trap: false
+    automatable: true
+    severity: medium
+    source: format_spec
+  - trap_id: weather_column_swap
+    triplet_ref: shaw_027
+    description: Weather columns YR DOY instead of DOY YR — wrong dates parsed
+    affected_output: All outputs (wrong time alignment)
+    detection: Dates don't match expected period
+    fix: 'Ensure column order: DOY first, YR second'
+    is_unit_trap: false
+    automatable: true
+    severity: medium
+    source: format_spec
+  - trap_id: hrnoon_wrong
+    triplet_ref: shaw_028
+    description: HRNOON=0.01 instead of ~12.3 — precip assigned to hour 0
+    affected_output: Diurnal distribution of precipitation
+    detection: All precip concentrated at midnight
+    fix: 'Compute from longitude: HRNOON = 12.0 - (lon - tz_meridian) / 15'
+    is_unit_trap: false
+    automatable: true
+    severity: medium
+    source: format_spec
+  - trap_id: solar_mj_not_wm2
+    triplet_ref: shaw_029
+    description: Solar radiation in MJ/m2/day not converted to W/m2 — 11.6x too low
+    affected_output: Energy balance, ET, soil temperature
+    detection: Very low energy input, cold bias
+    fix: Multiply MJ/m2/day by 11.574 to get average W/m2
+    is_unit_trap: true
+    automatable: true
+    severity: high
+    source: format_spec
+  - trap_id: jstart_too_early
+    triplet_ref: shaw_030
+    description: JSTART = first .wea DOY — no previous-day data available
+    affected_output: Initialization failure or wrong first-day values
+    detection: SHAW stops or produces bad first-day output
+    fix: JSTART = first_wea_doy + 1
+    is_unit_trap: false
+    automatable: true
+    severity: medium
+    source: format_spec
+  - trap_id: mcanflg_root_line
+    triplet_ref: dt_v003
+    description: MCANFLG=0 with root distribution line in .sit causes Fortran read
+      error
+    affected_output: SHAW crashes at input parsing
+    detection: Fortran read error in .sit file
+    fix: Do NOT include root distribution line when MCANFLG=0
+    is_unit_trap: false
+    automatable: true
+    severity: medium
+    source: format_spec
+  - trap_id: nsalt_extra_columns
+    triplet_ref: dt_v004
+    description: NSALT=0 with ASALT/DISPER columns in soil properties — column shift
+    affected_output: All soil properties parsed wrong
+    detection: Unexpected soil property values
+    fix: Do NOT include ASALT/DISPER columns when NSALT=0
+    is_unit_trap: false
+    automatable: true
+    severity: medium
+    source: format_spec
+  - trap_id: weather_eof_padding
+    triplet_ref: dt_v005
+    description: Weather file needs +24h padding at end to avoid EOF
+    affected_output: SHAW stops early or crashes at end
+    detection: Simulation ends before expected date
+    fix: Add 24 hours of padding data at end of .wea file
+    is_unit_trap: false
+    automatable: true
+    severity: medium
+    source: format_spec
+  unit_conversions: []
+coupling:
+  chain_position: upstream_producer
+  native_formats:
+  - ascii_text
+  - fortran_free
+  - instantaneous (hourly) or average daily
+  - per-timestep accumulation
+  exchange_format: ascii_text
+  coupling_role: earth_system
+quality:
+  has_format_spec: true
+  has_skill_md: true
+  has_triplets: true
+  n_inputs: 7
+  n_outputs: 6
+  n_inputs_canonical: 7
+  n_outputs_canonical: 4
+  n_unmapped: 2
+  n_traps: 30
+  n_conversions: 0
+  spatial_complete: true
+  temporal_complete: true
+  unmapped_variables:
+  - name: energy_balance
+    direction: output
+    reason: unmapped
+  - name: water_balance
+    direction: output
+    reason: unmapped
+  validation_issues: []
+  card_status: complete

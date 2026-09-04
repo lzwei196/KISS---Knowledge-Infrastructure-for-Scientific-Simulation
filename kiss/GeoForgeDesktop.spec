@@ -4,7 +4,12 @@
 from pathlib import Path
 import tomllib
 
-from PyInstaller.utils.hooks import collect_all, collect_dynamic_libs, copy_metadata
+from PyInstaller.utils.hooks import (
+    collect_all,
+    collect_data_files,
+    collect_dynamic_libs,
+    copy_metadata,
+)
 
 
 # PyInstaller exposes SPECPATH as the directory containing this spec.
@@ -17,6 +22,7 @@ ICON = REPO / "assets" / "logo.icns"
 KI_TOOLS_SOURCE = REPO / "ki_tools_common"
 
 trust_datas, trust_binaries, trust_hidden = collect_all("truststore")
+certifi_datas = collect_data_files("certifi")
 calibration_datas = []
 for distribution in ("numpy", "PyYAML", "spotpy", "pymoo", "moocore"):
     calibration_datas.extend(copy_metadata(distribution))
@@ -43,6 +49,17 @@ harness_hidden = [
     "ki_tools_common.harness.ki_path",
     "ki_tools_common.harness.ki_attention",
     "ki_tools_common.harness.agent_spawn",
+    # the plan → approve → execute → verify flow (lazy __getattr__ imports need these listed)
+    "ki_tools_common.flow",
+    "ki_tools_common.flow.states",
+    "ki_tools_common.flow.resolve",
+    "ki_tools_common.flow.plan",
+    "ki_tools_common.flow.approval",
+    "ki_tools_common.flow.contracts",
+    "ki_tools_common.flow.receipts",
+    "ki_tools_common.flow.policy",
+    "ki_tools_common.flow.tools",
+    "ki_tools_common.flow.build_data",
 ]
 
 a = Analysis(
@@ -59,6 +76,7 @@ a = Analysis(
         (str(REPO / "release-manifest.json"), "."),
         (str(REPO / "DESKTOP_CHANGELOG.md"), "."),
         *trust_datas,
+        *certifi_datas,
         *calibration_datas,
     ],
     hiddenimports=[*trust_hidden, *calibration_hidden, *harness_hidden],
@@ -93,7 +111,9 @@ exe = EXE(
     console=False,
     disable_windowed_traceback=False,
     argv_emulation=False,
-    target_arch="arm64",
+    # Build the runner's native architecture.  Hard-coding arm64 made the
+    # best-effort Intel release job produce the wrong architecture.
+    target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
     icon=str(ICON),

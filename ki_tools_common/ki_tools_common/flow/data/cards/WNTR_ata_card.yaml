@@ -1,0 +1,178 @@
+# ATA Card: WNTR
+# Hand-authored 2026-05-22 for Huaihe 30-model system
+
+ata_card_version: '1.0'
+generated: '2026-05-22'
+generator: hand_authored
+identity:
+  model_id: WNTR
+  model_name: WNTR v1.4.0 (Water Network Tool for Resilience)
+  domain: urban
+  secondary_domains:
+  - water_quality
+  - hydrology
+  language: Python 3.12
+  binary_path: /mnt/disk1/Hydrocraft_server/python_env/bin/python
+inputs:
+- canonical_id: water_demand
+  local_name: base_demand
+  unit: m3/s
+  valid_range:
+  - 0.0
+  - 10.0
+  format: epanet_inp
+  semantic_type: volumetric_flow
+  unit_confidence: documented
+  mapping_confidence: exact_alias
+  input_category: forcing
+  conversion_notes:
+    from_cwatm: 'CWatM municipal water demand (m3/day) per district / 86400 = m3/s at demand node'
+    from_swmm: 'SWMM domestic demand nodes (L/s) / 1000 = m3/s'
+  silent_error: Providing L/s instead of m3/s when WNTR wn.options.hydraulics.demand_model='DDA'.
+    No error; pressures are 1000× wrong.
+- canonical_id: groundwater_head
+  local_name: reservoir_head
+  unit: m
+  valid_range:
+  - -500.0
+  - 8000.0
+  format: epanet_inp
+  semantic_type: state
+  unit_confidence: documented
+  mapping_confidence: exact_alias
+  input_category: boundary_conditions
+  conversion_notes:
+    from_modflow6: 'MODFLOW6 hydraulic head (m) at water intake cell → WNTR reservoir head (m)'
+- canonical_id: water_surface_elevation
+  local_name: tank_init_level
+  unit: m
+  valid_range:
+  - 0.0
+  - 100.0
+  format: epanet_inp
+  semantic_type: state
+  unit_confidence: documented
+  mapping_confidence: exact_alias
+  input_category: initial_conditions
+  conversion_notes:
+    from_glm: 'GLM lake_level (m, absolute) - tank_elevation_m = init_level (m)'
+outputs:
+- canonical_id: pressure
+  local_name: pressure_at_nodes
+  unit: m
+  valid_range:
+  - -50.0
+  - 500.0
+  format: csv
+  semantic_type: state
+  unit_confidence: documented
+  mapping_confidence: exact_alias
+  output_section: primary
+  origin: simulated
+  origin_confidence: high
+- canonical_id: discharge
+  local_name: flowrate_in_pipes
+  unit: m3/s
+  valid_range:
+  - -10.0
+  - 10.0
+  format: csv
+  semantic_type: volumetric_flow
+  unit_confidence: documented
+  mapping_confidence: exact_alias
+  output_section: primary
+  origin: simulated
+  origin_confidence: high
+- canonical_id: water_age
+  local_name: age_at_nodes
+  unit: hours
+  valid_range:
+  - 0.0
+  - 720.0
+  format: csv
+  semantic_type: state
+  unit_confidence: documented
+  mapping_confidence: exact_alias
+  output_section: water_quality
+  origin: simulated
+  origin_confidence: high
+- canonical_id: resilience_index
+  local_name: todini_resilience_index
+  unit: dimensionless (0-1)
+  valid_range:
+  - 0.0
+  - 1.0
+  format: csv
+  semantic_type: fraction
+  unit_confidence: documented
+  mapping_confidence: exact_alias
+  output_section: primary
+  origin: simulated
+  origin_confidence: high
+spatial:
+  type: network_graph
+  resolution: pipe_level
+  crs: EPSG:4326
+  source: format_spec
+temporal:
+  resolution: hourly
+  calendar: standard
+  source: format_spec
+risks:
+  known_traps:
+  - canonical_var: water_demand
+    trap_id: demand_unit_lps_vs_m3s
+    description: WNTR accepts demand in m3/s for SI networks (units='LPS' in INP ≠ m3/s).
+      The INP file 'units' field determines the unit interpretation. If INP says 'LPS'
+      but you multiply demand by 1000 assuming m3/s, actual demand is 1000× too large.
+    detection: All nodes report negative pressure; simulation fails to converge
+    fix: Always check the UNITS field in INP header; use wntr.network.read() and verify
+      wn.options.hydraulics.units == 'LPS' before scaling demand
+    is_unit_trap: true
+    automatable: true
+    severity: high
+  - canonical_var: pressure
+    trap_id: negative_pressure_pipe_failure
+    description: Pipe failure scenarios cause negative pressure at downstream nodes (physical
+      cavitation). WNTR's DDA (Demand-Driven Analysis) does not model this correctly;
+      use PDA (Pressure-Driven Analysis) for failure scenarios.
+    detection: Pressure < -5 m at multiple nodes during pipe-failure simulation
+    fix: 'Switch to PDA: wn.options.hydraulics.demand_model = ''PDA''; set minimum_pressure and required_pressure'
+    is_unit_trap: false
+    automatable: true
+    severity: medium
+  - canonical_var: resilience_index
+    trap_id: flood_surge_not_modeled
+    description: WNTR does not model external flooding of the distribution network (pipe
+      submersion, back-pressure from floodwater). CaMa-Flood inundation depth > pipe
+      crown elevation is a separate impact assessment step not native to WNTR.
+    detection: n/a — this is a model scope limitation
+    fix: Post-process CaMa flddph to identify submerged pipes; remove those links from
+      the network before running WNTR flood-scenario
+    is_unit_trap: false
+    automatable: false
+    severity: medium
+  unit_conversions: []
+coupling:
+  chain_position: consumer_endpoint
+  native_formats:
+  - epanet_inp
+  - csv
+  exchange_format: csv
+  coupling_role: earth_system
+quality:
+  has_format_spec: true
+  has_skill_md: false
+  has_triplets: false
+  n_inputs: 3
+  n_outputs: 4
+  n_inputs_canonical: 3
+  n_outputs_canonical: 4
+  n_unmapped: 0
+  n_traps: 3
+  n_conversions: 0
+  spatial_complete: true
+  temporal_complete: true
+  unmapped_variables: []
+  validation_issues: []
+  card_status: complete

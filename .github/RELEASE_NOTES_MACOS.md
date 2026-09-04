@@ -1,26 +1,30 @@
 GeoForge Desktop — 127 Earth-system models with their KISS Knowledge
 Infrastructures, driven by the GeoForge agent.
 
-## What is new in v0.6.45
+## What is new in v0.6.50
 
-- One configurable network route now covers the selected AI provider and the
-  Git, pip, curl, and model-download commands its Agent launches. Auto, manual
-  HTTP/SOCKS, and off modes can be enabled separately for Claude, Codex, and Kimi.
-- Provider DNS, VPN, proxy, and sign-in failures now create a clear Needs You
-  request instead of an unexplained `Load failed`.
-- Users can choose or create each model installation folder. GeoForge records
-  the path in both `kiss.toml` and `.geoforge-install.json`.
-- The complete KI library was refreshed from canonical revision
-  `90a9163bd696fa6d42a471fc0c5ac2b347156d64`; all 127 packages catalogue and
-  server-only VIC, CaMa-Flood, and Lohmann Routing links are now portable files.
-- The full KI harness contract is import-checked. Calibration dependencies and
-  numerical backends are checked from current imports, not a stale cached state.
-- macOS, Windows, and CLI packages use one version source. See
+- The KI harness now has a real plan → user approval → execute → verify gate.
+  Downloads and model tools remain unavailable until the recorded data inventory
+  and plan are approved; approved runs produce validation receipts.
+- Harness and Flow are frozen as importable code. Startup and CI verify all nine
+  Flow modules, including the modules that decide tool trust and build data.
+- The internal `GEOFORGE_INTAKE` control record is consumed but no longer appears
+  in chat.
+- Localhost write endpoints require a random SameSite token and matching local
+  origin. API keys and proxy settings are saved atomically with user-only access.
+- Shared NetCDF helpers correctly handle descending axes, 0–360 longitude and
+  antimeridian windows, reproject basin vectors, and reject empty or all-missing
+  selections instead of returning plausible bad data.
+- KI Observatory, evidence-graded Agent activity, provider-specific proxy routes,
+  selectable existing installations and portable CRHM/Alpine3D/WRF-Hydro setup
+  are included in the same release.
+- macOS, Windows, Linux and CLI packages use one version source. See
   `release-manifest.json` for the machine-readable update contract and
   `DESKTOP_CHANGELOG.md` for bilingual details.
 
-Validation: 156/156 GeoForge tests passed, 127/127 KIs catalogued, and no broken
-KI symbolic links remain.
+Local validation: 311 Desktop/Flow tests, 98 KI-tool tests, 83 climate/unit tests
+and 46 diagnostic checks passed. The frozen application and each platform build
+are additionally smoke-tested by the release workflow.
 
 ## Install
 

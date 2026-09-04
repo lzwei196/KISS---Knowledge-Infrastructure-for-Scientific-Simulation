@@ -260,7 +260,14 @@ def claude_args(pol: Policy) -> tuple[list[str], Enforcement]:
 
     tools: list[str] = []
     for g in pol.all_grants():
-        d = f"{g.path.rstrip('/')}/**"
+        # Claude's leading / means PROJECT-relative, // means filesystem-root.
+        # Keep shell command patterns separate; this grammar is for file tools.
+        p = g.path.replace("\\", "/").rstrip("/")
+        if len(p) > 2 and p[1:3] == ":/":
+            p = "//" + p[0].lower() + p[2:]
+        elif p.startswith("/") and not p.startswith("//"):
+            p = "/" + p
+        d = p if Path(g.path).is_file() else f"{p}/**"
         if g.kind == "read":
             tools += [f"Read({d})", f"Glob({d})", f"Grep({d})"]
         elif g.kind == "write":

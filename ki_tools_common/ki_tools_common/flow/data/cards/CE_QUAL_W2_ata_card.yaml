@@ -1,0 +1,452 @@
+ata_card_version: '1.0'
+generated: '2026-04-17'
+generator: ata_pipeline1_card_gen.py
+identity:
+  model_id: CE_QUAL_W2
+  model_name: CE-QUAL-W2 v4.5
+  domain: lake
+  secondary_domains:
+  - water_quality
+  - river
+  language: Fortran
+  binary_path: /mnt/disk1/Hydrocraft_server/model/ce_qual_w2/bin/w2.exe
+inputs:
+- canonical_id: air_temperature
+  local_name: air_temperature
+  unit: degC
+  valid_range:
+  - -50.0
+  - 55.0
+  format: fortran_fixed
+  semantic_type: temperature
+  unit_confidence: documented
+  mapping_confidence: exact_alias
+  input_category: forcing
+- canonical_id: dewpoint_temperature
+  local_name: dewpoint_temperature
+  unit: degC
+  valid_range:
+  - -60.0
+  - 40.0
+  format: fortran_fixed
+  semantic_type: temperature
+  unit_confidence: documented
+  mapping_confidence: exact_alias
+  input_category: forcing
+  conversion_notes:
+    conversion_from_cmfd: 'VP (kPa) -> TDEW: TDEW = (237.3 * ln(VP/0.6108)) / (17.27
+      - ln(VP/0.6108))'
+- canonical_id: wind_speed
+  local_name: wind_speed
+  unit: m/s
+  valid_range:
+  - 0.0
+  - 80.0
+  format: fortran_fixed
+  semantic_type: unknown
+  unit_confidence: documented
+  mapping_confidence: exact_alias
+  input_category: forcing
+- canonical_id: cloud_cover
+  local_name: cloud_cover
+  unit: tenths (0-10)
+  valid_range:
+  - 0.0
+  - 10.0
+  format: fortran_fixed
+  semantic_type: fraction
+  unit_confidence: documented
+  mapping_confidence: exact_alias
+  input_category: forcing
+  conversion_notes:
+    conversion_from_cmfd: Cloud fraction (0-1) * 10 -> tenths (0-10)
+- canonical_id: shortwave_radiation
+  local_name: shortwave_radiation
+  unit: W/m2
+  valid_range:
+  - 0.0
+  - 1400.0
+  format: fortran_fixed
+  semantic_type: energy_flux
+  unit_confidence: documented
+  mapping_confidence: exact_alias
+  input_category: forcing
+- canonical_id: discharge
+  local_name: inflow_discharge
+  unit: m3/s
+  semantic_type: volumetric_flow
+  mapping_confidence: inferred
+  origin: coupled_model
+  origin_confidence: high
+  format: unspecified
+- canonical_id: water_temperature
+  local_name: inflow_temp
+  unit: C
+  semantic_type: temperature
+  mapping_confidence: inferred
+  origin: coupled_model
+  origin_confidence: high
+  format: unspecified
+outputs:
+- canonical_id: air_temperature
+  local_name: temperature_curtain
+  unit: degC
+  valid_range:
+  - 0.0
+  - 40.0
+  format: ascii_text
+  semantic_type: temperature
+  unit_confidence: documented
+  mapping_confidence: exact_alias
+  output_section: primary
+  origin: echoed_input
+  origin_confidence: high
+- canonical_id: water_surface_elevation
+  local_name: water_surface_elevation
+  unit: m
+  valid_range: null
+  format: ascii_text
+  semantic_type: state
+  unit_confidence: documented
+  mapping_confidence: exact_alias
+  output_section: primary
+  origin: simulated
+  origin_confidence: high
+- canonical_id: discharge
+  local_name: discharge
+  unit: m3/s
+  valid_range:
+  - 0.0
+  - null
+  format: unspecified
+  semantic_type: volumetric_flow
+  unit_confidence: documented
+  mapping_confidence: exact_alias
+  output_section: primary
+  origin: simulated
+  origin_confidence: high
+- canonical_id: null
+  local_name: water_quality_constituents
+  unit: mg/L or degC
+  valid_range: null
+  format: unspecified
+  semantic_type: unknown
+  unit_confidence: documented
+  mapping_confidence: unmapped
+  output_section: primary
+  origin: unknown
+  origin_confidence: low
+- canonical_id: water_temperature
+  local_name: T2
+  unit: C
+  semantic_type: temperature
+  mapping_confidence: inferred
+  origin: simulated
+  origin_confidence: high
+  output_section: primary
+  format: unspecified
+  valid_range:
+  - -5
+  - 50
+spatial:
+  type: point
+  resolution: unspecified
+  crs: EPSG:4326
+  source: skill_md
+temporal:
+  resolution: hourly
+  calendar: standard
+  source: skill_md
+risks:
+  known_traps:
+  - canonical_var: cloud_cover
+    trap_id: cloud_cover_fraction_vs_tenths
+    description: Cloud cover in fraction (0-1) instead of tenths (0-10) — 3-5 C warm
+      bias
+    detection: Systematic warm bias, no stratification breakdown
+    fix: Multiply cloud fraction by 10
+    is_unit_trap: false
+    automatable: true
+    severity: medium
+  - canonical_var: wind_speed
+    trap_id: dt_023
+    description: '{''description'': ''NaN values in output, model crashes mid-simulation'',
+      ''error_pattern'': ''NaN|Infinity|INSTAB|NEGATIVE.*THICK'', ''detection_method'':
+      ''log_match''}'
+    detection: '{''root_cause'': ''Numerical instability from sharp bathymetry gradients
+      or extreme forcing'', ''explanation'': ''Sharp width transitions between adjacent
+      segments (e.g., 500m to 50m) create strong velocity '
+    fix: '{''action'': ''Smooth bathymetry transitions; clip extreme forcing values'',
+      ''tool_to_run'': ''build_reservoir_grid'', ''manual_steps'': [''Ensure adjacent
+      segment widths differ by < 50%'', ''Clip wind speed to 2'
+    is_unit_trap: true
+    automatable: false
+    severity: high
+  - canonical_var: air_temperature
+    trap_id: dewpoint_not_rh
+    description: Passing RH or VP instead of dewpoint temperature
+    detection: Wrong evaporation rates
+    fix: 'Convert VP to TDEW: TDEW = (237.3 * ln(VP/0.6108)) / (17.27 - ln(VP/0.6108))'
+    is_unit_trap: false
+    automatable: true
+    severity: medium
+  - canonical_var: air_temperature
+    trap_id: integer_jday
+    description: Julian day as integer instead of decimal — shifts diurnal radiation
+      cycle
+    detection: Phase-shifted temperature compared to observations
+    fix: JDAY = day_of_year + hour/24 + minute/1440
+    is_unit_trap: false
+    automatable: true
+    severity: medium
+  - canonical_var: air_temperature
+    trap_id: constituent_column_mismatch
+    description: Inflow WQ columns do not match active constituent count — silent
+      corruption
+    detection: Wrong constituent values (e.g., temperature read as DO)
+    fix: cin_br*.npt must have exactly N data columns matching N active constituents
+    is_unit_trap: true
+    automatable: true
+    severity: high
+  - canonical_var: air_temperature
+    trap_id: dt_001
+    description: '{''description'': ''Water temperature systematically 3-5 C too warm
+      year-round'', ''error_pattern'': '''', ''detection_method'': ''value_comparison''}'
+    detection: '{''root_cause'': ''Cloud cover provided as fraction (0-1) instead
+      of tenths (0-10)'', ''explanation'': ''CE-QUAL-W2 expects cloud cover in TENTHS
+      (0-10). If cloud cover is passed as fraction (0-1), the model'
+    fix: '{''action'': ''Multiply cloud cover by 10 if source data is in fraction
+      (0-1)'', ''tool_to_run'': ''convert_met_to_w2'', ''manual_steps'': [''Check
+      cloud cover values in met_wb*.npt: max should be ~8-10, not 0.8'
+    is_unit_trap: true
+    automatable: true
+    severity: high
+  - canonical_var: air_temperature
+    trap_id: dt_002
+    description: '{''description'': ''Dewpoint temperature always near -40 C or unreasonable
+      values'', ''error_pattern'': '''', ''detection_method'': ''value_comparison''}'
+    detection: '{''root_cause'': ''Vapor pressure units wrong in dewpoint conversion
+      (Pa vs kPa vs hPa)'', ''explanation'': ''The VP-to-TDEW formula TDEW = (237.3*ln(VP/0.6108))/(17.27-ln(VP/0.6108))
+      requires VP in kPa. CMF'
+    fix: '{''action'': ''Ensure VP is in kPa before dewpoint conversion'', ''tool_to_run'':
+      ''convert_met_to_w2'', ''manual_steps'': [''Check VP values: should be 0.1-5.0
+      kPa (not 100-5000 Pa)'', ''If VP > 10, divide by 100'
+    is_unit_trap: true
+    automatable: true
+    severity: high
+  - canonical_var: air_temperature
+    trap_id: dt_004
+    description: '{''description'': ''Circulation pattern wrong, surface temperatures
+      asymmetric'', ''error_pattern'': '''', ''detection_method'': ''value_comparison''}'
+    detection: '{''root_cause'': ''Wind direction in degrees but model version expects
+      radians (or vice versa)'', ''explanation'': ''CE-QUAL-W2 v4.x typically uses
+      wind direction in degrees (0-360). Some v3.x versions use r'
+    fix: '{''action'': ''Check WDIC card in w2_con.npt; v4.x uses degrees, v3.x may
+      use radians'', ''tool_to_run'': '''', ''manual_steps'': [''Check model version
+      documentation for wind direction units'', ''If wind directio'
+    is_unit_trap: true
+    automatable: false
+    severity: high
+  - canonical_var: air_temperature
+    trap_id: dt_018
+    description: '{''description'': ''Dam release temperature wrong — too warm in
+      winter or too cold in summer'', ''error_pattern'': '''', ''detection_method'':
+      ''value_comparison''}'
+    detection: '{''root_cause'': ''Outlet elevation in wrong reference frame (depth
+      from surface vs m ASL)'', ''explanation'': ''CE-QUAL-W2 outlet elevations must
+      be in meters above sea level (m ASL), matching the bathymetr'
+    fix: '{''action'': ''Convert outlet elevation to m ASL: E_outlet = E_surface -
+      depth'', ''tool_to_run'': ''configure_w2_outflow'', ''manual_steps'': [''Check
+      outlet elevation: should be between min(ELBOT) and ELWS'', "'
+    is_unit_trap: true
+    automatable: true
+    severity: high
+  - canonical_var: discharge
+    trap_id: double_counting_runoff
+    description: Main channel + distributed tributary inflows double-count catchment
+      area
+    detection: Water level rising too fast
+    fix: Subtract main inflow contributing area from distributed tributary area
+    is_unit_trap: false
+    automatable: true
+    severity: medium
+  - canonical_var: discharge
+    trap_id: dt_009
+    description: '{''description'': ''Model reads past end of met/inflow file, crashes
+      or produces partial results'', ''error_pattern'': ''END.OF.FILE|EOF|JDAY.*exceed'',
+      ''detection_method'': ''log_match''}'
+    detection: '{''root_cause'': ''Met or inflow file has fewer timesteps than the
+      simulation period (TMSTRT to TMEND)'', ''explanation'': ''All time-series input
+      files (met, qin, tin, qot) must cover the FULL simulation pe'
+    fix: '{''action'': ''Ensure all time-series files cover TMSTRT to TMEND Julian
+      days'', ''tool_to_run'': '''', ''manual_steps'': [''Check last JDAY in each
+      input file: tail -1 met_wb1.npt'', ''Must be >= TMEND in w2_con.'
+    is_unit_trap: true
+    automatable: true
+    severity: high
+  - canonical_var: discharge
+    trap_id: dt_013
+    description: '{''description'': ''Water flows upstream in some segments, unrealistic
+      longitudinal patterns'', ''error_pattern'': '''', ''detection_method'': ''value_comparison''}'
+    detection: '{''root_cause'': ''Bottom elevation increases in the downstream direction
+      at some segments'', ''explanation'': ''CE-QUAL-W2 assumes gravity-driven flow
+      from upstream to downstream. If the bottom elevation at'
+    fix: '{''action'': ''Ensure bottom elevations are monotonically non-increasing
+      downstream'', ''tool_to_run'': ''build_reservoir_grid'', ''manual_steps'': [''Sort
+      segments by distance and check: ELBOT[i] >= ELBOT[i+1]'''
+    is_unit_trap: false
+    automatable: false
+    severity: medium
+  - canonical_var: discharge
+    trap_id: dt_015
+    description: '{''description'': ''Constituent concentration always zero despite
+      non-zero inflow concentrations'', ''error_pattern'': '''', ''detection_method'':
+      ''value_comparison''}'
+    detection: '{''root_cause'': ''Constituent flag OFF in w2_con.npt but concentration
+      data provided in cin_br*.npt'', ''explanation'': ''The CONSTITU card in w2_con.npt
+      has ON/OFF flags for each water quality constituent.'
+    fix: '{''action'': ''Ensure constituent ON/OFF flags exactly match cin_br*.npt
+      column count and order'', ''tool_to_run'': ''configure_wq'', ''manual_steps'':
+      [''Count ON flags in CONSTITU card'', ''Count data columns (e'
+    is_unit_trap: false
+    automatable: true
+    severity: medium
+  - canonical_var: discharge
+    trap_id: dt_020
+    description: '{''description'': ''CaMa-Flood inflow arrives at wrong segment,
+      inflow effect displaced spatially'', ''error_pattern'': '''', ''detection_method'':
+      ''value_comparison''}'
+    detection: '{''root_cause'': ''Spatial mismatch between CaMa grid cell and W2
+      inflow segment'', ''explanation'': ''The CaMa-Flood outlet cell for the upstream
+      catchment must map to the correct W2 branch inflow segment. '
+    fix: '{''action'': ''Verify CaMa outlet cell coordinates match W2 inflow segment
+      location'', ''tool_to_run'': '''', ''manual_steps'': [''Plot CaMa outlet cell
+      and W2 upstream segment on the same map'', ''They should be '
+    is_unit_trap: true
+    automatable: true
+    severity: high
+  - canonical_var: discharge
+    trap_id: dt_024
+    description: '{''description'': ''Model stops with NEGATIVE THICKNESS during reservoir
+      drawdown'', ''error_pattern'': ''NEGATIVE.*THICK|LAYER.*THICKNESS.*NEGATIVE'',
+      ''detection_method'': ''log_match''}'
+    detection: '{''root_cause'': ''Water surface drops below a layer boundary during
+      drawdown simulation'', ''explanation'': ''When the reservoir water level drops
+      significantly (drawdown for flood control or power generati'
+    fix: '{''action'': ''Increase minimum layer thickness; reduce outflow during drawdown
+      periods'', ''tool_to_run'': '''', ''manual_steps'': [''Check DLT CON for minimum
+      layer thickness setting'', ''Reduce outflow to preve'
+    is_unit_trap: false
+    automatable: false
+    severity: medium
+  - trap_id: cloud_cover_fraction_vs_tenths
+    triplet_ref: dt_001
+    description: Cloud cover in fraction (0-1) instead of tenths (0-10) — 3-5 C warm
+      bias
+    affected_output: Water temperature everywhere
+    detection: Systematic warm bias, no stratification breakdown
+    fix: Multiply cloud fraction by 10
+    is_unit_trap: false
+    automatable: true
+    severity: medium
+    source: format_spec
+  - trap_id: dewpoint_not_rh
+    triplet_ref: dt_002
+    description: Passing RH or VP instead of dewpoint temperature
+    affected_output: Evaporation, energy balance, temperature
+    detection: Wrong evaporation rates
+    fix: 'Convert VP to TDEW: TDEW = (237.3 * ln(VP/0.6108)) / (17.27 - ln(VP/0.6108))'
+    is_unit_trap: false
+    automatable: true
+    severity: medium
+    source: format_spec
+  - trap_id: integer_jday
+    triplet_ref: dt_005
+    description: Julian day as integer instead of decimal — shifts diurnal radiation
+      cycle
+    affected_output: Diurnal temperature cycle
+    detection: Phase-shifted temperature compared to observations
+    fix: JDAY = day_of_year + hour/24 + minute/1440
+    is_unit_trap: false
+    automatable: true
+    severity: medium
+    source: format_spec
+  - trap_id: fixed_width_alignment
+    triplet_ref: dt_006
+    description: w2_con.npt field misalignment — silent value shift
+    affected_output: ALL model parameters (every subsequent value wrong)
+    detection: Bizarre model behavior, parameter values don't match input
+    fix: 'Every numeric field must be exactly 8 characters, right-justified: {:>8.2f}'
+    is_unit_trap: false
+    automatable: true
+    severity: medium
+    source: format_spec
+  - trap_id: path_truncation
+    triplet_ref: dt_008
+    description: File paths > 72 characters silently truncated by Fortran
+    affected_output: File not found or wrong file read
+    detection: Missing file errors or unexpected data
+    fix: Use relative paths or symlinks. generate_w2_control.py uses os.path.basename()
+    is_unit_trap: false
+    automatable: true
+    severity: medium
+    source: format_spec
+  - trap_id: bottom_elev_non_monotonic
+    triplet_ref: dt_013
+    description: Non-monotonic bottom elevations trap water in depressions
+    affected_output: Longitudinal flow pattern
+    detection: Anomalous water accumulation in mid-reservoir segments
+    fix: Ensure bottom elevations decrease monotonically downstream
+    is_unit_trap: false
+    automatable: true
+    severity: medium
+    source: format_spec
+  - trap_id: constituent_column_mismatch
+    triplet_ref: dt_015
+    description: Inflow WQ columns do not match active constituent count — silent
+      corruption
+    affected_output: All constituent concentrations shifted
+    detection: Wrong constituent values (e.g., temperature read as DO)
+    fix: cin_br*.npt must have exactly N data columns matching N active constituents
+    is_unit_trap: false
+    automatable: true
+    severity: medium
+    source: format_spec
+  - trap_id: double_counting_runoff
+    triplet_ref: dt_021
+    description: Main channel + distributed tributary inflows double-count catchment
+      area
+    affected_output: Reservoir receives 2x water input
+    detection: Water level rising too fast
+    fix: Subtract main inflow contributing area from distributed tributary area
+    is_unit_trap: false
+    automatable: true
+    severity: medium
+    source: format_spec
+  unit_conversions: []
+coupling:
+  chain_position: bidirectional
+  native_formats:
+  - ascii_text
+  - fortran_fixed
+  exchange_format: ascii_text
+  coupling_role: earth_system
+quality:
+  has_format_spec: true
+  has_skill_md: true
+  has_triplets: true
+  n_inputs: 5
+  n_outputs: 4
+  n_inputs_canonical: 5
+  n_outputs_canonical: 3
+  n_unmapped: 1
+  n_traps: 23
+  n_conversions: 0
+  spatial_complete: true
+  temporal_complete: true
+  unmapped_variables:
+  - name: water_quality_constituents
+    direction: output
+    reason: unmapped
+  validation_issues: []
+  card_status: complete

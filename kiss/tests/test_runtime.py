@@ -17,7 +17,8 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
 
-from kiss_cli import api, app as desktop_app, calibration, clipboard, gui, harness_runtime, install, install_locations, kimi_security, mcp, paths, plotting, policy, port, preparation, projectrun, projectview, prompt, providers, sessions, settings, setup, shellenv, skilllib, software_audit, tls
+from kiss_cli import api, app as desktop_app, calibration, clipboard, gui, harness_runtime, install, install_locations, kimi_security, mcp, observatory, paths, plotting, policy, port, preparation, projectrun, projectview, prompt, providers, runnable, sessions, settings, setup, shellenv, skilllib, software_audit, tls
+from kiss_cli.catalog import Catalog
 from kiss_cli.catalog import KI
 from kiss_cli.manifest import Acquire, DataNeed, Manifest
 
@@ -155,6 +156,17 @@ class ProviderHealthTests(unittest.TestCase):
         }))
         self.assertIn("ReadFile", tool)
         self.assertIn("[[GEOF_TOOL:", tool)
+        activity = providers._safe_tool_activity(json.dumps({
+            "role": "assistant", "content": "", "tool_calls": [{
+                "function": {"name": "Bash", "arguments": json.dumps({
+                    "command": "curl -H 'API_KEY=private-value' https://example.test/data"
+                })}
+            }]
+        }), Path("/tmp/project"))
+        self.assertEqual(activity[0], "Bash")
+        self.assertIn("curl", activity[1])
+        self.assertIn("[redacted]", activity[1])
+        self.assertNotIn("private-value", activity[1])
 
     def test_kimi_project_scope_wraps_the_complete_process_tree(self):
         provider = providers.Provider(
@@ -308,6 +320,33 @@ class ProviderHealthTests(unittest.TestCase):
         self.assertIn(gui.CHAT_KEEPALIVE, forwarded)
         self.assertEqual(forwarded[-1], "finished")
 
+    def test_agent_activity_requires_evidence_before_claiming_a_download(self):
+        self.assertEqual(
+            gui._activity_kind(None, {"stage": "preparing", "status": "working"}, {}),
+            ("unknown", "none"),
+        )
+        self.assertEqual(
+            gui._activity_kind("download_data", {}, {}),
+            ("data_transfer", "tool_event"),
+        )
+        self.assertEqual(
+            gui._activity_kind(None, {}, {"input_growing": True}),
+            ("data_transfer", "file_growth"),
+        )
+
+    def test_project_file_probe_detects_growing_inputs_without_reading_them(self):
+        with tempfile.TemporaryDirectory() as td:
+            project = Path(td)
+            inputs = project / "inputs"
+            inputs.mkdir()
+            target = inputs / "forcing.bin"
+            target.write_bytes(b"1234")
+            first = gui._project_file_evidence(project, time.time() - 2, None)
+            previous = dict(first, probed_at=time.time() - 4, input_bytes=1)
+            second = gui._project_file_evidence(project, time.time() - 2, previous)
+            self.assertTrue(second["input_growing"])
+            self.assertEqual(second["latest_path"], "inputs/forcing.bin")
+
     def test_live_agent_snapshot_separates_process_from_transport(self):
         class RunningProcess:
             def poll(self):
@@ -322,6 +361,7 @@ class ProviderHealthTests(unittest.TestCase):
             "last_event_at": time.time() - 95,
             "last_output_at": time.time() - 100,
             "activity": "Bash",
+            "activity_detail": "python tools/prepare_forcing.py --year 2001",
         }
         try:
             status = gui._agent_run_snapshot("status-test")
@@ -329,6 +369,7 @@ class ProviderHealthTests(unittest.TestCase):
             gui._LIVE_AGENT_RUNS.pop("status-test", None)
         self.assertTrue(status["process_alive"])
         self.assertEqual(status["activity"], "Bash")
+        self.assertIn("prepare_forcing.py", status["activity_detail"])
         self.assertGreaterEqual(status["event_silence_seconds"], 94)
         self.assertEqual(status["pid"], 31415)
 
@@ -541,7 +582,7 @@ print(MARKER, len(text), implementation.__file__)
             self.assertIn("ki_tools_common.harness.agent_spawn", spec)
             self.assertIn("ki_tools_common", spec)
         self.assertIn("str(KI_TOOLS_SOURCE)", mac)
-        self.assertIn("'../ki_tools_common'", generic)
+        self.assertIn("str(KI_TOOLS_SOURCE)", generic)
 
     def test_every_ki_prompt_is_verified_and_carries_a_receipt(self):
         model = Path(__file__).parents[2] / "models" / "DSSAT"
@@ -739,6 +780,95 @@ print(MARKER, len(text), implementation.__file__)
 
             self.assertFalse(step.ok)
             self.assertEqual(run.call_args.kwargs["env"], proxy_env)
+
+    def test_pip_acquisition_ignores_package_import_chatter(self):
+        man = Manifest(
+            model="Noisy",
+            acquire=Acquire(strategy="pip", package="noisy-package",
+                            produces="noisy_package"),
+        )
+        noisy = (
+            "Starting noisy scientific package!\n"
+            "WARNING optional plugin unavailable\n"
+            f"{install._IMPORT_PATH_MARKER}/tmp/site-packages/noisy_package/__init__.py\n"
+            "shutdown message after marker\n"
+        )
+        with tempfile.TemporaryDirectory() as td, \
+             mock.patch.object(
+                 install, "_run",
+                 side_effect=[(0, "installed"), (0, noisy)],
+             ):
+            step, location = install.acquire(
+                man, Path(td) / "Noisy", sys.executable,
+            )
+
+        self.assertTrue(step.ok)
+        self.assertEqual(
+            location, Path("/tmp/site-packages/noisy_package/__init__.py"),
+        )
+
+    def test_runnable_uses_only_executable_preflight_paths(self):
+        with tempfile.TemporaryDirectory() as td:
+            preflight = Path(td) / "preflight_check.py"
+            preflight.write_text(
+                "from pathlib import Path\n"
+                "MODEL_EXE = Path('KISSPATH_BINARIES/crhm/build/crhm')\n"
+                "def check_file(path, label, critical=True, executable=False): pass\n"
+                "check_file(MODEL_EXE, 'CRHM executable', executable=True)\n"
+                "check_file('KISSPATH_DATA/elev/dem.nc', 'DEM', critical=True)\n"
+            )
+            ki = SimpleNamespace(preflight=preflight)
+
+            self.assertEqual(
+                runnable.declared(ki),
+                ["KISSPATH_BINARIES/crhm/build/crhm"],
+            )
+
+    def test_runnable_resolves_check_list_and_os_path_signatures(self):
+        with tempfile.TemporaryDirectory() as td:
+            preflight = Path(td) / "preflight_check.py"
+            preflight.write_text(
+                "import os\n"
+                "KI_DIR = os.path.dirname(os.path.abspath(__file__))\n"
+                "RUNNER = os.path.join(KI_DIR, 'tools', 'run_model.py')\n"
+                "def check_file(checks, path, label, critical=True, executable=False): pass\n"
+                "check_file([], RUNNER, 'runner', True, True)\n"
+            )
+            ki = SimpleNamespace(preflight=preflight)
+
+            self.assertEqual(
+                runnable.declared(ki),
+                [str(preflight.parent / "tools" / "run_model.py")],
+            )
+
+    def test_pip_python_model_is_the_package_not_a_stale_binary_path(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            preflight = root / "preflight_check.py"
+            preflight.write_text("# package checks are generated dynamically\n")
+            ki = SimpleNamespace(
+                name="COSIPY", preflight=preflight, root=root,
+                meta={"language": "python"},
+            )
+            man = Manifest(
+                model="COSIPY", binary_type="Python", install_dir="COSIPY",
+                acquire=Acquire(strategy="pip", package="cosipymodel",
+                                produces="cosipy"),
+            )
+            cfg = SimpleNamespace(
+                root=root, python=sys.executable,
+                roles={"binaries": root / "binaries",
+                       "python_env": root / "venv"},
+            )
+            selected = str(root / "binaries" / "venv" / "bin" / "python")
+            with mock.patch.object(runnable, "select_python", return_value=selected), \
+                 mock.patch.object(runnable, "missing_imports", return_value=[]):
+                verdict = runnable.check(ki, man, cfg, python=sys.executable)
+
+            self.assertTrue(verdict.usable)
+            self.assertFalse(verdict.needs_binary)
+            self.assertEqual(verdict.kind, "python package")
+            self.assertEqual(verdict.python, selected)
 
 
 class EnvironmentAndTlsTests(unittest.TestCase):
@@ -1680,6 +1810,8 @@ class FrontendRegressionTests(unittest.TestCase):
     def test_chat_stream_hides_keepalives_and_explains_real_disconnects(self):
         page = (Path(__file__).parents[1] / "kiss_cli" / "web" / "app.html").read_text()
         self.assertIn('replaceAll("\\u200b","")', page)
+        self.assertIn("GEOFORGE_INTAKE", page)
+        self.assertIn('(?:-->|$)/g,"")', page)
         self.assertIn("The live response connection was interrupted", page)
         self.assertNotIn("The request failed: ${e.message||e}", page)
         self.assertIn("Verified on this machine", page)
@@ -1706,6 +1838,7 @@ class FrontendRegressionTests(unittest.TestCase):
         self.assertIn("refreshMachineStatus", page)
         self.assertIn('fetch("/api/status",{cache:"no-store"})', page)
         self.assertIn("refreshMachineStatus(true,true)", page)
+        self.assertIn("A chat agent can finish or repair shared scientific software", page)
         self.assertIn("Local CLIs are installed but not ready", page)
         self.assertIn("sign-in needed", page)
         self.assertIn("update needed", page)
@@ -1723,13 +1856,21 @@ class FrontendRegressionTests(unittest.TestCase):
         self.assertIn("const INFLIGHT=new Map()", page)
         self.assertIn('$("#newsess").disabled=false', page)
         self.assertIn('id="activitynote"', page)
-        self.assertIn("process is alive but silent for", page)
-        self.assertIn("can confirm that the process is alive, but not that it is computing", page)
+        self.assertIn("has produced no tool or output event for", page)
+        self.assertIn("No download, tool-call, or project-file evidence", page)
+        self.assertIn("status.activity_detail", page)
+        self.assertIn("Current action:", page)
+        self.assertIn('id="activityevidence"', page)
+        self.assertIn('id="activity-refresh"', page)
         self.assertIn("/agent-status", page)
         self.assertIn("event_silence_seconds", page)
-        self.assertIn("continue in the background", page)
+        self.assertIn('id="activity-new"', page)
         self.assertIn("setInterval(updateActivityUI,1000)", page)
         self.assertIn('id="actionpick"', page)
+        self.assertEqual(page.count('class="modal-x"'), 7)
+        self.assertIn("MODAL_OVERLAY_IDS", page)
+        self.assertIn('event.key!=="Escape"', page)
+        self.assertIn("dismissModalOverlay(event.target)", page)
         self.assertIn("showActionPicker", page)
         self.assertIn("Continue with this choice", page)
         self.assertIn("Ask about these choices", page)
@@ -1813,6 +1954,9 @@ class FrontendRegressionTests(unittest.TestCase):
         self.assertIn("Browse, import, and verify KIs", page)
         self.assertIn("Check &amp; Import", page)
         self.assertIn("KI package check", page)
+        self.assertEqual(page.count('class="modal-x"'), 3)
+        self.assertIn("LIBRARY_MODAL_IDS", page)
+        self.assertIn("dismissLibraryModal(event.target)", page)
         self.assertIn("Run data", page)
         self.assertIn("Explain my data", page)
         self.assertIn("/api/data-guide", page)
@@ -1823,6 +1967,54 @@ class FrontendRegressionTests(unittest.TestCase):
         self.assertIn("primary_error", page)
         self.assertIn("pre.live-log", page)
         self.assertNotIn('id="send"', page)
+
+    def test_observatory_projects_all_kis_without_executing_them(self):
+        models = Path(__file__).parents[2] / "models"
+        catalog = Catalog(models)
+        atlas = observatory.atlas(
+            catalog, lambda _ki: {"state": "setup", "can_run": False,
+                                  "label": "Setup needed"})
+        self.assertEqual(len(atlas["domains"]), 14)
+        self.assertEqual(len(atlas["nodes"]), len(catalog))
+        self.assertEqual(sum(row["count"] for row in atlas["domains"]), len(catalog))
+        self.assertTrue(all(edge["evidence"] for edge in atlas["edges"]))
+        self.assertTrue(all(edge["source"] != edge["target"]
+                            for edge in atlas["domain_edges"]))
+        self.assertTrue(all(edge["count"] >= 1 and edge["evidence"]
+                            for edge in atlas["domain_edges"]))
+        detail = observatory.model(
+            catalog.get("VIC"), {"state": "verified", "can_run": True,
+                                 "label": "Verified"})
+        self.assertTrue(detail["safety"]["read_only"])
+        self.assertFalse(detail["safety"]["executes_ki_code"])
+        self.assertIn("verification", {node["kind"] for node in detail["graph"]["nodes"]})
+        node_ids = {node["id"] for node in detail["graph"]["nodes"]}
+        self.assertTrue(set(detail["overview"]["process_ids"]) <= node_ids)
+        self.assertTrue(set(detail["overview"]["hidden_process_ids"]) <= node_ids)
+        self.assertGreaterEqual(len(detail["story"]["phases"]), 4)
+        self.assertEqual(detail["story"]["source"], "scientific_projection")
+        self.assertTrue(all(phase["title"] and phase["title_zh"]
+                            for phase in detail["story"]["phases"]))
+        self.assertTrue(all(isinstance(phase["node_ids"], list)
+                            for phase in detail["story"]["phases"]))
+        page = (Path(__file__).parents[1] / "kiss_cli" / "web" /
+                "observatory.html").read_text()
+        self.assertIn("14 scientific domains", page)
+        self.assertIn("/api/observatory", page)
+        self.assertIn("Scientific coupling", page)
+        self.assertIn('STATE={level:"domains"', page)
+        self.assertIn('data-action="domain"', page)
+        self.assertIn('data-action="ki"', page)
+        self.assertIn('class="scienceflow"', page)
+        self.assertIn('data-phase=', page)
+        self.assertIn("Technical evidence", page)
+        self.assertIn('relation:"off"', page)
+        self.assertIn("Full technical DAG", page)
+        self.assertIn("arXiv:2605.17856", page)
+        self.assertIn('fetch("/api/sessions",{method:"POST"', page)
+        self.assertIn('JSON.stringify({models:[model]})', page)
+        self.assertIn('kiss.autosend.', page)
+        self.assertNotIn('SESSIONS[0]?.id', page)
 
     def test_agent_setup_has_a_separate_human_handoff_page(self):
         page = (Path(__file__).parents[1] / "kiss_cli" / "web" / "setup.html").read_text()
@@ -1852,10 +2044,15 @@ class FrontendRegressionTests(unittest.TestCase):
         self.assertIn("setInterval(drawRunState,1000)", page)
         self.assertIn("prefers-reduced-motion:reduce", page)
         self.assertIn('id="installpath"', page)
-        self.assertIn("Model installation folder", page)
+        self.assertIn("Model installation workspace", page)
         self.assertIn("chooseInstallLocation", page)
         self.assertIn("/api/setup-location", page)
         self.assertIn("GeoForge will create it and record the choice", page)
+        self.assertIn("Use software already installed", page)
+        self.assertIn('id="existingpath"', page)
+        self.assertIn("Let Agent find and verify it", page)
+        self.assertIn("discover_existing", page)
+        self.assertIn("will not overwrite the existing software", page)
         self.assertNotIn('req.expected_path||["download","licence"]', page)
         chat = (Path(__file__).parents[1] / "kiss_cli" / "web" / "app.html").read_text()
         self.assertIn("kiss.draft.", chat)
@@ -2117,6 +2314,45 @@ class InstallLocationTests(unittest.TestCase):
             self.assertTrue(value["verified"])
             self.assertTrue(install_locations.info(workroot, "VIC")["recorded"])
 
+    def test_existing_install_is_separate_from_the_writable_workspace(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            workroot = root / "geoforge"
+            existing = root / "shared-software" / "bin" / "vic_classic"
+            existing.parent.mkdir(parents=True)
+            existing.write_text("binary")
+            existing.chmod(0o555)
+
+            install_locations.select_mode(
+                workroot, "VIC", "existing", existing)
+            info = install_locations.info(workroot, "VIC")
+
+            self.assertEqual(info["installation_mode"], "existing")
+            self.assertEqual(info["existing_path"], str(existing.resolve()))
+            self.assertEqual(info["existing_kind"], "file")
+            self.assertEqual(
+                install_locations.resolve(workroot, "VIC"),
+                install_locations.default_root(workroot, "VIC"),
+            )
+
+    def test_existing_install_binding_survives_verification_record_rewrite(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            workspace = root / "work"
+            existing = root / "existing" / "model"
+            existing.mkdir(parents=True)
+            cfg = paths.KissConfig.default(workspace)
+            install_locations.record(
+                "Demo", workspace, cfg, installation_mode="existing",
+                existing_path=existing)
+            install_locations.record("Demo", workspace, cfg, verified=True)
+
+            saved = json.loads(
+                (workspace / install_locations.RECORD_FILE).read_text())
+            self.assertEqual(saved["installation_mode"], "existing")
+            self.assertEqual(saved["existing_path"], str(existing))
+            self.assertTrue(saved["verified"])
+
     def test_gui_workdir_uses_the_saved_model_location(self):
         with tempfile.TemporaryDirectory() as td:
             workroot = Path(td) / "geoforge"
@@ -2340,6 +2576,54 @@ class AgentSetupTests(unittest.TestCase):
                 run.call_args.kwargs["env"]["HTTPS_PROXY"],
                 "http://127.0.0.1:7897")
 
+    def test_api_setup_can_inspect_a_user_selected_existing_install(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            work = root / "work"
+            ki_root = work / "ki"
+            ki_root.mkdir(parents=True)
+            existing = root / "external-install"
+            existing.mkdir()
+            binary = existing / "model"
+            binary.write_text("binary")
+            cfg = SimpleNamespace(
+                root=work, python=sys.executable,
+                roles={"binaries": work / "binaries"},
+            )
+            completed = subprocess.CompletedProcess(
+                ["file", str(binary)], 0, stdout="model: executable\n", stderr="")
+            with mock.patch.object(api.subprocess, "run", return_value=completed):
+                result = api.execute_tool(
+                    "run_setup_command", {"argv": ["file", str(binary)]},
+                    SimpleNamespace(root=ki_root), cfg, setup_mode=True,
+                    setup_context={"existing_roots": [str(existing)]},
+                )
+            self.assertIn("model: executable", result)
+
+    def test_existing_install_task_forbids_reinstall_and_requires_real_preflight(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            task = setup.agent_task(
+                SimpleNamespace(name="Demo"), SimpleNamespace(), root,
+                installation_mode="existing",
+                existing_paths=[str(root / "already-built")],
+            )
+            self.assertIn("Do not download, clone", task)
+            self.assertIn("resolved_existing_path", task)
+            self.assertIn("KI's real", task)
+
+    def test_installation_only_task_forbids_scientific_runs(self):
+        with tempfile.TemporaryDirectory() as td:
+            task = setup.agent_task(
+                SimpleNamespace(name="Demo"), SimpleNamespace(), Path(td),
+                installation_only=True,
+            )
+            self.assertIn("installation-only stress test", task)
+            self.assertIn("Do NOT run the KI preflight", task)
+            self.assertIn("Do NOT download", task)
+            self.assertIn("cheap startup probe", task)
+            self.assertIn("Do not substitute a toy", task)
+
     def test_agent_final_preflight_becomes_the_saved_verification_state(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
@@ -2364,6 +2648,10 @@ class AgentSetupTests(unittest.TestCase):
             Path(__file__).parents[1] / "manifests" / "WRF_Hydro.yaml")
         self.assertEqual(manifest.acquire.ref, "v5.2.0")
         self.assertEqual(manifest.install_dir, "wrf_hydro/source")
+        self.assertIn(
+            "-DCMAKE_POLICY_VERSION_MINIMUM=3.5",
+            manifest.acquire.commands[0],
+        )
         self.assertIn("mpif90", manifest.system_deps)
         self.assertIn("nf-config", manifest.system_deps)
         self.assertEqual(manifest.data, [])
@@ -2793,6 +3081,71 @@ class AgentSetupTests(unittest.TestCase):
                 api.execute_tool(
                     "run_setup_command", {"argv": [sys.executable, "-c", "print(1)"]},
                     ki, cfg, setup_mode=True,
+                )
+
+    def test_installation_only_tool_boundary_blocks_model_runs(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            ki_root = root / "ki"
+            ki_root.mkdir()
+            model = root / "binaries" / "DART" / "filter"
+            model.parent.mkdir(parents=True)
+            model.write_text("binary")
+            model.chmod(0o755)
+            cfg = SimpleNamespace(
+                root=root, python=sys.executable,
+                roles={"binaries": root / "binaries"},
+            )
+            ki = SimpleNamespace(root=ki_root)
+            context = {"installation_only": True}
+
+            with self.assertRaisesRegex(api.ToolError, "model/example invocation"):
+                api.execute_tool(
+                    "run_setup_command", {"argv": [str(model)]},
+                    ki, cfg, setup_mode=True, setup_context=context,
+                )
+            with mock.patch.object(
+                    api.subprocess, "run",
+                    return_value=subprocess.CompletedProcess(
+                        [str(model), "--version"], 0, stdout="DART 11.24.1", stderr="")):
+                output = api.execute_tool(
+                    "run_setup_command", {"argv": [str(model), "--version"]},
+                    ki, cfg, setup_mode=True, setup_context=context,
+                )
+            self.assertIn("DART 11.24.1", output)
+
+    def test_installation_only_tool_boundary_allows_build_not_reference_script(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            ki_root = root / "ki"
+            ki_root.mkdir()
+            build = root / "binaries" / "DART" / "quickbuild.sh"
+            build.parent.mkdir(parents=True)
+            build.write_text("#!/bin/sh\nexit 0\n")
+            build.chmod(0o755)
+            reference = root / "run_reference_case.py"
+            reference.write_text("print('scientific run')\n")
+            cfg = SimpleNamespace(
+                root=root, python=sys.executable,
+                roles={"binaries": root / "binaries"},
+            )
+            ki = SimpleNamespace(root=ki_root)
+            context = {"installation_only": True}
+
+            with mock.patch.object(
+                    api.subprocess, "run",
+                    return_value=subprocess.CompletedProcess(
+                        [str(build), "nompi"], 0, stdout="built", stderr="")):
+                output = api.execute_tool(
+                    "run_setup_command", {"argv": [str(build), "nompi"]},
+                    ki, cfg, setup_mode=True, setup_context=context,
+                )
+            self.assertIn("built", output)
+            with self.assertRaisesRegex(api.ToolError, "Python model/data command"):
+                api.execute_tool(
+                    "run_setup_command",
+                    {"argv": [sys.executable, reference.name]},
+                    ki, cfg, setup_mode=True, setup_context=context,
                 )
 
     def test_cli_written_handoff_cannot_inject_a_link(self):

@@ -127,8 +127,8 @@ footer{border-top:1px solid var(--line);padding:11px 18px}
 .attachchip small{color:var(--fg-3);white-space:nowrap}.attachchip button{border:0;padding:0 2px;background:transparent;color:var(--fg-3)}
 .message-files{display:flex;gap:5px;flex-wrap:wrap;margin:7px 0 2px}.message-file{padding:4px 7px;border-radius:7px;background:var(--bg);border:1px solid var(--line);font-size:11px;color:var(--fg-2)}
 .sessionworking{color:var(--brand);font-weight:700}.sessionworking:before{content:"";display:inline-block;width:6px;height:6px;border-radius:99px;background:var(--brand);margin-right:4px;vertical-align:1px}
-.activitynote{display:none;max-width:800px;margin:7px auto 0;padding:7px 9px;border-radius:10px;background:var(--brand-50);color:var(--fg-2);font-size:11.5px;align-items:center;gap:8px}
-.activitynote.show{display:flex}.activitynote span:nth-child(2){flex:1}.activitynote button{padding:3px 7px;font-size:11px;background:var(--raised)}
+.activitynote{display:none;max-width:800px;margin:7px auto 0;padding:9px 10px;border-radius:11px;background:var(--brand-50);color:var(--fg-2);font-size:11.5px;align-items:center;gap:9px}
+.activitynote.show{display:flex}.activitycopy{display:grid;gap:2px;min-width:0;flex:1}.activitycopy b{font-size:11.5px;color:var(--fg)}.activitycopy span,.activitycopy small{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.activitycopy small{color:var(--fg-3)}.activitynote button{padding:4px 7px;font-size:11px;background:var(--raised);white-space:nowrap}
 .activitypulse{width:8px;height:8px;border-radius:99px;background:var(--brand);box-shadow:0 0 0 0 color-mix(in srgb,var(--brand) 35%,transparent);animation:pulse 1.6s infinite}
 .activitynote.quiet{background:color-mix(in srgb,var(--warn) 9%,var(--raised))}.activitynote.stalled{background:color-mix(in srgb,var(--warn) 15%,var(--raised));color:var(--warn)}
 .livewaiting{display:grid;grid-template-columns:18px 1fr;align-items:center;gap:2px 7px;color:var(--fg-2)}.livewaiting small{color:var(--fg-3)}
@@ -157,7 +157,11 @@ textarea:focus{outline:none;border-color:var(--brand)}
   align-items:center;justify-content:center;z-index:20}
 #modal.open,#mpick.open,#skillpick.open,#connections.open,#guide.open,#actionpick.open,#sessionpick.open{display:flex}
 .card2{background:var(--bg);border:1px solid var(--line);border-radius:16px;
-  width:min(500px,92vw);max-height:86vh;overflow-y:auto;padding:18px 20px}
+  width:min(500px,92vw);max-height:86vh;overflow-y:auto;padding:18px 20px;position:relative}
+.modal-x{position:sticky;top:0;float:right;z-index:5;width:34px;height:34px;padding:0;
+  margin:0 0 8px 10px;border-radius:10px;background:var(--raised);font-size:17px;
+  display:grid;place-items:center;box-shadow:0 2px 8px rgba(0,0,0,.08)}
+.modal-x:hover{background:var(--hover)}
 .card2 h2{font-size:15px;margin:0 0 12px}
 .card2 label{display:block;font-size:12px;color:var(--fg-2);margin:10px 0 4px}
 .card2 input,.card2 select,.card2 textarea{width:100%;padding:7px 10px;border:1px solid var(--line);
@@ -255,6 +259,7 @@ textarea:focus{outline:none;border-color:var(--brand)}
   <button class="newbtn" id="newsess" disabled>＋ New chat</button>
   <div class="slist" id="slist"></div>
   <div class="sidefoot">
+    <a href="/observatory">KI Observatory</a>
     <a href="/library">KI Library</a>
     <a href="/studio">KI Studio</a>
     <button id="connect">⌁ Connections</button>
@@ -294,10 +299,11 @@ textarea:focus{outline:none;border-color:var(--brand)}
         <button class="primary" id="send" disabled>Send</button>
       </div>
     </div>
-    <div class="activitynote" id="activitynote"><span class="activitypulse"></span><span id="activitytext"></span><button id="activity-new">＋ New chat</button></div>
+    <div class="activitynote" id="activitynote"><span class="activitypulse"></span><div class="activitycopy"><b id="activitytitle"></b><span id="activitytext"></span><small id="activityevidence"></small></div><button id="activity-refresh">Recheck</button><button id="activity-new">＋ New chat</button></div>
     <div class="hint" id="hint"></div>
   </footer>
   <div id="modal"><div class="card2">
+    <button class="modal-x" data-modal-close aria-label="Close" title="Close">✕</button>
     <h2>AI connections</h2>
     <label>Local agent CLIs</label><div id="s-local"></div>
     <div style="display:flex;gap:8px;margin:6px 0 12px"><button id="s-recheck">Recheck local CLIs</button><span class="hint" id="s-local-msg" style="align-self:center;margin:0"></span></div>
@@ -336,6 +342,7 @@ textarea:focus{outline:none;border-color:var(--brand)}
     <pre id="s-test-output" style="display:none;max-height:240px;overflow:auto;white-space:pre-wrap;background:#11151b;color:#e8edf4;border-radius:10px;padding:12px;margin:12px 0 0;font:12px/1.55 ui-monospace,SFMono-Regular,Menlo,monospace"></pre>
   </div></div>
   <div id="sessionpick"><div class="card2" style="width:min(560px,92vw)">
+    <button class="modal-x" data-modal-close aria-label="Close" title="Close">✕</button>
     <div style="display:flex;align-items:center;gap:9px;margin-bottom:7px"><span class="mark">▣</span><h2 style="margin:0">New project chat</h2></div>
     <div style="color:var(--fg-2)">Each chat has its own project folder for memory, inputs, model runs, outputs, and plots.</div>
     <label for="project-parent">Create the project inside</label>
@@ -349,6 +356,7 @@ textarea:focus{outline:none;border-color:var(--brand)}
     </div>
   </div></div>
   <div id="mpick"><div class="card2">
+    <button class="modal-x" data-modal-close aria-label="Close" title="Close">✕</button>
     <h2>Knowledge Infrastructures for this chat</h2>
     <div class="hint" style="margin:0 0 8px">Leave empty for <b>Auto KI</b>. A green badge means the scientific software passed its check on this machine. You can still discuss KIs that need setup.</div>
     <input id="mq" placeholder="Search KIs…" autocomplete="off" style="margin-bottom:8px">
@@ -360,6 +368,7 @@ textarea:focus{outline:none;border-color:var(--brand)}
     </div>
   </div></div>
   <div id="skillpick"><div class="card2">
+    <button class="modal-x" data-modal-close aria-label="Close" title="Close">✕</button>
     <h2>Skills for this chat</h2>
     <div class="hint" style="margin:0 0 8px">GeoForge can choose skills automatically. Pin one here when you want that procedure used throughout this chat, or type <b>/skill-name</b>.</div>
     <input id="skillq" placeholder="Search skills…" autocomplete="off" style="margin-bottom:8px">
@@ -371,6 +380,7 @@ textarea:focus{outline:none;border-color:var(--brand)}
     </div>
   </div></div>
   <div id="connections"><div class="card2">
+    <button class="modal-x" data-modal-close aria-label="Close" title="Close">✕</button>
     <h2>MCP connections</h2>
     <div class="hint" style="margin:0 0 10px">Local agents inherit MCP servers already configured for them. Select which ones this chat should use.</div>
     <div id="connrows"></div>
@@ -382,6 +392,7 @@ textarea:focus{outline:none;border-color:var(--brand)}
     </div>
   </div></div>
   <div id="actionpick"><div class="card2" style="width:min(560px,92vw)">
+    <button class="modal-x" data-modal-close aria-label="Close" title="Close">✕</button>
     <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px"><span class="mark">?</span><h2 id="action-title" style="margin:0;flex:1">Choose how to continue</h2><span class="statuspill warn">Needs you</span></div>
     <div id="action-message" style="color:var(--fg-2);white-space:pre-wrap"></div>
     <div id="action-options" style="margin-top:10px"></div>
@@ -395,6 +406,7 @@ textarea:focus{outline:none;border-color:var(--brand)}
     </div>
   </div></div>
   <div id="guide"><div class="card2">
+    <button class="modal-x" data-modal-close aria-label="Close" title="Close">✕</button>
     <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px"><img class="brandlogo" src="/logo.svg" alt="GeoForge"><div><h2 style="margin:0">How GeoForge works</h2><div class="hint" style="margin:0">Chat first. KIs provide the scientific capability.</div></div></div>
     <div class="starter" style="grid-template-columns:1fr">
       <button><span class="mark">1</span><span><b>Describe the task</b><small>Start with the scientific question, not software setup.</small></span></button>
@@ -431,6 +443,23 @@ textarea:focus{outline:none;border-color:var(--brand)}
 <script>
 const $=s=>document.querySelector(s);
 const esc=s=>String(s??"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const MODAL_OVERLAY_IDS=["modal","sessionpick","mpick","skillpick","connections","actionpick","guide"];
+function dismissModalOverlay(overlay){
+  if(!overlay)return;
+  if(overlay.id==="sessionpick")return finishProjectPicker(null);
+  if(overlay.id==="actionpick")return closeActionPicker();
+  overlay.classList.remove("open");
+}
+document.addEventListener("click",event=>{
+  const close=event.target.closest("[data-modal-close]");
+  if(close){dismissModalOverlay(close.closest("#"+MODAL_OVERLAY_IDS.join(",#")));return;}
+  if(MODAL_OVERLAY_IDS.includes(event.target.id))dismissModalOverlay(event.target);
+});
+document.addEventListener("keydown",event=>{
+  if(event.key!=="Escape")return;
+  const open=[...MODAL_OVERLAY_IDS].reverse().map(id=>document.getElementById(id)).find(el=>el?.classList.contains("open"));
+  if(open){event.preventDefault();dismissModalOverlay(open);}
+});
 function artifactImage(alt,raw,sid){
   const rel=String(raw||"").trim().replace(/^&lt;|&gt;$/g,"");
   const parts=rel.split("/");
@@ -446,6 +475,9 @@ let KI_UPDATE_REVISION="",KI_UPDATE_POLL=null;
 async function watchKiUpdates(){try{const r=await fetch("/api/ki-updates",{cache:"no-store"}),u=await r.json();if(u.state==="checking"){clearTimeout(KI_UPDATE_POLL);KI_UPDATE_POLL=setTimeout(watchKiUpdates,1000);return}if(["updated","up_to_date","error"].includes(u.state)){const revision=u.active_revision||"";if(revision&&revision!==KI_UPDATE_REVISION){KI_UPDATE_REVISION=revision;MODELS=await (await fetch("/api/models",{cache:"no-store"})).json();STATUS=await (await fetch("/api/status",{cache:"no-store"})).json();if(CUR)drawModelLabel()}const zh=chineseUI();$("#ki-update-title").textContent=u.state==="error"?(zh?"KI 更新未完成":"KI update not completed"):(zh?"KI 库检查完成":"KI library checked");$("#ki-update-message").textContent=u.state==="error"?(zh?"网络或验证出现问题，GeoForge 已继续使用上一次验证通过的 KI 库。":"A network or validation issue occurred. GeoForge kept the last validated KI library."):zh?(u.state==="updated"?`KI 库已更新：新增 ${(u.added||[]).length} 个，更新 ${(u.updated||[]).length} 个，移除 ${(u.removed||[]).length} 个。`:"KI 库已经是最新版本。"):(u.summary||"");$("#ki-update-view").textContent=zh?"查看报告":"View report";$("#ki-update-dismiss").textContent=zh?"关闭":"Dismiss";$("#ki-update-toast").classList.add("open")}}catch(_error){}}
 function workLabel(name){if(chineseUI()&&TOOL_LABELS_ZH[name])return TOOL_LABELS_ZH[name];if(TOOL_LABELS[name])return TOOL_LABELS[name];const words=String(name).replace(/([a-z])([A-Z])/g,"$1 $2").replace(/[_.-]+/g," ");return chineseUI()?"已使用 "+words:"Used "+words.toLowerCase();}
 function extractWork(t,streaming){const tools=[];let body=String(t??"");
+  // GEOFORGE_INTAKE is an internal Agent-to-host handoff, not chat content.
+  // Also hide an unfinished trailing marker while a CLI response is streaming.
+  body=body.replace(/<!--\s*GEOFORGE_INTAKE\b[\s\S]*?(?:-->|$)/g,"");
   let invalidToolText=false;
   // A few OpenAI-compatible providers print an XML-looking request instead
   // of making a real structured call. It is not work, and must never be
@@ -541,6 +573,7 @@ async function refreshMachineStatus(redraw=true,force=false){
 }
 
 async function loadAll(){
+  let autoSendSession="";
   try{
     [SESSIONS,MODELS,SKILLS,MCP,PROJECT_LOCATION]=await Promise.all([
       fetch("/api/sessions").then(r=>r.json()),
@@ -554,10 +587,19 @@ async function loadAll(){
       await openSession(requested);
       const draft=sessionStorage.getItem(`kiss.draft.${requested}`);
       if(draft){$("#msg").value=draft;sessionStorage.removeItem(`kiss.draft.${requested}`);$("#msg").focus();}
+      if(draft&&sessionStorage.getItem(`kiss.autosend.${requested}`)){
+        sessionStorage.removeItem(`kiss.autosend.${requested}`);autoSendSession=requested;
+      }
       history.replaceState({},"","/");
     }
     else if(!CUR && SESSIONS.length) await openSession(SESSIONS[0].id);
     else if(!CUR) drawEmpty();
+    const observatoryDraft=sessionStorage.getItem("kiss.observatory.draft");
+    if(observatoryDraft){
+      $("#msg").value=observatoryDraft;
+      sessionStorage.removeItem("kiss.observatory.draft");
+      $("#msg").focus();
+    }
     setControls(true);
     // Model verification and CLI authentication can touch many files or wait
     // on an external command.  Populate those badges after the usable shell is
@@ -571,6 +613,10 @@ async function loadAll(){
         drawProviders();if(CUR)drawModelLabel();
       }catch(_error){}
     },750);
+    if(autoSendSession){
+      if(currentProviderReady())setTimeout(()=>{if(CUR&&CUR.id===autoSendSession&&!sessionBusy(autoSendSession))send();},80);
+      else $("#hint").textContent=chineseUI()?"新对话已经创建，问题已填入。连接 AI 后点击发送。":"The new chat is ready with the question filled in. Connect an AI, then press Send.";
+    }
   }catch(e){
     $("#chat").innerHTML=`<div class="banner"><b>GeoForge could not start.</b> ${esc(e)}<br>Reload the app; if it repeats, open the KI Library and AI Settings.</div>`;
   }
@@ -742,11 +788,13 @@ function drawEmpty(){
       <button data-action="focus"><span class="mark">AI</span><span><b>Start chatting</b><small>Ask a question or describe a simulation.</small></span></button>
       <button data-action="kis"><span class="mark">KI</span><span><b>Choose a KI</b><small>Pin scientific software to this chat.</small></span></button>
       <button data-action="library"><span class="mark verify">✓</span><span><b>Browse & verify</b><small>Import KIs and check what can run.</small></span></button>
+      <button data-action="observatory"><span class="mark">◎</span><span><b>Observe KIs</b><small>Explore the 14-domain KI atlas and live projects.</small></span></button>
       <button data-action="studio"><span class="mark">KI+</span><span><b>Create a KI</b><small>Turn your own model workflow into a checked KI.</small></span></button>
     </div></div>`;
   document.querySelector('[data-action="focus"]').onclick=()=>$("#msg").focus();
   document.querySelector('[data-action="kis"]').onclick=()=>$("#pickmodels").click();
   document.querySelector('[data-action="library"]').onclick=()=>location.href="/library";
+  document.querySelector('[data-action="observatory"]').onclick=()=>location.href="/observatory";
   document.querySelector('[data-action="studio"]').onclick=()=>location.href="/studio";
 }
 async function openSession(id){
@@ -822,6 +870,9 @@ function liveBubble(id){return document.querySelector(`.turn[data-flight="${id}"
 function providerDisplay(name){const p=PROV.providers.find(item=>item.name===name);return p&&p.label||String(name||"AI").replace(/^(api|cli):/,"");}
 function elapsedTime(started){const seconds=Math.max(0,Math.floor((Date.now()-started)/1000));return seconds<60?`${seconds}s`:`${Math.floor(seconds/60)}m ${seconds%60}s`;}
 function durationLabel(seconds){seconds=Math.max(0,Number(seconds)||0);return seconds<60?`${Math.floor(seconds)}s`:`${Math.floor(seconds/60)}m ${Math.floor(seconds%60)}s`;}
+const RUN_STAGE_ZH={understanding:"理解任务",choosing_ki:"选择 KI",software:"检查科学软件",researching:"查找数据",preparing:"准备模型输入",validating:"验证项目输入",running:"运行科学模型",results:"整理结果"};
+const RUN_STAGE_EN={understanding:"Understanding the task",choosing_ki:"Choosing a KI",software:"Checking scientific software",researching:"Finding data",preparing:"Preparing model inputs",validating:"Validating project inputs",running:"Running the scientific model",results:"Preparing results"};
+function runStageLabel(stage){return(chineseUI()?RUN_STAGE_ZH:RUN_STAGE_EN)[stage]||String(stage||"").replaceAll("_"," ");}
 function agentLiveState(flight){
   const status=flight.agentStatus||{},now=Date.now(),transportAge=Math.max(0,Math.floor((now-(flight.lastHeartbeat||flight.started))/1000));
   const eventAge=status.event_silence_seconds,activity=status.activity&&status.activity!=="starting"?status.activity:null;
@@ -838,6 +889,23 @@ function agentLiveState(flight){
   if(transportAge<=12)return{kind:apiTurn?"active":"quiet",activity:null,age:transportAge,transportOnly:true};
   return{kind:"disconnected",activity:null,age:transportAge};
 }
+function agentActivityTitle(flight){
+  const status=flight.agentStatus||{},state=agentLiveState(flight),kind=status.activity_kind;
+  if(state.kind==="disconnected")return chineseUI()?"连接可能已经中断":"The live connection may be interrupted";
+  if(state.kind==="stalled")return chineseUI()?"没有新的工作证据，可能已经卡住":"No new work evidence; the turn may be stuck";
+  const labels=chineseUI()?{data_transfer:"检测到数据传输",checking:"正在检查或验证",visualizing:"正在生成可视化",writing:"正在写入项目文件",responding:"Agent 正在回复",tool:"Agent 正在使用工具",file_activity:"检测到项目文件更新",reported_running:"Agent 报告模型正在运行",waiting:"正在等待你的选择",unknown:"进程仍在，当前动作尚未确认"}:{data_transfer:"Data transfer detected",checking:"Checking or validating",visualizing:"Creating a visualization",writing:"Writing project files",responding:"Agent is responding",tool:"Agent is using a tool",file_activity:"Project file activity detected",reported_running:"Agent reports that the model is running",waiting:"Waiting for your choice",unknown:"Process is alive; current action is unconfirmed"};
+  return labels[kind]||labels.unknown;
+}
+function agentEvidenceText(flight){
+  const status=flight.agentStatus||{},files=status.file_evidence||{},parts=[];
+  if(status.project_stage)parts.push((chineseUI()?"项目阶段：":"Project stage: ")+runStageLabel(status.project_stage));
+  if(files.input_growing)parts.push(chineseUI()?`输入目录正在增长（${sizeLabel(files.input_bytes||0)}）`:`Inputs are growing (${sizeLabel(files.input_bytes||0)})`);
+  else if(files.latest_path)parts.push((chineseUI()?"最近文件：":"Latest file: ")+files.latest_path);
+  if(status.activity_detail)parts.push((chineseUI()?"当前动作：":"Current action: ")+status.activity_detail);
+  else if(status.activity&&status.activity!=="starting")parts.push((chineseUI()?"工具事件：":"Tool event: ")+workLabel(status.activity));
+  if(!files.latest_path&&!status.activity&&status.event_silence_seconds>=30)parts.push(chineseUI()?"尚未收到下载、工具调用或项目文件变化的证据":"No download, tool-call, or project-file evidence has been received");
+  return parts.join(" · ")||(status.project_summary||"");
+}
 function agentStateText(flight,compact=false){
   const label=providerDisplay(flight.provider),elapsed=elapsedTime(flight.started),state=agentLiveState(flight),age=durationLabel(state.age);
   if(compact){
@@ -849,15 +917,16 @@ function agentStateText(flight,compact=false){
   if(state.finishing)return chineseUI()?`${label} 已结束，正在保存对话结果 · ${elapsed}`:`${label} finished; GeoForge is saving the result · ${elapsed}`;
   if(state.kind==="active"){
     if(state.transportOnly)return chineseUI()?`${label} 的 API 连接正常，正在等待服务返回 · ${elapsed}`:`${label} API connection is active; waiting for the provider · ${elapsed}`;
-    return state.activity?(chineseUI()?`${label} 正在执行 ${state.activity} · ${elapsed}`:`${label} is using ${state.activity} · ${elapsed}`):(chineseUI()?`${label} 刚刚产生了新活动 · ${elapsed}`:`${label} produced new activity · ${elapsed}`);
+    if(status.activity_detail)return chineseUI()?`${label} 正在执行：${status.activity_detail} · ${elapsed}`:`${label} is running: ${status.activity_detail} · ${elapsed}`;
+    return state.activity?(chineseUI()?`${label} 正在执行 ${workLabel(state.activity)} · ${elapsed}`:`${label} is using ${workLabel(state.activity)} · ${elapsed}`):(chineseUI()?`${label} 刚刚产生了新活动 · ${elapsed}`:`${label} produced new activity · ${elapsed}`);
   }
-  if(state.kind==="quiet")return state.activity?(chineseUI()?`${label} 进程仍在，正在执行 ${state.activity}；${age} 没有新事件 · ${elapsed}`:`${label} process is alive in ${state.activity}; no new event for ${age} · ${elapsed}`):(chineseUI()?`${label} 进程仍在；${age} 没有新事件 · ${elapsed}`:`${label} process is alive; no new event for ${age} · ${elapsed}`);
-  if(state.kind==="stalled")return chineseUI()?`${label} 进程仍在，但已静默 ${age}；可能是长任务，也可能卡住 · ${elapsed}`:`${label} process is alive but silent for ${age}; it may be a long task or stuck · ${elapsed}`;
+  if(state.kind==="quiet")return status.activity_detail?(chineseUI()?`${label} 上次动作：${status.activity_detail}；${age} 没有新事件 · ${elapsed}`:`${label}'s last action: ${status.activity_detail}; no new event for ${age} · ${elapsed}`):state.activity?(chineseUI()?`${label} 进程仍在，正在执行 ${workLabel(state.activity)}；${age} 没有新事件 · ${elapsed}`:`${label} process is alive in ${workLabel(state.activity)}; no new event for ${age} · ${elapsed}`):(chineseUI()?`${label} 进程仍在；${age} 没有新事件 · ${elapsed}`:`${label} process is alive; no new event for ${age} · ${elapsed}`);
+  if(state.kind==="stalled")return chineseUI()?`${label} 进程仍在，但 ${age} 没有工具或输出事件 · ${elapsed}`:`${label} is alive, but has produced no tool or output event for ${age} · ${elapsed}`;
   return chineseUI()?`${label} 的实时连接已超过 ${age} 没有心跳；可能已中断 · ${elapsed}`:`No heartbeat from ${label} for ${age}; the live connection may be interrupted · ${elapsed}`;
 }
 function liveWaitingHtml(flight){
-  const state=agentLiveState(flight),line=agentStateText(flight),detail=state.kind==="stalled"?(chineseUI()?"GeoForge 只能确认进程仍存活，不能确认它正在计算。你可以继续使用其他对话。":"GeoForge can confirm that the process is alive, but not that it is computing. You can continue in another chat."):(chineseUI()?"状态来自 Agent 进程和输出事件，不只是浏览器连接。":"Status uses the agent process and output events, not only the browser connection.");
-  return `<div class="livewaiting ${state.kind}"><span class="agentstate-icon"></span><b>${esc(line)}</b><small>${esc(detail)}</small></div>`;
+  const state=agentLiveState(flight),line=agentActivityTitle(flight),detail=agentEvidenceText(flight)||agentStateText(flight);
+  return `<div class="livewaiting ${state.kind}"><span class="agentstate-icon"></span><b>${esc(line)} · ${esc(elapsedTime(flight.started))}</b><small>${esc(detail)}</small></div>`;
 }
 function updateActivityUI(){
   const flight=CUR&&INFLIGHT.get(CUR.id),note=$("#activitynote"),sendButton=$("#send");
@@ -865,7 +934,11 @@ function updateActivityUI(){
   if(flight){
     const state=agentLiveState(flight);
     note.classList.toggle("quiet",state.kind==="quiet");note.classList.toggle("stalled",state.kind==="stalled"||state.kind==="disconnected");
-    $("#activitytext").textContent=agentStateText(flight)+" "+(chineseUI()?"你可以新建对话；本对话会在后台继续。":"You can start another chat; this one will continue in the background.");
+    $("#activitytitle").textContent=agentActivityTitle(flight)+" · "+elapsedTime(flight.started);
+    $("#activitytext").textContent=agentStateText(flight);
+    $("#activityevidence").textContent=agentEvidenceText(flight)||(chineseUI()?"正在等待第一条可确认的 Agent 活动。":"Waiting for the first confirmed agent activity.");
+    $("#activity-refresh").textContent=chineseUI()?"重新检查":"Recheck";
+    $("#activity-new").textContent=chineseUI()?"＋ 新建对话":"＋ New chat";
     sendButton.textContent=chineseUI()?"处理中…":"Working…";
     if(!flight.raw.trim()){const out=liveBubble(CUR.id);if(out)out.innerHTML=liveWaitingHtml(flight);}
   }else{note.classList.remove("quiet","stalled");sendButton.textContent=chineseUI()?"发送":"Send";}
@@ -1044,6 +1117,11 @@ async function send(){
            SESSIONS[i].mcps=s.mcps||[];
            SESSIONS[i].project_path=s.project_path;}
   if(CUR&&CUR.id===target){CUR=s;$("#title").textContent=s.title;const turn=document.querySelector(`.turn[data-flight="${target}"]`);if(turn)delete turn.dataset.flight;setControls(true);}
+  // A chat agent can finish or repair shared scientific software (API agents
+  // do this through GeoForge's setup tools). Refresh the machine-level badge
+  // as soon as that turn ends; otherwise the reply can truthfully say
+  // "preflight passed" while the header keeps showing its stale failure.
+  await refreshMachineStatus(true,true);
   await refreshRun(target);
   await refreshViewStatus(target);
   drawSessions();
@@ -1097,6 +1175,7 @@ $("#newsess").onclick=async()=>{
   CUR=created;$("#msg").value="";renderAttachments();await openSession(created.id);
 };
 $("#activity-new").onclick=()=>$("#newsess").click();
+$("#activity-refresh").onclick=()=>refreshAgentStatus();
 $("#project-create").onclick=()=>{
   const value=$("#project-parent").value.trim();
   if(!value){$("#project-location-error").textContent=chineseUI()?"请选择或输入一个文件夹。":"Choose or enter a folder.";return;}

@@ -120,7 +120,11 @@ textarea:focus{outline:none;border-color:var(--brand)}
   align-items:center;justify-content:center;z-index:20}
 #modal.open{display:flex}
 #modal .card2{background:var(--bg);border:1px solid var(--line);border-radius:16px;
-  width:min(480px,92vw);max-height:86vh;overflow-y:auto;padding:18px 20px}
+  width:min(480px,92vw);max-height:86vh;overflow-y:auto;padding:18px 20px;position:relative}
+.modal-x{position:sticky;top:0;float:right;z-index:5;width:34px;height:34px;padding:0;
+  margin:0 0 8px 10px;border-radius:10px;background:var(--raised);font-size:17px;
+  display:grid;place-items:center;box-shadow:0 2px 8px rgba(0,0,0,.08)}
+.modal-x:hover{background:var(--hover)}
 #modal h2{font-size:15px;margin:0 0 12px}
 #modal label{display:block;font-size:12px;color:var(--fg-2);margin:10px 0 4px}
 #modal input,#modal select{width:100%;padding:7px 10px;border:1px solid var(--line);
@@ -202,9 +206,9 @@ select option:disabled{color:var(--fg-3)}
 .hero-logo{width:58px;height:56px;margin-bottom:12px;filter:drop-shadow(0 7px 16px rgba(20,45,90,.18))}
 #importmodal{position:fixed;inset:0;background:rgba(0,0,0,.45);display:none;align-items:center;justify-content:center;z-index:30}
 #importmodal.open{display:flex}
-#importmodal .card2{background:var(--bg);border:1px solid var(--line);border-radius:16px;width:min(620px,92vw);max-height:84vh;overflow:auto;padding:19px}
+#importmodal .card2{background:var(--bg);border:1px solid var(--line);border-radius:16px;width:min(620px,92vw);max-height:84vh;overflow:auto;padding:19px;position:relative}
 .update-modal{position:fixed;inset:0;background:rgba(0,0,0,.45);display:none;align-items:center;justify-content:center;z-index:31}
-.update-modal.open{display:flex}.update-modal .card2{background:var(--bg);border:1px solid var(--line);border-radius:16px;width:min(680px,92vw);max-height:84vh;overflow:auto;padding:19px}.update-summary{padding:11px 13px;border-radius:11px;background:var(--surface);margin:11px 0}.update-list{display:flex;gap:7px;flex-wrap:wrap;margin:7px 0 13px}.update-name{border:1px solid var(--line);border-radius:99px;padding:2px 8px;font-size:11px}.update-detail{border-top:1px solid var(--line);padding:8px 0;font-size:12px}.update-detail code{font-size:11px;overflow-wrap:anywhere}.update-note{color:var(--fg-2);font-size:12px;line-height:19px}
+.update-modal.open{display:flex}.update-modal .card2{background:var(--bg);border:1px solid var(--line);border-radius:16px;width:min(680px,92vw);max-height:84vh;overflow:auto;padding:19px;position:relative}.update-summary{padding:11px 13px;border-radius:11px;background:var(--surface);margin:11px 0}.update-list{display:flex;gap:7px;flex-wrap:wrap;margin:7px 0 13px}.update-name{border:1px solid var(--line);border-radius:99px;padding:2px 8px;font-size:11px}.update-detail{border-top:1px solid var(--line);padding:8px 0;font-size:12px}.update-detail code{font-size:11px;overflow-wrap:anywhere}.update-note{color:var(--fg-2);font-size:12px;line-height:19px}
 .finding{padding:7px 9px;border-radius:8px;background:var(--surface);font-size:12px;margin-top:6px}
 .finding.BLOCK{color:var(--block)} .finding.WARN{color:var(--warn)}
 @media(max-width:900px){.group-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
@@ -222,6 +226,7 @@ select option:disabled{color:var(--fg-3)}
     <h1 id="title">Knowledge Infrastructures</h1>
     <span class="meta" id="sub"></span>
     <span class="spacer"></span>
+    <button id="observatory" title="Explore the KI Observatory"><span class="mark">◎</span> KI Observatory</button>
     <button id="creatki" title="Create a KI from your own model"><span class="mark">KI+</span> Create KI</button>
     <button id="importki" title="Check and import a KI package"><span class="mark import">↓</span> Check &amp; Import</button>
     <button id="kiupdates" title="View automatic KI update report"><span class="mark verify">↻</span> <span id="kiupdatelabel">KI updates</span></button>
@@ -241,6 +246,7 @@ select option:disabled{color:var(--fg-3)}
     </div>
     <div class="body"></div></div>
   <div id="modal"><div class="card2">
+    <button class="modal-x" data-modal-close aria-label="Close" title="Close">✕</button>
     <h2>Settings</h2>
     <label>Default provider</label><select id="s-def"></select>
     <div style="margin-top:14px;padding:13px;border:1px solid var(--line);border-radius:12px;background:var(--surface)">
@@ -267,6 +273,7 @@ select option:disabled{color:var(--fg-3)}
     </div>
   </div></div>
   <div id="importmodal"><div class="card2">
+    <button class="modal-x" data-modal-close aria-label="Close" title="Close">✕</button>
     <div style="display:flex;align-items:center;gap:10px"><span class="mark verify">✓</span><h2 style="margin:0">KI package check</h2></div>
     <p id="importsummary" style="color:var(--fg-2)"></p>
     <div id="importfindings"></div>
@@ -276,6 +283,7 @@ select option:disabled{color:var(--fg-3)}
     </div>
   </div></div>
   <div id="updatemodal" class="update-modal"><div class="card2">
+    <button class="modal-x" data-modal-close aria-label="Close" title="Close">✕</button>
     <div style="display:flex;align-items:center;gap:10px"><span class="mark verify">↻</span><h2 style="margin:0">KI library updates</h2><span class="spacer"></span><button id="updateclose">Close</button></div>
     <div class="update-summary" id="updatesummary">Checking update status…</div>
     <div id="updatedetails"></div>
@@ -288,6 +296,24 @@ select option:disabled{color:var(--fg-3)}
 <script src="/i18n.js"></script>
 <script>
 const $=s=>document.querySelector(s);
+const LIBRARY_MODAL_IDS=["modal","importmodal","updatemodal"];
+function dismissLibraryModal(overlay){
+  if(!overlay)return;
+  const control={modal:"s-close",importmodal:"importcancel",updatemodal:"updateclose"}[overlay.id];
+  const button=control&&document.getElementById(control);
+  if(button)return button.click();
+  overlay.classList.remove("open");
+}
+document.addEventListener("click",event=>{
+  const close=event.target.closest("[data-modal-close]");
+  if(close){dismissLibraryModal(close.closest("#"+LIBRARY_MODAL_IDS.join(",#")));return;}
+  if(LIBRARY_MODAL_IDS.includes(event.target.id))dismissLibraryModal(event.target);
+});
+document.addEventListener("keydown",event=>{
+  if(event.key!=="Escape")return;
+  const open=[...LIBRARY_MODAL_IDS].reverse().map(id=>document.getElementById(id)).find(el=>el?.classList.contains("open"));
+  if(open){event.preventDefault();dismissLibraryModal(open);}
+});
 let MODELS=[], SEL=new Set(), busy=false;
 let KIUPDATE=null, KIUPDATE_TIMER=null, KIUPDATE_REVISION="";
 
@@ -498,6 +524,7 @@ async function install(name){
 $("#q").addEventListener("input",drawList);
 $("#importki").onclick=()=>$("#importfile").click();
 $("#creatki").onclick=()=>location.href="/studio";
+$("#observatory").onclick=()=>location.href="/observatory";
 let PENDING_IMPORT=null;
 function showImportReport(d){
   const valid=!!d.valid;

@@ -1,0 +1,186 @@
+# Coupling Config v2: VIC -> GLM
+
+coupling_config_version: '2.0'
+generated: '2026-04-27'
+generator: ata_pipeline2_coupling_gen.py v2
+metadata:
+  edge_id: VIC_to_GLM
+  source_model: VIC
+  target_model: GLM
+  source_domain: hydrology
+  target_domain: lake
+  edge_type: type5_cross_scale_cross_domain
+  n_forward_variables: 1
+  n_combine_variables: 0
+  n_plausible_feedback: 0
+  n_review_feedback: 2
+  is_feedback: false
+forward_edges:
+- canonical_id: discharge
+  source_canonical_id: surface_runoff
+  target_canonical_id: discharge
+  match_type: family_match
+  source_local_name: runoff
+  source_unit: mm/timestep
+  target_local_name: inflow_discharge
+  target_unit: m3/s
+combine_edges: []
+plausible_feedback: []
+review_feedback:
+- canonical_id: air_temperature
+  source_local_name: temperature_profile
+  target_local_name: air_temperature
+  note: Flagged for review — physical plausibility uncertain
+- canonical_id: air_temperature
+  source_local_name: surface_temperature
+  target_local_name: air_temperature
+  note: Flagged for review — physical plausibility uncertain
+compatibility:
+- canonical_id: discharge
+  source_canonical_id: surface_runoff
+  target_canonical_id: discharge
+  match_type: family_match
+  primitives_needed:
+  - transform_semantic
+  - exchange_data
+  - map_space
+  - align_time
+  - validate_boundary
+  details:
+    transform_semantic: &id001
+      type: flux_density_to_volumetric
+      transform: discharge_m3s = runoff_mm_day * cell_area_m2 / 86400 / 1000
+      requires:
+      - cell_area_m2
+      source_canonical: surface_runoff
+      target_canonical: discharge
+      note: Physical quantity changes — this is NOT a unit conversion
+      canonical_id: discharge
+    convert_units: &id002
+      status: handled_by_semantic_transform
+      canonical_id: discharge
+    exchange_data: &id003
+      from_format: ascii_text
+      to_format: netcdf
+      conversion_needed: true
+      source: card_level_format_check
+      variable_mapping:
+        source_name: runoff
+        target_name: inflow_discharge
+      canonical_id: discharge
+    map_space: &id004
+      from_type: regular_grid
+      to_type: 1d_vertical
+      method: grid_to_point_extraction
+      canonical_id: discharge
+    align_time: &id005
+      from_resolution: 3-hourly
+      to_resolution: daily
+      direction: aggregate
+      aggregation_method: sum
+      semantic_type: flux_density
+      canonical_id: discharge
+    family_mapping: &id006
+      source_canonical: surface_runoff
+      target_canonical: discharge
+      note: Source provides surface_runoff, target needs discharge. These are in the same family (surface_water_flux) — may
+        need splitting/derivation.
+      canonical_id: discharge
+    validate_boundary: &id007
+      checks:
+      - non_negative
+      - no_nan
+      - 'range: [0.0, None]'
+      canonical_id: discharge
+primitives_needed:
+- align_time
+- exchange_data
+- map_space
+- transform_semantic
+- validate_boundary
+execution_order:
+- align_time
+- transform_semantic
+- map_space
+- exchange_data
+- validate_boundary
+primitive_configs:
+  transform_semantic:
+  - *id001
+  convert_units:
+  - *id002
+  exchange_data:
+  - *id003
+  map_space:
+  - *id004
+  align_time:
+  - *id005
+  family_mapping:
+  - *id006
+  validate_boundary:
+  - *id007
+risks:
+  total_traps: 6
+  automatable: 5
+  judgment_required: 1
+  traps:
+  - canonical_var: discharge
+    model: GLM
+    trap_id: aed2_no_inflow_nutrients
+    description: AED2 with zero inflow nutrient loading depletes nutrients rapidly
+    detection: Nutrients drop to zero within weeks
+    fix: Use configure_inflow_wq.py to add nutrient columns to inflow CSV
+    is_unit_trap: false
+    automatable: true
+  - canonical_var: discharge
+    model: GLM
+    trap_id: dt_010
+    description: '{''description'': ''num_inflows is 0 but inflow CSV files are referenced. Inflow is silently ignored.'',
+      ''error_pattern'': '''', ''detection_method'': ''value_comparison''}'
+    detection: '{''root_cause'': ''Inconsistency between num_inflows count and inflow file list'', ''explanation'': ''If num_inflows
+      = 0, GLM ignores all inflow_fl entries. The lake runs without any river input, which may b'
+    fix: '{''action'': ''Set num_inflows to match the number of inflow CSV files'', ''tool_to_run'': ''generate_glm_nml'',
+      ''manual_steps'': [''Count inflow CSV files and set num_inflows accordingly''], ''prevention'': ''gene'
+    is_unit_trap: false
+    automatable: false
+  - canonical_var: discharge
+    model: GLM
+    trap_id: dt_012
+    description: '{''description'': ''Unable to open inflow file. GLM exits during setup.'', ''error_pattern'': ''Unable to
+      open'', ''detection_method'': ''log_match''}'
+    detection: '{''root_cause'': ''inflow_fl path does not match actual file location'', ''explanation'': ''Same as dt_011
+      but for inflow files. The inflow_fl path must be resolvable from the GLM working directory.\n'', ''aff'
+    fix: '{''action'': ''Verify all file paths in namelist exist before running GLM'', ''tool_to_run'': ''run_glm'', ''manual_steps'':
+      [''run_glm preflight check validates all referenced file paths''], ''prevention'': ''run_g'
+    is_unit_trap: false
+    automatable: true
+  - canonical_var: discharge
+    model: GLM
+    trap_id: dt_016
+    description: '{''description'': ''Inflow timing offset — flow arrives 1 day early or late'', ''error_pattern'': '''',
+      ''detection_method'': ''value_comparison''}'
+    detection: '{''root_cause'': ''Timezone mismatch between forcing and inflow data'', ''explanation'': ''If the meteorological
+      CSV uses UTC timestamps but the inflow CSV uses local time (or vice versa), there is a systema'
+    fix: '{''action'': ''Ensure all CSV timestamps use the same timezone as GLM timezone parameter'', ''tool_to_run'': '''',
+      ''manual_steps'': [''Check timezone parameter in &time block'', ''Verify met CSV and inflow CSV us'
+    is_unit_trap: true
+    automatable: true
+  - canonical_var: discharge
+    model: GLM
+    trap_id: dt_017
+    description: '{''description'': ''CaMa-Flood discharge is inconsistent with GLM inflow. Water balance does not close.'',
+      ''error_pattern'': '''', ''detection_method'': ''value_comparison''}'
+    detection: '{''root_cause'': ''CaMa grid cell does not correspond to the actual lake inlet'', ''explanation'': ''When
+      extracting CaMa-Flood discharge for GLM inflow, the grid cell must be the one immediately upstream of'
+    fix: '{''action'': ''Verify spatial alignment of CaMa output point with GLM inflow location'', ''tool_to_run'': '''',
+      ''manual_steps'': [''Check CaMa river network to find the correct upstream cell'', ''Compare total in'
+    is_unit_trap: true
+    automatable: true
+  - canonical_var: discharge
+    model: VIC->GLM
+    trap_id: unit_mismatch_discharge
+    description: 'Unit mismatch: source [mm/timestep] vs target [m3/s]'
+    detection: Check discharge units at coupling boundary
+    fix: Convert mm/timestep -> m3/s
+    is_unit_trap: true
+    automatable: true

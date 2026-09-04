@@ -1,0 +1,129 @@
+# Coupling Config v2: VIC -> SaltMod
+
+coupling_config_version: '2.0'
+generated: '2026-05-23'
+generator: ata_pipeline2_coupling_gen.py v2
+metadata:
+  edge_id: VIC_to_SaltMod
+  source_model: VIC
+  target_model: SaltMod
+  source_domain: hydrology
+  target_domain: hydrology
+  edge_type: type4_cross_scale_same_domain
+  n_forward_variables: 2
+  n_combine_variables: 0
+  n_plausible_feedback: 0
+  n_review_feedback: 0
+  is_feedback: false
+forward_edges:
+- canonical_id: actual_evapotranspiration
+  source_canonical_id: actual_evapotranspiration
+  target_canonical_id: actual_evapotranspiration
+  match_type: exact_canonical
+  source_local_name: AET
+  source_unit: mm/timestep
+  target_local_name: ETa
+  target_unit: m/season
+- canonical_id: water_table_depth
+  source_canonical_id: water_table_depth
+  target_canonical_id: water_table_depth
+  match_type: exact_canonical
+  source_local_name: zwt
+  source_unit: m
+  target_local_name: Dw
+  target_unit: m
+combine_edges: []
+plausible_feedback: []
+review_feedback: []
+compatibility:
+- canonical_id: actual_evapotranspiration
+  source_canonical_id: actual_evapotranspiration
+  target_canonical_id: actual_evapotranspiration
+  match_type: exact_canonical
+  primitives_needed:
+  - convert_units
+  - map_space
+  - validate_boundary
+  details:
+    convert_units: &id001
+      from_unit: mm/timestep
+      to_unit: m/season
+      known: false
+      canonical_id: actual_evapotranspiration
+    exchange_data: &id002
+      status: format_unspecified
+      variable_mapping:
+        source_name: AET
+        target_name: ETa
+      canonical_id: actual_evapotranspiration
+    map_space: &id004
+      from_type: regular_grid
+      to_type: lumped
+      method: unknown
+      canonical_id: actual_evapotranspiration
+    validate_boundary: &id006
+      checks:
+      - non_negative
+      - no_nan
+      - 'range: [0.0, 1.5]'
+      canonical_id: actual_evapotranspiration
+- canonical_id: water_table_depth
+  source_canonical_id: water_table_depth
+  target_canonical_id: water_table_depth
+  match_type: exact_canonical
+  primitives_needed:
+  - map_space
+  - validate_boundary
+  details:
+    convert_units:
+      status: not_needed
+      units_match: true
+    exchange_data: &id003
+      status: format_unspecified
+      variable_mapping:
+        source_name: zwt
+        target_name: Dw
+      canonical_id: water_table_depth
+    map_space: &id005
+      from_type: regular_grid
+      to_type: lumped
+      method: unknown
+      canonical_id: water_table_depth
+    validate_boundary: &id007
+      checks:
+      - no_nan
+      - 'range: [0.0, 20.0]'
+      canonical_id: water_table_depth
+primitives_needed:
+- convert_units
+- map_space
+- validate_boundary
+execution_order:
+- convert_units
+- map_space
+- validate_boundary
+primitive_configs:
+  convert_units:
+  - *id001
+  exchange_data:
+  - *id002
+  - *id003
+  map_space:
+  - *id004
+  - *id005
+  validate_boundary:
+  - *id006
+  - *id007
+risks:
+  total_traps: 1
+  automatable: 1
+  judgment_required: 0
+  traps:
+  - canonical_var: actual_evapotranspiration
+    model: VIC->SaltMod
+    trap_id: unit_mismatch_actual_evapotranspiration
+    description: 'Unit mismatch: source [mm/timestep] vs target [m/season]'
+    detection: Check actual_evapotranspiration units at coupling boundary
+    fix: Convert mm/timestep -> m/season
+    is_unit_trap: true
+    automatable: true
