@@ -558,7 +558,10 @@ installation failure in this test.
 
 Keep diagnosing build and runtime problems until the official executable or
 declared Python package responds. Do not substitute a toy implementation,
-launcher, or mock executable. If a licence, login, protected download, system
+launcher, or mock executable. Do not inspect or copy artifacts from another
+GeoForge project or installation workspace: they are not provenance for this
+test. Never create placeholder model/data files merely to satisfy a preflight
+existence check. If a licence, login, protected download, system
 privilege, or missing shared toolchain requires a person, create one structured
 setup request and stop. If you create or select a Python environment, record
 its real interpreter in `{Path(root) / 'kiss.toml'}` under `kiss.python`; do
@@ -574,6 +577,13 @@ You own the complete KDT loop: inspect, act, run preflight, diagnose, repair,
 and retry. Read SKILL.md first and use the KI's validated tools and diagnostics.
 Do not stop after merely explaining commands or after the first failed build.
 The only successful outcome is a passing preflight.
+
+Use only this workspace, the bundled KI, declared existing-install candidates,
+and authoritative upstream sources. Do not inspect or copy artifacts from
+other GeoForge projects or installation workspaces. Never fabricate or add a
+placeholder scientific/model file merely to make a preflight check pass; if
+the check contradicts an authoritative model deck, report that KI validation
+defect with evidence instead.
 
 If a licence, login, protected download, system privilege, or user choice makes
 progress impossible, create one structured setup request exactly as described

@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+from http.cookiejar import CookieJar
 import csv
 import json
 import os
@@ -16,13 +17,16 @@ import threading
 import time
 from urllib.error import HTTPError, URLError
 from urllib.parse import quote
-from urllib.request import Request, urlopen
+from urllib.request import HTTPCookieProcessor, Request, build_opener
+
+
+OPENER = build_opener(HTTPCookieProcessor(CookieJar()))
 
 
 def http_json(url: str, payload: dict | None = None, timeout: float = 30) -> dict:
     data = None if payload is None else json.dumps(payload).encode("utf-8")
     req = Request(url, data=data, headers={"Content-Type": "application/json"})
-    with urlopen(req, timeout=timeout) as response:
+    with OPENER.open(req, timeout=timeout) as response:
         return json.loads(response.read().decode("utf-8"))
 
 
@@ -81,7 +85,7 @@ def run_setup(base: str, model: str, timeout_seconds: int) -> tuple[str, str]:
                           data=json.dumps({"model": model, "provider": "api:deepseek",
                                            "llm_model": "deepseek-chat"}).encode(),
                           headers={"Content-Type": "application/json"})
-            with urlopen(req, timeout=300) as response:
+            with OPENER.open(req, timeout=300) as response:
                 body = response.read().decode("utf-8", "replace")
             result.append(("completed", body[-8000:]))
         except Exception as exc:  # recorded per KI; the matrix continues
@@ -117,6 +121,8 @@ def main() -> int:
     parser.add_argument("--root", type=Path, default=Path("_stress_deepseek_windows_20260827"))
     parser.add_argument("--timeout-minutes", type=int, default=60)
     parser.add_argument("--limit", type=int, help="smoke-test only the first N pending KIs")
+    parser.add_argument("--models", nargs="+",
+                        help="run only these KI names (useful for targeted regressions)")
     parser.add_argument("--cleanup", action="store_true",
                         help="remove each dedicated install after its result is safely recorded")
     args = parser.parse_args()
@@ -138,6 +144,12 @@ def main() -> int:
         if len(models) != 127:
             raise RuntimeError(f"expected 127 bundled KIs, API returned {len(models)}")
         pending = [name for name in models if name not in done]
+        if args.models:
+            requested = set(args.models)
+            unknown = requested.difference(models)
+            if unknown:
+                raise ValueError("unknown KI names: " + ", ".join(sorted(unknown)))
+            pending = [name for name in pending if name in requested]
         if args.limit is not None: pending = pending[:args.limit]
         print(f"DeepSeek KI stress: {len(done)}/127 recorded; running {len(pending)}", flush=True)
         for index, model in enumerate(pending, len(done) + 1):

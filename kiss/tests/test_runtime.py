@@ -1799,6 +1799,15 @@ class McpConnectionTests(unittest.TestCase):
 
 
 class FrontendRegressionTests(unittest.TestCase):
+    def test_windows_tray_right_click_offers_open_and_real_exit(self):
+        source = (Path(__file__).parents[1] / "kiss_cli" /
+                  "windows_tray.py").read_text(encoding="utf-8")
+        self.assertIn('"Open GeoForge"', source)
+        self.assertIn('"Exit GeoForge"', source)
+        self.assertIn("TrackPopupMenu", source)
+        self.assertIn("Shell_NotifyIconW(NIM_DELETE", source)
+        self.assertIn("os._exit(0)", source)
+
     def test_environment_selfcheck_proves_the_harness_before_providers(self):
         source = (Path(__file__).parents[1] / "kiss_cli" / "gui.py").read_text()
         self.assertIn("[1/6] KI harness contract", source)

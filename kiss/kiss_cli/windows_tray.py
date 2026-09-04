@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import ctypes
+import os
 import threading
 import webbrowser
 from ctypes import wintypes
@@ -14,10 +15,16 @@ WM_RBUTTONUP = 0x0205
 WM_APP = 0x8000
 TRAY_MESSAGE = WM_APP + 17
 NIM_ADD = 0
+NIM_DELETE = 2
 NIF_MESSAGE = 0x01
 NIF_ICON = 0x02
 NIF_TIP = 0x04
 IDI_APPLICATION = 32512
+MF_STRING = 0x0000
+TPM_RIGHTBUTTON = 0x0002
+TPM_RETURNCMD = 0x0100
+CMD_OPEN = 1001
+CMD_EXIT = 1002
 
 
 class _NotifyIconData(ctypes.Structure):
@@ -59,6 +66,17 @@ def start(url: str) -> threading.Thread | None:
         user32.CreateWindowExW.restype = wintypes.HWND
         user32.LoadIconW.argtypes = [wintypes.HINSTANCE, ctypes.c_void_p]
         user32.LoadIconW.restype = wintypes.HICON
+        user32.CreatePopupMenu.argtypes = []
+        user32.CreatePopupMenu.restype = wintypes.HMENU
+        user32.AppendMenuW.argtypes = [
+            wintypes.HMENU, wintypes.UINT, wintypes.WPARAM, wintypes.LPCWSTR]
+        user32.GetCursorPos.argtypes = [ctypes.POINTER(wintypes.POINT)]
+        user32.SetForegroundWindow.argtypes = [wintypes.HWND]
+        user32.TrackPopupMenu.argtypes = [
+            wintypes.HMENU, wintypes.UINT, ctypes.c_int, ctypes.c_int,
+            ctypes.c_int, wintypes.HWND, ctypes.c_void_p]
+        user32.TrackPopupMenu.restype = wintypes.UINT
+        user32.DestroyMenu.argtypes = [wintypes.HMENU]
         kernel32.GetModuleHandleW.argtypes = [wintypes.LPCWSTR]
         kernel32.GetModuleHandleW.restype = wintypes.HMODULE
         wndproc_type = ctypes.WINFUNCTYPE(
@@ -67,10 +85,35 @@ def start(url: str) -> threading.Thread | None:
 
         @wndproc_type
         def wndproc(hwnd, message, wparam, lparam):
-            if message == TRAY_MESSAGE and lparam in (WM_LBUTTONDBLCLK, WM_RBUTTONUP):
+            if message == TRAY_MESSAGE and lparam == WM_LBUTTONDBLCLK:
                 webbrowser.open(url)
                 return 0
+            if message == TRAY_MESSAGE and lparam == WM_RBUTTONUP:
+                menu = user32.CreatePopupMenu()
+                if menu:
+                    user32.AppendMenuW(menu, MF_STRING, CMD_OPEN, "Open GeoForge")
+                    user32.AppendMenuW(menu, MF_STRING, CMD_EXIT, "Exit GeoForge")
+                    point = wintypes.POINT()
+                    user32.GetCursorPos(ctypes.byref(point))
+                    # Required by TrackPopupMenu so clicking elsewhere dismisses
+                    # the menu correctly for a notification-area-only window.
+                    user32.SetForegroundWindow(hwnd)
+                    command = user32.TrackPopupMenu(
+                        menu, TPM_RIGHTBUTTON | TPM_RETURNCMD,
+                        point.x, point.y, 0, hwnd, None)
+                    user32.DestroyMenu(menu)
+                    if command == CMD_OPEN:
+                        webbrowser.open(url)
+                    elif command == CMD_EXIT:
+                        shell32.Shell_NotifyIconW(NIM_DELETE, ctypes.byref(data))
+                        user32.DestroyWindow(hwnd)
+                        # gui.serve() owns the main thread and has no external
+                        # shutdown handle. End this self-contained local server
+                        # after removing its icon; settings writes are atomic.
+                        os._exit(0)
+                return 0
             if message == WM_DESTROY:
+                shell32.Shell_NotifyIconW(NIM_DELETE, ctypes.byref(data))
                 user32.PostQuitMessage(0)
                 return 0
             return user32.DefWindowProcW(hwnd, message, wparam, lparam)
