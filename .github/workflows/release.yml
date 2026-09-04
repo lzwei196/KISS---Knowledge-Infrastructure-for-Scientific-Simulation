@@ -145,6 +145,9 @@ jobs:
 
   build-intel:
     needs: checks
+    # mac-version currently publishes the tested Apple-Silicon build only.
+    # Keep the recipe for later, but do not queue an unpublishable Intel job.
+    if: ${{ false }}
     strategy:
       matrix:
         include:
@@ -213,6 +216,9 @@ jobs:
   # Linux build serves the same UI without pretending to be a native window.
   build-linux:
     needs: checks
+    # Linux releases are owned by their platform workflow/branch, not by
+    # mac-version.
+    if: ${{ false }}
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v4
@@ -298,6 +304,9 @@ jobs:
   # missing from a macOS build, so the smoke test fetches every page.
   build-windows:
     needs: checks
+    # Windows releases are owned by their platform workflow/branch, not by
+    # mac-version.
+    if: ${{ false }}
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
@@ -374,11 +383,10 @@ jobs:
 
 
   release:
-    needs: [build, build-linux, build-windows]
-    # A public release is a cross-platform deliverable, not a metadata-only
-    # fallback. Intel macOS remains best effort, but arm64 macOS, Linux and
-    # Windows must all build successfully before this job is allowed to run.
-    if: ${{ always() && needs.build.result == 'success' && needs.build-linux.result == 'success' && needs.build-windows.result == 'success' }}
+    needs: [build]
+    # This is the mac-version release workflow. Refuse to publish unless the
+    # Apple-Silicon Desktop application was built and smoke-tested.
+    if: ${{ always() && needs.build.result == 'success' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -403,15 +411,13 @@ jobs:
                 git push origin "$TAG" || true ;;
           esac
           shopt -s nullglob
-          ASSETS=(GeoForge-Desktop-* kiss-macos-*.tar.gz kiss-linux-*.tar.gz
-                  kiss-windows-*.zip kiss-ki-packages.tar.gz)
+          ASSETS=(GeoForge-Desktop-macos-*.app.zip kiss-macos-*.tar.gz
+                  kiss-ki-packages.tar.gz)
           # Check exact paths with `-f`. An exact word in a Bash array is still
           # present when the file is absent; array length therefore cannot be
           # used as an existence check here.
           REQUIRED_ASSETS=(
             GeoForge-Desktop-macos-arm64.app.zip
-            GeoForge-Desktop-linux-x86_64.tar.gz
-            GeoForge-Desktop-windows-x86_64.zip
           )
           for required in "${REQUIRED_ASSETS[@]}"; do
             if [ ! -f "$required" ]; then
@@ -429,15 +435,10 @@ jobs:
             gh api -X DELETE "repos/$GITHUB_REPOSITORY/releases/$id" || true
           done
           echo "publishing: ${ASSETS[*]}"
-          for a in "macos-arm64.app.zip" "macos-x86_64.app.zip" \
-                   "linux-x86_64.tar.gz" "windows-x86_64.zip"; do
-            [ -f "GeoForge-Desktop-$a" ] \
-              || echo "::warning::${a%%.*} did not build — this release ships without it"
-          done
           sha256sum "${ASSETS[@]}" > SHA256SUMS.txt
           ASSETS+=(release-manifest.json DESKTOP_CHANGELOG.md SHA256SUMS.txt)
           gh release create "$TAG" \
-            --title "GeoForge Desktop $TAG — macOS, Windows, Linux" \
+            --title "GeoForge Desktop $TAG — macOS Apple Silicon" \
             --notes-file .github/RELEASE_NOTES_MACOS.md \
             --repo "$GITHUB_REPOSITORY" \
             "${ASSETS[@]}" \

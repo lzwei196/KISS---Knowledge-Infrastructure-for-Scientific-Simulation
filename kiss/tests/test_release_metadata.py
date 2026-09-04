@@ -32,6 +32,19 @@ class ReleaseMetadataTests(unittest.TestCase):
         self.assertIn("release-manifest.json DESKTOP_CHANGELOG.md SHA256SUMS.txt", workflow)
         self.assertIn('sha256sum "${ASSETS[@]}"', workflow)
 
+    def test_mac_version_release_only_publishes_macos_assets(self):
+        workflow = (REPO / ".github" / "workflows" / "release.yml").read_text(
+            encoding="utf-8")
+
+        release_job = workflow.split("\n  release:\n", 1)[1]
+        self.assertIn("needs: [build]", release_job)
+        self.assertIn("GeoForge-Desktop-macos-*.app.zip", release_job)
+        self.assertIn("kiss-macos-*.tar.gz", release_job)
+        self.assertNotIn("GeoForge-Desktop-linux-", release_job)
+        self.assertNotIn("GeoForge-Desktop-windows-", release_job)
+        self.assertNotIn("kiss-linux-", release_job)
+        self.assertNotIn("kiss-windows-", release_job)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -3,12 +3,10 @@ Infrastructures, driven by the GeoForge agent.
 
 ## What is new in v0.6.52
 
-v0.6.52 is the complete cross-platform reissue of v0.6.50. The first v0.6.50
-workflow stopped during tests but mistakenly published a KI-only release with no
-Desktop application. The release gate now fails closed unless the macOS arm64,
-Windows x86_64 and Linux x86_64 Desktop archives all build, pass frozen-runtime
-smoke tests and reach the release job. It also makes optional geospatial capability
-probing deterministic on clean machines where GeoPandas is not installed.
+v0.6.52 is the tested Apple-Silicon macOS release. The release gate fails closed
+unless the macOS arm64 Desktop archive builds and passes its frozen-runtime smoke
+test. It also makes optional geospatial capability probing deterministic on clean
+machines where GeoPandas is not installed.
 
 - The KI harness now has a real plan → user approval → execute → verify gate.
   Downloads and model tools remain unavailable until the recorded data inventory
@@ -25,13 +23,13 @@ probing deterministic on clean machines where GeoPandas is not installed.
 - KI Observatory, evidence-graded Agent activity, provider-specific proxy routes,
   selectable existing installations and portable CRHM/Alpine3D/WRF-Hydro setup
   are included in the same release.
-- macOS, Windows, Linux and CLI packages use one version source. See
+- The macOS Desktop and CLI packages use one version source. See
   `release-manifest.json` for the machine-readable update contract and
   `DESKTOP_CHANGELOG.md` for bilingual details.
 
 Local validation: 311 Desktop/Flow tests, 98 KI-tool tests, 83 climate/unit tests
-and 46 diagnostic checks passed. The frozen application and each platform build
-are additionally smoke-tested by the release workflow.
+and 46 diagnostic checks passed. The frozen macOS application is additionally
+smoke-tested by the release workflow.
 
 ## Install
 
@@ -43,21 +41,6 @@ are additionally smoke-tested by the release workflow.
 
 The `xattr` line is required: the build is not signed by Apple, and without it
 macOS refuses to open the app.
-
-**Windows** (Intel or AMD, 64-bit)
-
-Unzip `GeoForge-Desktop-windows-x86_64.zip` and double-click
-`GeoForge Desktop.exe`. SmartScreen will warn that the publisher is unknown —
-**More info** then **Run anyway**. Same cause as the macOS step above.
-
-**Linux** (Intel or AMD, 64-bit, glibc 2.35+)
-
-    tar xzf GeoForge-Desktop-linux-x86_64.tar.gz
-    ./GeoForge-Desktop
-
-The UI opens in your default browser rather than its own window: pywebview's
-Linux backend needs WebKit2GTK from the system and cannot be frozen into a
-portable binary. Same engine, same interface.
 
 Everything is inside the download — all 127 KI packages, the engine, the UI.
 No Python installation and no first-run network access.
@@ -71,13 +54,11 @@ are per session.
 
 ## Also here
 
-`kiss-<platform>` — the engine as a terminal command (`list`, `info`, `init`,
+`kiss-macos-arm64.tar.gz` — the engine as a terminal command (`list`, `info`, `init`,
 `verify`, `papers`, `doctor`). `kiss-ki-packages.tar.gz` is the KI content on
 its own, for running from source; the desktop downloads already contain it.
 
 ## Not in this release
 
-Intel Macs (x86_64) — GitHub's Intel runners have been unavailable for hours
-at a time, so that build is best-effort and the release ships without it
-rather than waiting. Linux and Windows on ARM are not built. Build from source
-for either: `pip install -e kiss/`.
+Intel Macs (x86_64), Windows and Linux are not published by the `mac-version`
+release workflow. Their platform branches and workflows own those deliverables.
