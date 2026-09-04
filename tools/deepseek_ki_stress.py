@@ -83,7 +83,8 @@ def run_setup(base: str, model: str, timeout_seconds: int) -> tuple[str, str]:
         try:
             req = Request(base + "/api/setup-agent",
                           data=json.dumps({"model": model, "provider": "api:deepseek",
-                                           "llm_model": "deepseek-chat"}).encode(),
+                                           "llm_model": "deepseek-chat",
+                                           "installation_only": True}).encode(),
                           headers={"Content-Type": "application/json"})
             with OPENER.open(req, timeout=300) as response:
                 body = response.read().decode("utf-8", "replace")
@@ -97,11 +98,11 @@ def run_setup(base: str, model: str, timeout_seconds: int) -> tuple[str, str]:
     return ("timeout", f"wall-clock timeout after {timeout_seconds}s") if thread.is_alive() else result[0]
 
 
-def classify(state: dict, transport: str) -> str:
+def classify(state: dict, transport: str, installation: dict | None = None) -> str:
     software = state.get("software") or {}
     request = state.get("request") or {}
-    if software.get("can_run") or software.get("state") == "verified":
-        return "verified"
+    if installation and installation.get("usable"):
+        return "installed"
     if request.get("status") == "waiting":
         return "needs-user"
     if transport == "timeout":
@@ -161,12 +162,18 @@ def main() -> int:
                 if transport == "timeout":
                     server.stop(); server.start()
                 state = http_json(server.base + "/api/setup/" + quote(model), timeout=30)
+                installation_path = target / "installation-test.json"
+                installation = (json.loads(installation_path.read_text(encoding="utf-8"))
+                                if installation_path.is_file() else None)
                 software, request = state.get("software") or {}, state.get("request") or {}
                 primary = software.get("primary_error") or {}
-                error = primary.get("detail") if isinstance(primary, dict) else str(primary or detail)
-                row = {"model": model, "result": classify(state, transport),
+                error = ((installation or {}).get("summary") or
+                         (primary.get("detail") if isinstance(primary, dict)
+                          else str(primary or detail)))
+                row = {"model": model, "result": classify(state, transport, installation),
                        "seconds": round(time.time() - started, 1),
-                       "software_state": software.get("state", ""),
+                       "software_state": ((installation or {}).get("state") or
+                                          software.get("state", "")),
                        "request_kind": request.get("kind", ""), "error": (error or detail)[-2000:],
                        "finished_at": time.strftime("%Y-%m-%dT%H:%M:%S%z")}
             except Exception as exc:
@@ -174,6 +181,14 @@ def main() -> int:
                        "seconds": round(time.time() - started, 1), "software_state": "",
                        "request_kind": "", "error": repr(exc),
                        "finished_at": time.strftime("%Y-%m-%dT%H:%M:%S%z")}
+                # One model or one spawned installer must not invalidate every
+                # later KI. A dead/refusing backend is infrastructure damage,
+                # so restore it before recording and continuing the matrix.
+                try:
+                    server.stop()
+                    server.start()
+                except Exception as restart_exc:
+                    row["error"] += f"; server restart failed: {restart_exc!r}"
             with jsonl.open("a", encoding="utf-8") as stream:
                 stream.write(json.dumps(row, ensure_ascii=False) + "\n")
             rows.append(row); write_csv(csv_path, rows)
