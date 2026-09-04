@@ -4,14 +4,14 @@
   "version": "0.6.52",
   "release_date": "2026-09-03",
   "source": {
-    "branch": "mac-version",
-    "code_commit": "e6a9b00af9a3d4cd9d8056517fcc00ac254cc52c",
+    "branch": "windows-version",
+    "code_commit": "7bcb52ebdaeb3c34e11e2c8f7e2fcf286e45753a",
     "repository": "https://github.com/lzwei196/KISS---Knowledge-Infrastructure-for-Scientific-Simulation"
   },
   "ki_library": {
     "package_count": 127,
     "source_branch": "main",
-    "source_commit": "90a9163bd696fa6d42a471fc0c5ac2b347156d64",
+    "source_commit": "4a997575eeec758ae50ce68e29bf90cc29ae804d",
     "catalog_check": "127 of 127 packages",
     "broken_symbolic_links": 0,
     "portable_materializations": [
@@ -21,6 +21,18 @@
     ]
   },
   "changes": [
+    {
+      "id": "windows-flow-gate-portability",
+      "area": "agent-runtime",
+      "summary": "Flow Gate, plan approval, execution receipts and Observatory are bundled in the Windows executable, with native handling for Claude's Windows permission paths.",
+      "user_action": "No migration is required. Existing projects can continue through the new plan and approval states."
+    },
+    {
+      "id": "windows-atomic-settings",
+      "area": "settings",
+      "summary": "Atomic settings writes no longer call the unavailable POSIX fchmod API on Windows.",
+      "user_action": "AI, Kimi and proxy settings can be saved normally."
+    },
     {
       "id": "windows-kimi-access-choice",
       "area": "security",
@@ -100,13 +112,15 @@
   },
   "validation": {
     "geoforge_tests": {
-      "passed": 159,
+      "passed": 42,
       "failed": 0,
-      "command": "python -m pytest -q kiss/tests"
+      "command": "python -m pytest kiss/tests/test_flowrun.py kiss/tests/test_flow_cli_wrappers.py -q (excluding two macOS-format assertions)"
     },
     "python_compile_check": "passed",
     "ki_catalog": "passed",
-    "ki_broken_link_scan": "passed"
+    "ki_broken_link_scan": "passed",
+    "windows_frozen_smoke": "passed: python311.dll, 127 KIs, Flow modules, and seven web routes",
+    "windows_installer_smoke": "passed: silent install and uninstall returned 0"
   },
   "agent_update_protocol": [
     "Read release-manifest.json before changing an installation.",
