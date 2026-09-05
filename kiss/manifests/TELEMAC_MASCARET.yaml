@@ -1,0 +1,25 @@
+kiss_manifest_version: 1
+model: TELEMAC_MASCARET
+binary_type: native
+verified: unverified
+install_dir: TELEMAC_MASCARET
+
+acquire:
+  strategy: build
+  repo: https://gitlab.pam-retd.fr/otm/telemac-mascaret.git
+  ref: v9.1.0
+  produces: builds/main_gfortran_release/bin/telemac2d
+
+python_deps: [numpy, scipy, matplotlib]
+system_deps: [git-lfs, gfortran, cmake, mpi, metis]
+
+reference_case: telemac2d --help
+
+notes: >-
+  The project website is not a Git remote. Official openTELEMAC installation
+  guidance points to the pam-retd GitLab repository.
+
+agent_hint: >-
+  Clone the pam-retd GitLab repository at tag v9.1.0. On Windows use the
+  official wintel/MinGW configuration guidance and keep the compiler, MPI and
+  METIS artifacts inside the managed setup workspace when possible.

@@ -919,7 +919,7 @@ print(MARKER, len(text), implementation.__file__)
             ki = SimpleNamespace(preflight=preflight)
 
             self.assertEqual(
-                runnable.declared_imports(ki), ["geophires_x", "ribasim"],
+                runnable.declared_imports(ki), ["geophires_x"],
             )
 
     def test_runnable_reads_semantic_file_and_loop_import_helpers(self):
@@ -940,6 +940,37 @@ print(MARKER, len(text), implementation.__file__)
             )
             self.assertEqual(
                 runnable.declared_imports(ki), ["numpy", "pandas"],
+            )
+
+    def test_runnable_ignores_explicitly_optional_imports(self):
+        with tempfile.TemporaryDirectory() as td:
+            preflight = Path(td) / "preflight_check.py"
+            preflight.write_text(
+                "def check_import(checks, module, critical=True): pass\n"
+                "check_import([], 'porepy', critical=True)\n"
+                "check_import([], 'pypardiso', critical=False)\n"
+            )
+            ki = SimpleNamespace(preflight=preflight)
+
+            self.assertEqual(runnable.declared_imports(ki), ["porepy"])
+
+    def test_missing_imports_sees_ki_tools_and_common_sibling(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            ki = root / "ki"
+            (ki / "tools").mkdir(parents=True)
+            (ki / "tools" / "local_tool.py").write_text("VALUE = 1\n")
+            common = root / "ki_tools_common" / "ki_tools_common"
+            common.mkdir(parents=True)
+            (common / "__init__.py").write_text("")
+            (common / "metrics.py").write_text("VALUE = 1\n")
+
+            self.assertEqual(
+                runnable.missing_imports(
+                    ["local_tool", "ki_tools_common.metrics"],
+                    sys.executable, ki,
+                ),
+                [],
             )
 
     def test_runnable_finds_exact_agent_build_in_model_tree(self):
@@ -984,6 +1015,19 @@ print(MARKER, len(text), implementation.__file__)
                 ),
                 built,
             )
+
+    def test_runnable_understands_keyword_only_executable(self):
+        with tempfile.TemporaryDirectory() as td:
+            preflight = Path(td) / "preflight_check.py"
+            runner = Path(td) / "tools" / "run_model.py"
+            preflight.write_text(
+                f"RUNNER = {str(runner)!r}\n"
+                "def check_file(checks, path, label, *, executable=False): pass\n"
+                "check_file([], RUNNER, 'runner', executable=True)\n"
+            )
+            ki = SimpleNamespace(preflight=preflight)
+
+            self.assertEqual(runnable.declared(ki), [str(runner)])
 
 
 class EnvironmentAndTlsTests(unittest.TestCase):

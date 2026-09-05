@@ -11,7 +11,7 @@ identity:
   is_family_dag: false
   language: "fortran"
   license: "GPL-3.0"
-  repo_url: "https://www.opentelemac.org"
+  repo_url: "https://gitlab.pam-retd.fr/otm/telemac-mascaret.git"
 
 boundary:
   scope_in:

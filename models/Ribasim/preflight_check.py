@@ -308,6 +308,14 @@ def main() -> None:
             fix=recovery_hint(f"fix syntax/import-time compile problem in {tool}: {reason_text}"),
         )
 
+    # Declarative runnable contract for GeoForge's installation probe. The
+    # wrapper locates the native Ribasim CLI/Python API and responds to --help;
+    # declaring it here avoids treating the implementation language alone as
+    # proof that an undeclared Julia binary must exist at one fixed path.
+    check_file(
+        checks, DECLARED_BINARY, "Ribasim runner", critical=True,
+        executable=True, kind="binary",
+    )
     check_tool_starts(checks, DECLARED_BINARY)
 
     if JULIA_BIN.is_file() and os.access(JULIA_BIN, os.X_OK):

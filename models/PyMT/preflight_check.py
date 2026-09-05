@@ -47,23 +47,9 @@ def main():
     global PASS, FAIL
     print(f"{' PREFLIGHT: PyMT ':=^60}")
     print()
-    # PyMT in dissection venv
-    import sys
-    sys.path.insert(0, "KISSPATH_INTERNAL_NOT_SHIPPED/auto_dissect/_work/PyMT/venv/lib/python3.12/site-packages")
-    # PyMT: use venv python (has deps system python lacks)
-    import subprocess
-    try:
-        proc = subprocess.run(["KISSPATH_INTERNAL_NOT_SHIPPED/auto_dissect/_work/PyMT/venv/bin/python3", "-c", "import pymt"], 
-            capture_output=True, timeout=10)
-        if proc.returncode == 0:
-            print(f"  OK    PyMT (pymt): verified via venv python")
-            PASS += 1
-        else:
-            print(f"  FAIL  PyMT (pymt): {proc.stderr.decode().strip().split(chr(10))[-1]}")
-            FAIL += 1
-    except Exception as e:
-        print(f"  FAIL  PyMT (pymt): {e}")
-        FAIL += 1
+    # PyMT is a Python package. The materialised KI runs this preflight with
+    # the selected project interpreter; never pin an authoring-machine venv.
+    check_import("pymt", "PyMT package")
     # Check diagnostics
     ki_dir = os.path.dirname(os.path.abspath(__file__))
     triplets = os.path.join(ki_dir, "diagnostics", "triplets.yaml")

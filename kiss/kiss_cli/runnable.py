@@ -222,9 +222,12 @@ def declared(ki) -> list[str]:
         if not isinstance(stmt, (ast.FunctionDef, ast.AsyncFunctionDef)):
             continue
         params = [arg.arg for arg in stmt.args.args]
-        if "path" in params and "executable" in params:
+        keyword_only = [arg.arg for arg in stmt.args.kwonlyargs]
+        if "path" in params and ("executable" in params or
+                                 "executable" in keyword_only):
             signatures[stmt.name] = (params.index("path"),
-                                     params.index("executable"))
+                                     (params.index("executable")
+                                      if "executable" in params else -1))
 
     # Resolve module-level constants in source order.  A few generated KIs use
     # Path division; older ones use os.path.dirname/join.
@@ -249,7 +252,7 @@ def declared(ki) -> list[str]:
         path_index, executable_index = signature
         explicit = next((kw.value for kw in node.keywords
                          if kw.arg == "executable"), None)
-        if explicit is None and executable_index is not None and len(node.args) > executable_index:
+        if explicit is None and executable_index >= 0 and len(node.args) > executable_index:
             explicit = node.args[executable_index]
         if not (isinstance(explicit, ast.Constant) and explicit.value is True):
             continue
@@ -284,11 +287,6 @@ def declared_imports(ki) -> list[str]:
         return []
     text = Path(pre).read_text(encoding="utf-8", errors="replace")
     seen, out = set(), []
-    for m in re.finditer(r"""check_import\(\s*['"]([\w.]+)['"]""", text):
-        mod = m.group(1)
-        if mod not in seen:
-            seen.add(mod)
-            out.append(mod)
     # Contract preflights are not all generated from the same template.  Some
     # take ``checks`` or ``python_path`` before ``module``; some call the helper
     # ``check_python_import``/``check_import_with_python``.  Read the helper's
@@ -299,6 +297,7 @@ def declared_imports(ki) -> list[str]:
     except SyntaxError:
         return out
     module_indexes: dict[str, int] = {}
+    critical_indexes: dict[str, int] = {}
     for node in tree.body:
         if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
             continue
@@ -307,6 +306,8 @@ def declared_imports(ki) -> list[str]:
         params = [arg.arg for arg in node.args.args]
         if "module" in params:
             module_indexes[node.name] = params.index("module")
+            if "critical" in params:
+                critical_indexes[node.name] = params.index("critical")
     constants: dict[str, str] = {}
     for node in tree.body:
         if isinstance(node, ast.Assign):
@@ -322,6 +323,14 @@ def declared_imports(ki) -> list[str]:
                 node.func.attr if isinstance(node.func, ast.Attribute) else "")
         index = module_indexes.get(name)
         if index is None:
+            continue
+        critical = next((kw.value for kw in node.keywords
+                         if kw.arg == "critical"), None)
+        critical_index = critical_indexes.get(name)
+        if (critical is None and critical_index is not None and
+                len(node.args) > critical_index):
+            critical = node.args[critical_index]
+        if isinstance(critical, ast.Constant) and critical.value is False:
             continue
         keyword = next((kw.value for kw in node.keywords if kw.arg == "module"), None)
         value_node = keyword if keyword is not None else (
@@ -349,6 +358,14 @@ def declared_imports(ki) -> list[str]:
                     call.func.attr if isinstance(call.func, ast.Attribute) else "")
             index = module_indexes.get(name)
             if index is not None and len(call.args) > index:
+                critical = next((kw.value for kw in call.keywords
+                                 if kw.arg == "critical"), None)
+                critical_index = critical_indexes.get(name)
+                if (critical is None and critical_index is not None and
+                        len(call.args) > critical_index):
+                    critical = call.args[critical_index]
+                if isinstance(critical, ast.Constant) and critical.value is False:
+                    continue
                 uses_module |= (isinstance(call.args[index], ast.Name) and
                                 call.args[index].id == loop.target.id)
         if uses_module:
@@ -368,14 +385,21 @@ def missing_imports(mods: list[str], python: str, cwd: Path | None = None) -> li
     # announces its config file on stdout. Unmarked output would be read back
     # as the name of a missing module, so every answer carries a marker and
     # anything else on the stream is somebody else's noise.
-    probe = ("import importlib.util as u\n"
+    local_paths: list[str] = []
+    if cwd:
+        local_paths.extend((str(cwd), str(cwd / "tools")))
+        common = cwd.parent / "ki_tools_common"
+        if common.is_dir():
+            local_paths.append(str(common))
+    probe = ("import sys,importlib.util as u\n"
+             "sys.path[:0] = %r\n"
              "for m in %r:\n"
              "    try:\n"
              "        ok = u.find_spec(m) is not None\n"
              "    except Exception:\n"
              "        ok = False\n"
              "    if not ok:\n"
-             "        print('%s' + m)" % (mods, _MARK))
+             "        print('%s' + m)" % (local_paths, mods, _MARK))
     try:
         r = subprocess.run([python, "-c", probe], capture_output=True, text=True,
                            timeout=180, cwd=str(cwd) if cwd else None)
