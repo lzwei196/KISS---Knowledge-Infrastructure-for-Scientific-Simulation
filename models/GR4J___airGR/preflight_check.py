@@ -17,7 +17,10 @@ TRIPLETS = KI_DIR / "diagnostics" / "triplets.yaml"
 HYDROCRAFT_PYTHON = Path("KISSPATH_PYTHON_ENV/bin/python")
 PYTHON = HYDROCRAFT_PYTHON if HYDROCRAFT_PYTHON.is_file() else Path(sys.executable)
 RSCRIPT = Path(shutil.which("Rscript") or "/usr/bin/Rscript")
-AIRGR_SO = Path("KISSPATH_HOME/R/library/airGR/libs/airGR.so")
+AIRGR_LIB = Path("KISSPATH_HOME/R/library/airGR/libs") / (
+    "airGR.dll" if os.name == "nt" else "airGR.so"
+)
+AIRGR_PROBE = TOOLS_DIR / "probe_airgr.R"
 
 
 def make_check(kind, subject, critical, status, fix):
@@ -164,8 +167,16 @@ def main():
     add_dir_check(checks, TOOLS_DIR, "KI tools directory", critical=True)
     add_file_check(
         checks,
-        AIRGR_SO,
-        "airGR compiled shared object",
+        AIRGR_LIB,
+        "airGR compiled library",
+        kind="library",
+        critical=True,
+        executable=False,
+    )
+    add_file_check(
+        checks,
+        AIRGR_PROBE,
+        "airGR startup probe",
         kind="binary",
         critical=True,
         executable=True,
@@ -206,14 +217,13 @@ def main():
             (
                 '.libPaths(c("KISSPATH_HOME/R/library", .libPaths())); '
                 'library(airGR); '
-                'stopifnot(file.exists(system.file("libs", "airGR.so", '
-                'package="airGR"))); '
+                'stopifnot(nzchar(system.file("libs", package="airGR"))); '
                 'cat(as.character(packageVersion("airGR")), "\\n")'
             ),
         ],
         "airGR package loads in R",
         "run",
-        str(AIRGR_SO.resolve()) if AIRGR_SO.exists() else str(AIRGR_SO),
+        str(AIRGR_LIB.resolve()) if AIRGR_LIB.exists() else str(AIRGR_LIB),
         critical=True,
         fix=(
             'Install/load airGR in KISSPATH_HOME/R/library; in R run '
