@@ -68,13 +68,53 @@ class Server:
 
     def stop(self) -> None:
         if self.proc and self.proc.poll() is None:
-            self.proc.terminate()
-            try:
-                self.proc.wait(10)
-            except subprocess.TimeoutExpired:
-                self.proc.kill()
-                self.proc.wait(5)
+            if os.name == "nt":
+                # The server owns the agent CLI, which may own compilers and
+                # model processes. Terminating only the HTTP parent leaves the
+                # descendants alive and their build directories locked.
+                subprocess.run(
+                    ["taskkill", "/PID", str(self.proc.pid), "/T", "/F"],
+                    capture_output=True, timeout=30,
+                )
+                try:
+                    self.proc.wait(5)
+                except subprocess.TimeoutExpired:
+                    self.proc.kill()
+            else:
+                self.proc.terminate()
+                try:
+                    self.proc.wait(10)
+                except subprocess.TimeoutExpired:
+                    self.proc.kill()
+                    self.proc.wait(5)
         self.proc = None
+
+
+def cleanup_target(target: Path, workroot: Path) -> str:
+    """Best-effort bounded cleanup; return an error without aborting a matrix."""
+    resolved = target.resolve(strict=False)
+    if resolved.parent != workroot.resolve():
+        raise RuntimeError(f"refusing cleanup outside stress workroot: {resolved}")
+    if not resolved.exists():
+        return ""
+
+    def _remove_readonly(func, path, exc_info):
+        try:
+            os.chmod(path, stat.S_IWRITE)
+            func(path)
+        except OSError:
+            raise exc_info[1]
+
+    last = None
+    for delay in (0, 1, 3):
+        if delay:
+            time.sleep(delay)
+        try:
+            shutil.rmtree(resolved, onerror=_remove_readonly)
+            return "" if not resolved.exists() else "directory still exists"
+        except OSError as exc:
+            last = exc
+    return repr(last)
 
 
 def run_setup(base: str, model: str, timeout_seconds: int) -> tuple[str, str]:
@@ -195,20 +235,13 @@ def main() -> int:
             rows.append(row); write_csv(csv_path, rows)
             print(f"[{index}/127] {model}: {row['result']} ({row['seconds']}s)", flush=True)
             if args.cleanup:
-                resolved = target.resolve(strict=False)
-                if resolved.parent != workroot.resolve():
-                    raise RuntimeError(f"refusing cleanup outside stress workroot: {resolved}")
-                def _remove_readonly(func, path, exc_info):
-                    """Retry files made read-only by Windows installers/build tools."""
-                    try:
-                        os.chmod(path, stat.S_IWRITE)
-                        func(path)
-                    except OSError:
-                        raise exc_info[1]
-
-                shutil.rmtree(resolved, onerror=_remove_readonly)
-                if resolved.exists():
-                    raise RuntimeError(f"cleanup did not remove stress workspace: {resolved}")
+                cleanup_error = cleanup_target(target, workroot)
+                if cleanup_error:
+                    message = f"{model}: {cleanup_error}\n"
+                    with (root / "cleanup-errors.log").open("a", encoding="utf-8") as stream:
+                        stream.write(message)
+                    print(f"[{index}/127] {model}: cleanup deferred ({cleanup_error})",
+                          flush=True)
         return 0
     finally:
         server.stop()
