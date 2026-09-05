@@ -10,6 +10,7 @@ import json
 import os
 from pathlib import Path
 import shutil
+import stat
 import socket
 import subprocess
 import sys
@@ -197,7 +198,17 @@ def main() -> int:
                 resolved = target.resolve(strict=False)
                 if resolved.parent != workroot.resolve():
                     raise RuntimeError(f"refusing cleanup outside stress workroot: {resolved}")
-                shutil.rmtree(resolved, ignore_errors=True)
+                def _remove_readonly(func, path, exc_info):
+                    """Retry files made read-only by Windows installers/build tools."""
+                    try:
+                        os.chmod(path, stat.S_IWRITE)
+                        func(path)
+                    except OSError:
+                        raise exc_info[1]
+
+                shutil.rmtree(resolved, onerror=_remove_readonly)
+                if resolved.exists():
+                    raise RuntimeError(f"cleanup did not remove stress workspace: {resolved}")
         return 0
     finally:
         server.stop()
