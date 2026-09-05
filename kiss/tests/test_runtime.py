@@ -942,6 +942,27 @@ print(MARKER, len(text), implementation.__file__)
                 runnable.declared_imports(ki), ["numpy", "pandas"],
             )
 
+    def test_runnable_finds_exact_agent_build_in_model_tree(self):
+        with tempfile.TemporaryDirectory() as td, \
+             mock.patch.object(runnable.os, "name", "nt"):
+            root = Path(td)
+            built = (root / "binaries" / "Cell2Fire" / "Cell2Fire" /
+                     "Cell2Fire.exe")
+            built.parent.mkdir(parents=True)
+            built.write_bytes(b"MZ")
+            preflight = root / "preflight_check.py"
+            preflight.write_text(
+                "def check_file(path, executable=False): pass\n"
+                "check_file('KISSPATH_BINARIES/Cell2Fire/source/repo/"
+                "Cell2Fire/Cell2Fire', executable=True)\n"
+            )
+            ki = SimpleNamespace(name="Cell2Fire", preflight=preflight)
+            cfg = SimpleNamespace(
+                root=root, roles={"binaries": root / "binaries"},
+            )
+
+            self.assertEqual(runnable.find_binary(ki, cfg=cfg), built)
+
 
 class EnvironmentAndTlsTests(unittest.TestCase):
     def test_interactive_login_environment_is_nul_delimited(self):

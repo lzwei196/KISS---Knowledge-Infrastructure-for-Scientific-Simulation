@@ -478,6 +478,34 @@ def find_binary(ki, man=None, cfg=None, harvested: dict | None = None) -> Path |
     for c in cands:
         if c.is_file():
             return c
+    # Agents may correctly build the promised executable under an upstream
+    # repository layout that differs from an old harvested relative path.
+    # Search only this model's managed binaries tree, and only for the exact
+    # promised basename (plus the native .exe spelling).  This accepts
+    # Cell2Fire/Cell2Fire/Cell2Fire.exe without mistaking compiler probes or a
+    # coupled model for the requested runtime.
+    if cfg is not None and cands:
+        roles = getattr(cfg, "roles", {}) or {}
+        binaries = Path(roles.get("binaries", Path(cfg.root) / "binaries"))
+        roots = [binaries / ki.name]
+        install_dir = getattr(man, "install_dir", "") if man is not None else ""
+        if install_dir:
+            roots.insert(0, binaries / install_dir)
+        wanted = {c.name.lower() for c in cands}
+        if os.name == "nt":
+            wanted |= {name + ".exe" for name in wanted
+                       if not Path(name).suffix}
+        matches: list[Path] = []
+        for root in roots:
+            if not root.is_dir():
+                continue
+            try:
+                matches.extend(p for p in root.rglob("*")
+                               if p.is_file() and p.name.lower() in wanted)
+            except OSError:
+                continue
+        if matches:
+            return min(set(matches), key=lambda p: (len(p.parts), len(str(p))))
     return cands[0] if cands else None
 
 

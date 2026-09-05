@@ -1,0 +1,27 @@
+kiss_manifest_version: 1
+model: Cell2Fire
+binary_type: PE32
+verified: partial
+install_dir: Cell2Fire
+
+acquire:
+  strategy: build
+  repo: https://github.com/fire2a/C2F-W.git
+  ref: v1.0.0
+  produces: Cell2Fire/Cell2Fire.exe
+
+python_deps: [numpy, pandas, geopandas, xarray, netcdf4]
+system_deps: [cmake, c++ compiler, boost, libtiff]
+
+reference_case: Cell2Fire.exe --help
+
+notes: >-
+  Windows installation observed during the 2026-09-05 DeepSeek stress test.
+  The upstream release is the git tag v1.0.0; the previous inferred recipe
+  incorrectly treated the descriptive implementation version as a branch.
+
+agent_hint: >-
+  Build the official fire2a/C2F-W v1.0.0 source. Keep all source, Boost and
+  libtiff build products inside this KI's managed binaries directory. A valid
+  Windows result is Cell2Fire/Cell2Fire.exe; probe it by absolute path because
+  the Windows launcher may not resolve a nested relative executable.
