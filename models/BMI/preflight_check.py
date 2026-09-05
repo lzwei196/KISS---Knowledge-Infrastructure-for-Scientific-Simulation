@@ -48,8 +48,10 @@ def main():
     print(f"{' PREFLIGHT: BMI ':=^60}")
     print()
     check_import("bmipy", "bmipy")
-    check_import("bmi", "bmi")
-    check_import("BmiHeat", "BmiHeat")
+    # The reference implementation is the ``heat`` distribution.  BmiHeat is
+    # a class below heat.bmi_heat, not an importable top-level module (the KI's
+    # format contract records this exact path).
+    check_import("heat.bmi_heat", "heat.bmi_heat.BmiHeat")
     # Check diagnostics
     ki_dir = os.path.dirname(os.path.abspath(__file__))
     triplets = os.path.join(ki_dir, "diagnostics", "triplets.yaml")
