@@ -963,6 +963,28 @@ print(MARKER, len(text), implementation.__file__)
 
             self.assertEqual(runnable.find_binary(ki, cfg=cfg), built)
 
+    def test_runnable_finds_compiled_binary_in_managed_sibling(self):
+        with tempfile.TemporaryDirectory() as td, \
+             mock.patch.object(runnable.os, "name", "nt"):
+            root = Path(td)
+            built = root / "binaries" / "crhm" / "bin" / "crhm.exe"
+            built.parent.mkdir(parents=True)
+            built.write_bytes(b"MZ")
+            ki = SimpleNamespace(
+                name="CRHM", preflight=None, meta={"language": "cpp"},
+            )
+            cfg = SimpleNamespace(
+                root=root, roles={"binaries": root / "binaries"},
+            )
+
+            self.assertEqual(
+                runnable.find_binary(
+                    ki, cfg=cfg,
+                    harvested={"CRHM": "source/repo/build/crhm"},
+                ),
+                built,
+            )
+
 
 class EnvironmentAndTlsTests(unittest.TestCase):
     def test_interactive_login_environment_is_nul_delimited(self):

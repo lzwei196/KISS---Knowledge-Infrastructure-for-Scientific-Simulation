@@ -1,0 +1,27 @@
+kiss_manifest_version: 1
+model: CRHM
+binary_type: PE32
+verified: partial
+install_dir: crhm
+
+acquire:
+  strategy: build
+  repo: https://github.com/srlabUsask/crhmcode.git
+  ref: master
+  produces: bin/crhm.exe
+
+python_deps: [numpy, pandas, netcdf4]
+system_deps: [cmake, c++ compiler, boost]
+
+reference_case: crhm.exe --help
+
+notes: >-
+  Native Windows build observed on 2026-09-05. A shallow CMake build directory
+  is required on hosts where the legacy MAX_PATH limit breaks spdlog's nested
+  ExternalProject compiler probe.
+
+agent_hint: >-
+  Clone the official crhmcode source and initialise its spdlog submodule. On
+  Windows configure in a shallow directory such as workspace/bld, then place
+  the resulting crhm.exe at binaries/crhm/bin/crhm.exe. The help command exits
+  1 by design after printing usage; printed usage proves startup.

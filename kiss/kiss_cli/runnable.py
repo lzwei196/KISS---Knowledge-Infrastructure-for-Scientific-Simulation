@@ -491,6 +491,12 @@ def find_binary(ki, man=None, cfg=None, harvested: dict | None = None) -> Path |
         install_dir = getattr(man, "install_dir", "") if man is not None else ""
         if install_dir:
             roots.insert(0, binaries / install_dir)
+        lang = str((getattr(ki, "meta", None) or {}).get("language") or "").lower()
+        if lang in COMPILED:
+            # A Windows path-length workaround may force the agent to use a
+            # shallow sibling (CRHM installs at binaries/crhm/bin/crhm.exe).
+            # The binaries role is still an isolated software-only boundary.
+            roots.append(binaries)
         wanted = {c.name.lower() for c in cands}
         if os.name == "nt":
             wanted |= {name + ".exe" for name in wanted
