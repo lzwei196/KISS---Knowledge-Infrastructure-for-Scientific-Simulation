@@ -217,15 +217,14 @@ def declared(ki) -> list[str]:
         return []
 
     names = {"__file__": str(Path(pre))}
-    path_index, executable_index = 0, None
+    signatures: dict[str, tuple[int, int]] = {}
     for stmt in tree.body:
-        if isinstance(stmt, (ast.FunctionDef, ast.AsyncFunctionDef)) and stmt.name == "check_file":
-            params = [arg.arg for arg in stmt.args.args]
-            if "path" in params:
-                path_index = params.index("path")
-            if "executable" in params:
-                executable_index = params.index("executable")
-            break
+        if not isinstance(stmt, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            continue
+        params = [arg.arg for arg in stmt.args.args]
+        if "path" in params and "executable" in params:
+            signatures[stmt.name] = (params.index("path"),
+                                     params.index("executable"))
 
     # Resolve module-level constants in source order.  A few generated KIs use
     # Path division; older ones use os.path.dirname/join.
@@ -244,8 +243,10 @@ def declared(ki) -> list[str]:
         func_name = (node.func.id if isinstance(node.func, ast.Name)
                      else node.func.attr if isinstance(node.func, ast.Attribute)
                      else "")
-        if func_name != "check_file":
+        signature = signatures.get(func_name)
+        if signature is None:
             continue
+        path_index, executable_index = signature
         explicit = next((kw.value for kw in node.keywords
                          if kw.arg == "executable"), None)
         if explicit is None and executable_index is not None and len(node.args) > executable_index:
@@ -288,6 +289,74 @@ def declared_imports(ki) -> list[str]:
         if mod not in seen:
             seen.add(mod)
             out.append(mod)
+    # Contract preflights are not all generated from the same template.  Some
+    # take ``checks`` or ``python_path`` before ``module``; some call the helper
+    # ``check_python_import``/``check_import_with_python``.  Read the helper's
+    # own signature so labels and interpreter paths are never mistaken for
+    # module names.
+    try:
+        tree = ast.parse(text)
+    except SyntaxError:
+        return out
+    module_indexes: dict[str, int] = {}
+    for node in tree.body:
+        if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            continue
+        if "import" not in node.name:
+            continue
+        params = [arg.arg for arg in node.args.args]
+        if "module" in params:
+            module_indexes[node.name] = params.index("module")
+    constants: dict[str, str] = {}
+    for node in tree.body:
+        if isinstance(node, ast.Assign):
+            value = _static_path(node.value, constants)
+            if value is not None:
+                for target in node.targets:
+                    if isinstance(target, ast.Name):
+                        constants[target.id] = value
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        name = (node.func.id if isinstance(node.func, ast.Name) else
+                node.func.attr if isinstance(node.func, ast.Attribute) else "")
+        index = module_indexes.get(name)
+        if index is None:
+            continue
+        keyword = next((kw.value for kw in node.keywords if kw.arg == "module"), None)
+        value_node = keyword if keyword is not None else (
+            node.args[index] if len(node.args) > index else None)
+        module = _static_path(value_node, constants) if value_node is not None else None
+        if module and re.fullmatch(r"[A-Za-z_]\w*(?:\.[A-Za-z_]\w*)*", module):
+            if module not in seen:
+                seen.add(module)
+                out.append(module)
+    # Resolve the common ``for module in ('numpy', ...): check_import(...,
+    # module)`` form.  Only loops whose body calls a recognised import helper
+    # are considered, so unrelated lists of filenames or labels stay out.
+    for loop in (n for n in ast.walk(tree) if isinstance(n, ast.For)):
+        if not isinstance(loop.target, ast.Name):
+            continue
+        values = loop.iter.elts if isinstance(loop.iter, (ast.Tuple, ast.List)) else []
+        modules = [v.value for v in values
+                   if isinstance(v, ast.Constant) and isinstance(v.value, str)]
+        if len(modules) != len(values):
+            continue
+        uses_module = False
+        for call in (n for stmt in loop.body for n in ast.walk(stmt)
+                     if isinstance(n, ast.Call)):
+            name = (call.func.id if isinstance(call.func, ast.Name) else
+                    call.func.attr if isinstance(call.func, ast.Attribute) else "")
+            index = module_indexes.get(name)
+            if index is not None and len(call.args) > index:
+                uses_module |= (isinstance(call.args[index], ast.Name) and
+                                call.args[index].id == loop.target.id)
+        if uses_module:
+            for module in modules:
+                if (module not in seen and
+                        re.fullmatch(r"[A-Za-z_]\w*(?:\.[A-Za-z_]\w*)*", module)):
+                    seen.add(module)
+                    out.append(module)
     return out
 
 
@@ -386,6 +455,26 @@ def find_binary(ki, man=None, cfg=None, harvested: dict | None = None) -> Path |
             except Exception:
                 continue
         cands.append(Path(p))
+    # Harvested paths and old KI preflights were produced on Linux/macOS.  The
+    # same native build normally lands at ``foo.exe`` on Windows, while a venv
+    # uses ``Scripts/python.exe`` rather than ``bin/python``.  Keep the declared
+    # candidate as the contract, but probe its native spelling before calling a
+    # successful Windows installation missing.
+    native: list[Path] = []
+    for c in cands:
+        variants = [c]
+        if os.name == "nt":
+            if not c.suffix:
+                variants.insert(0, c.with_suffix(".exe"))
+            parts = list(c.parts)
+            if len(parts) >= 2 and parts[-2:] in (["bin", "python"],
+                                                  ["bin", "python3"]):
+                variants.insert(0, Path(*parts[:-2], "Scripts", "python.exe"))
+        for candidate in variants:
+            if candidate not in native:
+                native.append(candidate)
+    cands = native
+
     for c in cands:
         if c.is_file():
             return c

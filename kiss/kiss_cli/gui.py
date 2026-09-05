@@ -2463,9 +2463,17 @@ verification are different states; never claim this test verified the KI."""
                     )
 
             if installation_only:
+                harvested = {}
+                harvested_path = (self.repo_root / "kiss" / "manifests" /
+                                  "_harvested_produces.json")
+                try:
+                    harvested = json.loads(
+                        harvested_path.read_text(encoding="utf-8"))
+                except (OSError, ValueError, TypeError):
+                    pass
                 verdict = runnable.check(
                     live_ki, self._manifest(ki), cfg, timeout=25,
-                    python=cfg.python,
+                    python=cfg.python, harvested=harvested,
                 )
                 # Providers commonly create a conventional project venv but
                 # omit the final bookkeeping edit.  The deterministic probe

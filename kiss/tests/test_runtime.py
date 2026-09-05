@@ -871,6 +871,77 @@ print(MARKER, len(text), implementation.__file__)
             self.assertEqual(verdict.kind, "python package")
             self.assertEqual(verdict.python, selected)
 
+    def test_runnable_uses_windows_exe_for_suffixless_harvest(self):
+        with tempfile.TemporaryDirectory() as td, \
+             mock.patch.object(runnable.os, "name", "nt"):
+            root = Path(td)
+            expected = root / "binaries" / "CRHM" / "build" / "crhm.exe"
+            expected.parent.mkdir(parents=True)
+            expected.write_bytes(b"MZ")
+            ki = SimpleNamespace(name="CRHM", preflight=None)
+            cfg = SimpleNamespace(
+                root=root, roles={"binaries": root / "binaries"},
+            )
+
+            found = runnable.find_binary(
+                ki, cfg=cfg, harvested={"CRHM": "build/crhm"},
+            )
+
+            self.assertEqual(found, expected)
+
+    def test_runnable_maps_posix_venv_python_to_windows(self):
+        with tempfile.TemporaryDirectory() as td, \
+             mock.patch.object(runnable.os, "name", "nt"):
+            root = Path(td)
+            expected = root / "venv" / "Scripts" / "python.exe"
+            expected.parent.mkdir(parents=True)
+            expected.write_bytes(b"MZ")
+            preflight = root / "preflight_check.py"
+            preflight.write_text(
+                "def check_file(path, executable=False): pass\n"
+                f"check_file({str(root / 'venv' / 'bin' / 'python')!r}, "
+                "executable=True)\n"
+            )
+            ki = SimpleNamespace(name="PythonKI", preflight=preflight)
+
+            self.assertEqual(runnable.find_binary(ki), expected)
+
+    def test_runnable_reads_import_module_from_preflight_signature(self):
+        with tempfile.TemporaryDirectory() as td:
+            preflight = Path(td) / "preflight_check.py"
+            preflight.write_text(
+                "REQUIRED_PACKAGE = 'geophires_x'\n"
+                "def check_import(checks, python_path, module, label): pass\n"
+                "check_import([], 'python', REQUIRED_PACKAGE, 'model')\n"
+                "def check_python_import(checks, module, critical=True): pass\n"
+                "check_python_import([], 'ribasim', critical=False)\n"
+            )
+            ki = SimpleNamespace(preflight=preflight)
+
+            self.assertEqual(
+                runnable.declared_imports(ki), ["geophires_x", "ribasim"],
+            )
+
+    def test_runnable_reads_semantic_file_and_loop_import_helpers(self):
+        with tempfile.TemporaryDirectory() as td:
+            preflight = Path(td) / "preflight_check.py"
+            preflight.write_text(
+                "PIHM_BINARY = 'KISSPATH_BINARIES/PIHM/flux-pihm'\n"
+                "def add_file_check(checks, path, label, executable=False): pass\n"
+                "def add_python_import_check(checks, module, critical=True): pass\n"
+                "add_file_check([], PIHM_BINARY, 'model', executable=True)\n"
+                "for module in ('numpy', 'pandas'):\n"
+                "    add_python_import_check([], module)\n"
+            )
+            ki = SimpleNamespace(preflight=preflight)
+
+            self.assertEqual(
+                runnable.declared(ki), ["KISSPATH_BINARIES/PIHM/flux-pihm"],
+            )
+            self.assertEqual(
+                runnable.declared_imports(ki), ["numpy", "pandas"],
+            )
+
 
 class EnvironmentAndTlsTests(unittest.TestCase):
     def test_interactive_login_environment_is_nul_delimited(self):
