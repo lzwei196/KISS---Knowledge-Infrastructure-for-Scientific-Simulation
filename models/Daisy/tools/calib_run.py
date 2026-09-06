@@ -49,8 +49,14 @@ ASSETS = KI_DIR / "calibration_assets"
 TOOLS = KI_DIR / "tools"
 
 # Real Daisy binary + library search path (matches the validated real case).
-DAISY_BIN = "KISSPATH_KI_ROOT/Daisy/bin/daisy"
-DAISY_REPO = "KISSPATH_KI_ROOT/Daisy/source/repo"
+if os.name == "nt":
+    DAISY_REPO = (
+        "KISSPATH_BINARIES/Daisy/daisy-7.1.14-Windows-python3.13"
+    )
+    DAISY_BIN = f"{DAISY_REPO}/bin/daisy-bin.exe"
+else:
+    DAISY_BIN = "KISSPATH_KI_ROOT/Daisy/bin/daisy"
+    DAISY_REPO = "KISSPATH_KI_ROOT/Daisy/source/repo"
 
 # W/m^2 (daily mean latent heat flux) -> mm/d ET, lambda = 2.45 MJ/kg.
 LE_TO_MM = 0.035265

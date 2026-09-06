@@ -10,9 +10,9 @@ from pathlib import Path
 
 MODEL_ID = "CAESAR_Lisflood"
 KI_DIR = Path(__file__).resolve().parent
-MODEL_ROOT = Path("KISSPATH_KI_ROOT/CAESAR_Lisflood")
-SOURCE_REPO = MODEL_ROOT / "source" / "repo"
-BINARY = SOURCE_REPO / "bin" / "HAIL-CAESAR.exe"
+MODEL_ROOT = Path("KISSPATH_BINARIES/CAESAR_Lisflood")
+SOURCE_REPO = MODEL_ROOT
+BINARY = MODEL_ROOT / "bin" / "HAIL-CAESAR.exe"
 HYDRO_PYTHON = Path("KISSPATH_PYTHON_ENV/bin/python")
 PYTHON = HYDRO_PYTHON if HYDRO_PYTHON.exists() else Path(sys.executable)
 TRIPLETS = KI_DIR / "diagnostics" / "triplets.yaml"
@@ -220,8 +220,8 @@ def main():
     check_binary_starts(BINARY)
     check_dynamic_libraries(BINARY)
 
-    check_file(SOURCE_REPO / "Makefile", "HAIL-CAESAR Makefile", critical=True)
-    check_file(SOURCE_REPO / "test" / "run_tests.sh", "HAIL-CAESAR shipped test runner", critical=False, executable=True)
+    check_file(MODEL_ROOT / "Makefile", "HAIL-CAESAR Makefile", critical=True)
+    check_file(MODEL_ROOT / "test" / "run_tests.sh", "HAIL-CAESAR shipped test runner", critical=False, executable=True)
 
     check_import("numpy", "NumPy", critical=True)
     for module in ("rasterio", "geopandas", "pandas", "xarray"):

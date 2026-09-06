@@ -16,6 +16,8 @@ CELL2FIRE_BINARY = Path(
     "KISSPATH_INTERNAL_NOT_SHIPPED/auto_dissect/_work/"
     "Cell2Fire/source/repo/Cell2Fire/Cell2Fire"
 )
+if os.name == "nt":
+    CELL2FIRE_BINARY = CELL2FIRE_BINARY.with_suffix(".exe")
 REQUIRED_TOOLS = [
     KI_DIR / "tools" / "convert_fuel_params.py",
     KI_DIR / "tools" / "convert_weather_to_c2f.py",

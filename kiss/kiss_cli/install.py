@@ -417,6 +417,70 @@ def place_where_the_ki_expects(ki, binary: Path | None, cfg,
     return notes
 
 
+def place_agent_install(man: Manifest, binary: Path | None,
+                        cfg) -> tuple[Path | None, list[str]]:
+    """Put an agent-discovered runtime at the manifest's canonical path.
+
+    Setup agents correctly obtain official releases but do not always preserve
+    ``binaries/<install_dir>/<produces>``. A broad executable search can then
+    paint the install green while the KI's run tools still fail with ENOENT.
+    Preserve the complete distribution tree (or adjacent Windows DLLs for a
+    single-file ``produces`` value) before the final runnable verdict.
+    """
+    if (binary is None or not Path(binary).is_file() or man.acquire is None or
+            not man.acquire.produces):
+        return binary, []
+    binary = Path(binary)
+    prefix = Path(cfg.roles["binaries"]) / (man.install_dir or man.model)
+    relative = Path(man.acquire.produces)
+    expected = prefix / relative
+    if expected.is_file():
+        return expected, []
+    if binary.name.lower() != expected.name.lower():
+        return binary, []
+
+    notes: list[str] = []
+    parts = relative.parts
+    suffix = binary.parts[-len(parts):] if len(binary.parts) >= len(parts) else ()
+    suffix_matches = tuple(os.path.normcase(p) for p in suffix) == tuple(
+        os.path.normcase(p) for p in parts)
+
+    if len(parts) > 1 and suffix_matches:
+        source_package = binary
+        for _ in range(len(parts) - 1):
+            source_package = source_package.parent
+        destination_package = prefix / parts[0]
+        destination_package.parent.mkdir(parents=True, exist_ok=True)
+        if destination_package.exists():
+            shutil.copytree(source_package, destination_package,
+                            dirs_exist_ok=True)
+            notes.append(
+                f"completed agent install {source_package} -> {destination_package}")
+        else:
+            try:
+                destination_package.symlink_to(
+                    source_package, target_is_directory=True)
+                notes.append(
+                    f"linked agent install {destination_package} -> {source_package}")
+            except OSError:
+                shutil.copytree(source_package, destination_package,
+                                dirs_exist_ok=True)
+                notes.append(
+                    f"copied agent install {source_package} -> {destination_package}")
+    else:
+        expected.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(binary, expected)
+        copied = [binary.name]
+        if os.name == "nt":
+            for sibling in binary.parent.glob("*.dll"):
+                shutil.copy2(sibling, expected.parent / sibling.name)
+                copied.append(sibling.name)
+        notes.append(
+            f"copied agent runtime to {expected} ({', '.join(copied)})")
+
+    return (expected if expected.is_file() else binary), notes
+
+
 def run_preflight(ki, python: str, cfg=None) -> Step:
     """Run the KI's own preflight_check.py, inside the sandbox when configured."""
     if not ki.preflight:

@@ -765,6 +765,61 @@ print(MARKER, len(text), implementation.__file__)
             self.assertEqual((root / "Demo").resolve(), prefix.resolve())
             self.assertIn("linked install tree", notes[0])
 
+    def test_agent_distribution_is_placed_at_manifest_path(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            package = root / "binaries" / "daisy-package"
+            binary = package / "bin" / "daisy-bin.exe"
+            binary.parent.mkdir(parents=True)
+            binary.write_bytes(b"MZ")
+            (package / "bin" / "runtime.dll").write_bytes(b"dll")
+            (package / "lib").mkdir()
+            (package / "lib" / "crop.dai").write_text("crop")
+            # A previous interrupted placement may leave a partial directory.
+            (root / "binaries" / "Daisy" / "daisy-package").mkdir(
+                parents=True)
+            man = Manifest(
+                model="Daisy", install_dir="Daisy",
+                acquire=Acquire(
+                    strategy="download",
+                    produces="daisy-package/bin/daisy-bin.exe",
+                ),
+            )
+            cfg = SimpleNamespace(roles={"binaries": root / "binaries"})
+
+            placed, notes = install.place_agent_install(man, binary, cfg)
+
+            expected = (root / "binaries" / "Daisy" / "daisy-package" /
+                        "bin" / "daisy-bin.exe")
+            self.assertEqual(placed, expected)
+            self.assertTrue(expected.is_file())
+            self.assertTrue((expected.parent / "runtime.dll").is_file())
+            self.assertTrue(
+                (expected.parents[1] / "lib" / "crop.dai").is_file())
+            self.assertTrue(notes)
+
+    def test_agent_single_executable_keeps_adjacent_windows_dlls(self):
+        with tempfile.TemporaryDirectory() as td, \
+             mock.patch.object(install.os, "name", "nt"):
+            root = Path(td)
+            binary = root / "binaries" / "Cell2Fire.exe"
+            binary.parent.mkdir(parents=True)
+            binary.write_bytes(b"MZ")
+            (binary.parent / "tiff.dll").write_bytes(b"dll")
+            man = Manifest(
+                model="Cell2Fire",
+                install_dir="Cell2Fire/source/repo/Cell2Fire",
+                acquire=Acquire(
+                    strategy="download", produces="Cell2Fire.exe"),
+            )
+            cfg = SimpleNamespace(roles={"binaries": root / "binaries"})
+
+            placed, notes = install.place_agent_install(man, binary, cfg)
+
+            self.assertTrue(placed.is_file())
+            self.assertTrue((placed.parent / "tiff.dll").is_file())
+            self.assertTrue(notes)
+
     def test_builtin_git_acquisition_inherits_selected_provider_proxy(self):
         with tempfile.TemporaryDirectory() as td:
             proxy_env = {"HTTPS_PROXY": "http://127.0.0.1:7897"}
@@ -2881,6 +2936,35 @@ class AgentSetupTests(unittest.TestCase):
         preflight = (Path(__file__).parents[2] / "models" / "WRF_Hydro" /
                      "preflight_check.py").read_text()
         self.assertNotIn('check_dir("KISSPATH_FORCING"', preflight)
+
+    def test_windows_release_manifests_do_not_require_source_toolchains(self):
+        manifest_dir = Path(__file__).parents[1] / "manifests"
+        cell2fire = Manifest.load(manifest_dir / "Cell2Fire.yaml")
+        daisy = Manifest.load(manifest_dir / "Daisy.yaml")
+
+        self.assertEqual(cell2fire.acquire.strategy, "download")
+        self.assertEqual(cell2fire.system_deps, [])
+        self.assertTrue(cell2fire.acquire.url.endswith(
+            "Cell2FireW_v1.0.1-Windows-x86_64-binary.zip"))
+        self.assertEqual(daisy.acquire.strategy, "download")
+        self.assertEqual(daisy.system_deps, [])
+        self.assertEqual(
+            daisy.acquire.sha256,
+            "d2bdf99b907cda45f118e9719e5aa7597bc42bfa9352db05fd0a3d0afbdf3473",
+        )
+        self.assertTrue(daisy.acquire.produces.endswith("daisy-bin.exe"))
+
+    def test_caesar_windows_recipe_builds_the_declared_executable(self):
+        manifest = Manifest.load(
+            Path(__file__).parents[1] / "manifests" /
+            "CAESAR_Lisflood.yaml")
+
+        self.assertEqual(manifest.acquire.strategy, "build")
+        self.assertEqual(manifest.acquire.ref, "v1.0")
+        self.assertEqual(manifest.acquire.produces, "bin/HAIL-CAESAR.exe")
+        self.assertIn("g++", manifest.acquire.commands[0])
+        self.assertIn("-DM_PI=", manifest.acquire.commands[0])
+        self.assertNotIn("-fopenmp", manifest.acquire.commands[0])
 
     def test_missing_mac_build_libraries_become_a_human_request(self):
         software = {"steps": [{

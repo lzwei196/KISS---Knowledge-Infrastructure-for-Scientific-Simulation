@@ -99,9 +99,16 @@ def cleanup_target(target: Path, workroot: Path) -> str:
         return ""
 
     def _remove_readonly(func, path, exc_info):
+        # Agents may delete scratch files while the harness is walking the
+        # tree. A vanished child is already clean and must not abort removal
+        # of the remaining (often much larger) distribution.
+        if not os.path.lexists(path):
+            return
         try:
             os.chmod(path, stat.S_IWRITE)
             func(path)
+        except FileNotFoundError:
+            return
         except OSError:
             raise exc_info[1]
 
@@ -152,7 +159,9 @@ def classify(state: dict, transport: str, installation: dict | None = None) -> s
 
 
 def write_csv(path: Path, rows: list[dict]) -> None:
-    fields = ["model", "result", "seconds", "software_state", "request_kind", "error", "finished_at"]
+    fields = ["model", "result", "seconds", "software_state", "request_kind",
+              "request_title", "request_detail", "expected_path",
+              "resolved_binary", "error", "finished_at"]
     with path.open("w", newline="", encoding="utf-8-sig") as stream:
         writer = csv.DictWriter(stream, fieldnames=fields, extrasaction="ignore")
         writer.writeheader(); writer.writerows(rows)
@@ -208,19 +217,38 @@ def main() -> int:
                                 if installation_path.is_file() else None)
                 software, request = state.get("software") or {}, state.get("request") or {}
                 primary = software.get("primary_error") or {}
-                error = ((installation or {}).get("summary") or
+                request_detail = "\n".join(filter(None, (
+                    str(request.get("message") or "").strip(),
+                    str(request.get("resume_hint") or "").strip(),
+                )))
+                error = (request_detail or (installation or {}).get("summary") or
                          (primary.get("detail") if isinstance(primary, dict)
                           else str(primary or detail)))
+                agent_log = target / "setup-agent.log"
+                try:
+                    agent_tail = agent_log.read_text(
+                        encoding="utf-8", errors="replace")[-8000:]
+                except OSError:
+                    agent_tail = ""
                 row = {"model": model, "result": classify(state, transport, installation),
                        "seconds": round(time.time() - started, 1),
                        "software_state": ((installation or {}).get("state") or
                                           software.get("state", "")),
-                       "request_kind": request.get("kind", ""), "error": (error or detail)[-2000:],
+                       "request_kind": request.get("kind", ""),
+                       "request_title": request.get("title", ""),
+                       "request_detail": request_detail[-4000:],
+                       "expected_path": request.get("expected_path", ""),
+                       "resolved_binary": (installation or {}).get("binary", ""),
+                       "agent_tail": agent_tail,
+                       "error": (error or detail)[-2000:],
                        "finished_at": time.strftime("%Y-%m-%dT%H:%M:%S%z")}
             except Exception as exc:
                 row = {"model": model, "result": "harness-error",
                        "seconds": round(time.time() - started, 1), "software_state": "",
-                       "request_kind": "", "error": repr(exc),
+                       "request_kind": "", "request_title": "",
+                       "request_detail": "", "expected_path": "",
+                       "resolved_binary": "",
+                       "agent_tail": "", "error": repr(exc),
                        "finished_at": time.strftime("%Y-%m-%dT%H:%M:%S%z")}
                 # One model or one spawned installer must not invalidate every
                 # later KI. A dead/refusing backend is infrastructure damage,

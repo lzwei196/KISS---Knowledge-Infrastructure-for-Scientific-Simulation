@@ -22,8 +22,14 @@ TOOLS_DIR = KI_DIR / "tools"
 DIAGNOSTICS = KI_DIR / "diagnostics" / "triplets.yaml"
 
 PYTHON_ENV = Path("KISSPATH_PYTHON_ENV/bin/python")
-DAISY_BIN = Path("KISSPATH_KI_ROOT/Daisy/bin/daisy")
-DAISY_REPO = Path("KISSPATH_KI_ROOT/Daisy/source/repo")
+if os.name == "nt":
+    DAISY_REPO = Path(
+        "KISSPATH_BINARIES/Daisy/daisy-7.1.14-Windows-python3.13"
+    )
+    DAISY_BIN = DAISY_REPO / "bin" / "daisy-bin.exe"
+else:
+    DAISY_BIN = Path("KISSPATH_KI_ROOT/Daisy/bin/daisy")
+    DAISY_REPO = Path("KISSPATH_KI_ROOT/Daisy/source/repo")
 DAISY_LIB = DAISY_REPO / "lib"
 
 
@@ -172,9 +178,9 @@ def check_daisy_starts(checks, binary):
             timeout=20,
         )
     output = "\n".join(part for part in [proc.stdout, proc.stderr] if part).strip()
-    passed = proc.returncode == 0 and "Daisy" in output and "7.1.4" in output
+    passed = proc.returncode == 0 and "Daisy" in output and "7.1.14" in output
     fix = recovery_fix(
-        "Daisy binary did not start with '-v' as v7.1.4; rebuild/reinstall the real model binary"
+        "Daisy binary did not start with '-v' as v7.1.14; reinstall the official Windows archive"
     )
     add_check(checks, "run", subject, True, passed, fix)
     return passed

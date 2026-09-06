@@ -2471,8 +2471,20 @@ verification are different states; never claim this test verified the KI."""
                         harvested_path.read_text(encoding="utf-8"))
                 except (OSError, ValueError, TypeError):
                     pass
+                man = self._manifest(ki)
+                found = runnable.find_binary(
+                    live_ki, man, cfg, harvested=harvested)
+                managed, placement_notes = install.place_agent_install(
+                    man, found if found and found.is_file() else None, cfg)
+                for note in placement_notes:
+                    emit(f"\nNormalised install: {note}\n")
+                prefix = (cfg.roles["binaries"] /
+                          (man.install_dir or ki.name))
+                for note in install.place_where_the_ki_expects(
+                        live_ki, managed, cfg, prefix):
+                    emit(f"\nNormalised KI path: {note}\n")
                 verdict = runnable.check(
-                    live_ki, self._manifest(ki), cfg, timeout=25,
+                    live_ki, man, cfg, timeout=25,
                     python=cfg.python, harvested=harvested,
                 )
                 # Providers commonly create a conventional project venv but
