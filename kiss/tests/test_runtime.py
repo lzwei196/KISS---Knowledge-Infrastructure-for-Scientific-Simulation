@@ -1029,6 +1029,56 @@ print(MARKER, len(text), implementation.__file__)
 
             self.assertEqual(runnable.declared(ki), [str(runner)])
 
+    def test_compiled_model_does_not_use_helper_python_as_binary(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            python = root / "venv" / "Scripts" / "python.exe"
+            python.parent.mkdir(parents=True)
+            python.write_bytes(b"MZ")
+            preflight = root / "preflight_check.py"
+            preflight.write_text(
+                "def check_file(path, executable=False): pass\n"
+                f"check_file({str(python)!r}, executable=True)\n"
+                "check_file('KISSPATH_BINARIES/TELEMAC/bin/telemac2d', "
+                "executable=True)\n"
+            )
+            ki = SimpleNamespace(
+                name="TELEMAC", preflight=preflight,
+                meta={"language": "fortran"},
+            )
+            cfg = SimpleNamespace(
+                root=root, roles={"binaries": root / "binaries"},
+            )
+
+            found = runnable.find_binary(ki, cfg=cfg)
+
+            self.assertNotEqual(found, python)
+            self.assertEqual(found.name, "telemac2d.exe")
+
+    def test_pip_wrapped_compiled_model_uses_import_contract(self):
+        with tempfile.TemporaryDirectory() as td, \
+             mock.patch.object(runnable, "select_python", return_value=sys.executable), \
+             mock.patch.object(runnable, "missing_imports", return_value=[]):
+            root = Path(td)
+            ki = SimpleNamespace(
+                name="SWMM", preflight=None, root=root,
+                meta={"language": "c"},
+            )
+            man = Manifest(
+                model="SWMM", acquire=Acquire(
+                    strategy="pip", package="pyswmm", produces="pyswmm",
+                ),
+            )
+            cfg = SimpleNamespace(
+                root=root, python=sys.executable,
+                roles={"binaries": root / "binaries", "python_env": root / "venv"},
+            )
+
+            verdict = runnable.check(ki, man, cfg, python=sys.executable)
+
+            self.assertTrue(verdict.usable)
+            self.assertFalse(verdict.needs_binary)
+
 
 class EnvironmentAndTlsTests(unittest.TestCase):
     def test_interactive_login_environment_is_nul_delimited(self):

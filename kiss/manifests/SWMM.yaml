@@ -1,0 +1,21 @@
+kiss_manifest_version: 1
+model: SWMM
+binary_type: Python+C
+verified: observed
+install_dir: SWMM
+
+acquire:
+  strategy: pip
+  package: pyswmm
+  produces: pyswmm
+
+python_deps: [swmm-toolkit, swmmanywhere, numpy]
+system_deps: []
+
+reference_case: python -c "import pyswmm, swmm.toolkit"
+
+notes: >-
+  Observed on Windows during the 2026-09-05 DeepSeek installation stress
+  test. pyswmm and swmm-toolkit deliver the EPA SWMM C engine through Python;
+  the Python import contract is the model runtime and no standalone executable
+  is required.

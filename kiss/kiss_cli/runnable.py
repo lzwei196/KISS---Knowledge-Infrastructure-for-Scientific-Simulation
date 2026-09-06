@@ -463,6 +463,7 @@ def select_python(cfg, configured: str, modules: list[str], cwd: Path | None = N
 def find_binary(ki, man=None, cfg=None, harvested: dict | None = None) -> Path | None:
     """Locate the model executable from what the KI and manifest declare."""
     cands: list[Path] = []
+    lang = str((getattr(ki, "meta", None) or {}).get("language") or "").lower()
     if man is not None and getattr(man, "acquire", None) and getattr(man.acquire, "produces", None) and cfg is not None:
         cands.append(cfg.roles["binaries"] / (man.install_dir or ki.name) / man.acquire.produces)
     rel = (harvested or {}).get(ki.name)
@@ -499,6 +500,16 @@ def find_binary(ki, man=None, cfg=None, harvested: dict | None = None) -> Path |
                 native.append(candidate)
     cands = native
 
+    if lang in COMPILED:
+        interpreter_names = {
+            "python", "python3", "python.exe", "python3.exe",
+            "rscript", "rscript.exe",
+        }
+        model_candidates = [c for c in cands
+                            if c.name.lower() not in interpreter_names]
+        if model_candidates:
+            cands = model_candidates
+
     for c in cands:
         if c.is_file():
             return c
@@ -515,7 +526,6 @@ def find_binary(ki, man=None, cfg=None, harvested: dict | None = None) -> Path |
         install_dir = getattr(man, "install_dir", "") if man is not None else ""
         if install_dir:
             roots.insert(0, binaries / install_dir)
-        lang = str((getattr(ki, "meta", None) or {}).get("language") or "").lower()
         if lang in COMPILED:
             # A Windows path-length workaround may force the agent to use a
             # shallow sibling (CRHM installs at binaries/crhm/bin/crhm.exe).
@@ -669,7 +679,10 @@ def check(ki, man=None, cfg=None, harvested: dict | None = None,
     # older manifests often names that module, not a filesystem executable;
     # turning it into <binaries>/<model>/<module> caused a false red after a
     # completely successful install (COSIPY is the real case).
-    python_package = bool(package_module) and lang == "python"
+    # A pip-delivered model may wrap a C/Fortran core (SWMM/pyswmm). The
+    # acquisition strategy, not the implementation language, determines that
+    # importing the promised package is the runnable contract.
+    python_package = bool(package_module)
     v.needs_binary = (not python_package and
                       (b is not None or bool(declared(ki)) or lang in COMPILED))
 
