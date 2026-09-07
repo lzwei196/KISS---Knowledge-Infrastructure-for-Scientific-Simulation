@@ -76,7 +76,7 @@ class DataRoots:
 
 def _rel(p: Path, root: Path) -> str:
     try:
-        return str(p.relative_to(root))
+        return p.relative_to(root).as_posix()
     except ValueError:
         return str(p)
 

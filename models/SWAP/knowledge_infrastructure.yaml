@@ -12,8 +12,8 @@ package:
   scientific_reference_version: SWAP version 4 (WENR Report 2780, 2017; doi:10.18174/416321) — vadose-zone
     Richards/MvG ecohydrology spec
   binary:
-    path: KISSPATH_INTERNAL_NOT_SHIPPED/auto_dissect/_work/SWAP/source/repo/builddir/swap
-    type: ELF
+    path: KISSPATH_BINARIES/SWAP/swap.exe
+    type: PE32
 pipeline:
   stages:
   - s0_configuration_skill

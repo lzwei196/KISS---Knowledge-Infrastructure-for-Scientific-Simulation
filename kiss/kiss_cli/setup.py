@@ -501,8 +501,16 @@ def agent_task(ki, cfg, root: Path, *, resumed: dict | None = None,
                initial_failure: str = "",
                installation_mode: str = "new",
                existing_paths: list[str] | None = None,
-               installation_only: bool = False) -> str:
+               installation_only: bool = False,
+               manifest_hint: str = "") -> str:
     """Short task layered over the provider's auto-loaded setup instructions."""
+    notes = getattr(ki, "installation_notes", None)
+    experience = (
+        f"\nRead `{notes}` for this KI's recorded installation experience on "
+        "the current operating system. Recheck the reported paths and errors "
+        "on this machine; an old failed attempt is not proof that a portable "
+        "installation is impossible.\n" if notes else ""
+    )
     prior = ""
     if resumed:
         prior = (
@@ -543,7 +551,13 @@ the configured model installation workspace unless a structured user request
 is required.
 """
     if installation_only:
+        manifest_guidance = (
+            "\n\n[MANIFEST-SPECIFIC INSTALLATION ROUTE]\n"
+            + manifest_hint.strip()
+            if manifest_hint.strip() else ""
+        )
         return f"""Install {ki.name} on this machine now.
+{experience}
 
 This is an **installation-only stress test**, not a scientific verification
 run. Install or build the official model software and its runtime dependencies
@@ -558,20 +572,103 @@ installation failure in this test.
 
 Keep diagnosing build and runtime problems until the official executable or
 declared Python package responds. Do not substitute a toy implementation,
-launcher, or mock executable. Do not inspect or copy artifacts from another
+launcher, or mock executable. Never fabricate a compatibility distribution,
+standard-library shadow module, import hook, hand-written package metadata, or
+wheel merely to make an import succeed; patch the pinned official source at its
+real portability boundary and build/install that source instead. Do not inspect
+or copy artifacts from another
 GeoForge project or installation workspace: they are not provenance for this
 test. Never create placeholder model/data files merely to satisfy a preflight
-existence check. If a licence, login, protected download, system
-privilege, or missing shared toolchain requires a person, create one structured
-setup request and stop. If you create or select a Python environment, record
-its real interpreter in `{Path(root) / 'kiss.toml'}` under `kiss.python`; do
-not leave GeoForge pointing at the system Python after the package was installed
-into a workspace venv.
+existence check. Do not create or overwrite GeoForge's `status.json` or
+`installation-test.json`; GeoForge writes those records only after its own
+independent runnable check.
+
+Converge on evidence instead of repeatedly reconsidering the same hypothetical
+blocker. Once the manifest gives an authorized portable/build route, execute it
+and use the actual command result to choose the next action. Do not spend more
+steps restating an untested concern, browsing for alternatives, or preparing a
+human request while an authorized route remains untried. A previous successful
+stage recorded in the manifest is evidence that the route is viable on this OS.
+
+An absent compiler, interpreter, package manager, or other dependency is not
+by itself a reason to ask the user. Before requesting human action, try an
+official, pinned workspace-local distribution or portable archive using the
+available `curl`/`wget`, archive, package-manager, and build tools. Keep it
+inside this model workspace and invoke it by its absolute workspace path; it
+does not need to be installed system-wide or added to the global PATH. Prefer
+an upstream checksum and record the exact version/source. On Windows, a needed
+CPython minor version can be staged without administrator access from the
+official Python NuGet package, extracted inside the workspace, and invoked via
+its `tools/python.exe`. Do not bypass an upstream `Requires-Python` or other
+runtime compatibility bound merely to make an import probe green. Do not ask
+the user merely because a command is missing from PATH. Likewise, the absence
+of a prebuilt Python wheel does not prove a Windows source build is impossible:
+when the upstream build uses CMake/Meson and C/Fortran, actually try a pinned
+workspace-local GCC/gfortran toolchain and preserve its runtime DLLs before
+claiming that MSVC or a system-wide compiler is mandatory. A standalone WinLibs
+UCRT archive is one valid Windows route: it includes GCC, gfortran, GNU make,
+and the associated runtime DLLs and can be extracted entirely in the workspace.
+Its native build driver is normally `mingw32-make.exe`; GeoForge permits that
+workspace-local executable just like `make`. Prefer it over starting a broad
+MSYS2 shell or package manager, and patch only the workspace copy of an upstream
+makefile when POSIX-only path or shell syntax needs a Windows portability fix.
+Such build-system portability edits are allowed; do not change model algorithms
+or scientific defaults. An `env.PATH` prefix applies only to the current tool
+call, so provide it again on every generator, configure, compile, and link call
+that relies on staged tools.
+Use `replace_work_text` for a small exact source or build-file portability edit;
+it does not require a shell, line-numbered patch hunk, or generated edit script.
+An official Windows GUI installer is not automatically a human blocker. Before
+asking the user to run it, try a pinned workspace-local archive extractor such
+as the official portable 7-Zip `7zr.exe`/`7z.exe` or `innoextract`, extract only
+inside this setup workspace, and verify the exact declared asset. Do not bypass
+or auto-accept an installer licence or substitute a different model version.
+When an official dependency is distributed through conda-forge only, stage the
+official standalone micromamba executable in this workspace and use explicit
+workspace-local `--root-prefix` and `--prefix` arguments for every create or
+install call. GeoForge permits that bounded package-manager route but not
+`micromamba run`; verify with the environment's interpreter/executable directly.
+The `micro.mamba.pm/api/micromamba/win-64/latest` endpoint returns a tar.bz2
+archive, not a directly runnable file: extract `Library/bin/micromamba.exe` and
+confirm it has a Windows PE `MZ` header before executing it.
+On deeply nested Windows workspaces, put CMake build and install prefixes in
+short top-level directories such as `b/` and `p/` before diagnosing a path-length
+failure. Use the shortest possible names directly below the model workspace for
+package-manager roots and environments too; do not create redundant nesting
+such as `b/env/name` or `b/root/pkgs` before claiming MAX_PATH requires a system
+change. For micromamba on Windows, also set `CONDA_PKGS_DIRS` to a short flat
+workspace-top-level directory such as `pc`; this avoids its longer default
+URL-shaped cache tree and often works even when LongPathsEnabled is zero. The
+normal compiler binutils (`ar`, `ranlib`, `dlltool`, `gendef`, `nm`,
+`objdump`, `strip`) are permitted when staged inside the workspace.
+For source generators, use a pinned portable release such as winflexbison on
+Windows; flex/bison code generation is part of compilation and is permitted in
+installation-only mode. Do not ask for approval merely to run those staged
+build helpers with the upstream grammar/source arguments.
+For models that require netCDF-C but have no usable Windows SDK, build the
+official netCDF-C source workspace-locally with unnecessary HDF5/DAP/tests
+disabled when the classic API is sufficient. A build being large or likely to
+take the rest of this turn is not a permission question: start it and continue
+until the actual time limit or a concrete build error is reached.
+Do not merely speculate that MinGW and an MSVC-built CPython are incompatible;
+configure the real upstream build with the staged compilers and capture the
+actual compiler or linker result. Base any handoff on a concrete
+compiler/linker failure, not on a generic package-build message.
+
+Only when the dependency has no usable workspace-local distribution, or a
+licence, login, protected download, system privilege, or scientifically
+meaningful choice truly requires a person, create one structured setup request
+and stop. If you create or select a Python environment, record its real
+interpreter in `{Path(root) / 'kiss.toml'}` under `kiss.python`; do not leave
+GeoForge pointing at the system Python after the package was installed into a
+workspace venv.
 {existing}
 {known_failure}
-{prior}"""
+{prior}
+{manifest_guidance}"""
 
     return f"""Finish setting up {ki.name} on this machine now.
+{experience}
 
 You own the complete KDT loop: inspect, act, run preflight, diagnose, repair,
 and retry. Read SKILL.md first and use the KI's validated tools and diagnostics.

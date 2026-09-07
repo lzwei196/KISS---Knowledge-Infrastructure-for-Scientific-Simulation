@@ -26,12 +26,14 @@ import itertools
 import json
 import os
 import re
+import signal
 import shutil
 import subprocess
 import sys
 import time
 import urllib.error
 import urllib.request
+import zipfile
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable, Iterator
@@ -40,6 +42,107 @@ from . import skilllib, tls
 from .presentation import activity_marker
 
 TIMEOUT = 300
+
+
+def _terminate_process_tree(proc: subprocess.Popen) -> None:
+    """Stop a timed-out command and every process it started.
+
+    ``Popen.communicate(timeout=...)`` only terminates the direct child when a
+    caller reacts with ``proc.kill()``. Build wrappers commonly leave their
+    compiler, ``find``, or network helper descendants alive with our output
+    pipes still open. Tear down the Windows process tree, or the private
+    process group created for this command on POSIX.
+    """
+    if os.name == "nt":
+        system_root = os.environ.get("SystemRoot", r"C:\Windows")
+        taskkill = Path(system_root) / "System32" / "taskkill.exe"
+        try:
+            result = subprocess.run(
+                [str(taskkill), "/PID", str(proc.pid), "/T", "/F"],
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                check=False,
+                timeout=10,
+                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+            )
+            if result.returncode:
+                proc.kill()
+        except (OSError, subprocess.TimeoutExpired):
+            try:
+                proc.kill()
+            except OSError:
+                pass
+        return
+
+    # ``start_new_session=True`` below guarantees that proc.pid is a process
+    # group created by us, so killpg cannot target GeoForge's own group.
+    try:
+        os.killpg(proc.pid, signal.SIGTERM)
+    except (OSError, ProcessLookupError):
+        return
+    try:
+        proc.wait(timeout=2)
+    except subprocess.TimeoutExpired:
+        pass
+    # The wrapper may exit before a descendant that ignored SIGTERM. The
+    # process group continues to exist until every member is gone, so always
+    # issue the final bounded kill and harmlessly ignore a vanished group.
+    try:
+        os.killpg(proc.pid, signal.SIGKILL)
+    except (OSError, ProcessLookupError):
+        pass
+
+
+def _run_subprocess_tree(
+        command: list[str], *, cwd: str, env: dict[str, str],
+        timeout: int) -> subprocess.CompletedProcess[str]:
+    """Run one non-interactive command with bounded process-tree cleanup."""
+    popen_options = {
+        "cwd": cwd,
+        "env": env,
+        "stdin": subprocess.DEVNULL,
+        "stdout": subprocess.PIPE,
+        "stderr": subprocess.PIPE,
+        "text": True,
+        "errors": "replace",
+    }
+    if os.name == "nt":
+        # taskkill /T follows the parent/child tree by PID and does not need a
+        # console process group. CREATE_NEW_PROCESS_GROUP cannot be combined
+        # reliably with CREATE_NO_WINDOW on supported Python/Windows builds.
+        popen_options["creationflags"] = getattr(
+            subprocess, "CREATE_NO_WINDOW", 0)
+    else:
+        popen_options["start_new_session"] = True
+    proc = subprocess.Popen(command, **popen_options)
+    try:
+        stdout, stderr = proc.communicate(timeout=timeout)
+    except subprocess.TimeoutExpired:
+        _terminate_process_tree(proc)
+        try:
+            stdout, stderr = proc.communicate(timeout=5)
+        except subprocess.TimeoutExpired as cleanup_timeout:
+            try:
+                proc.kill()
+            except OSError:
+                pass
+            # A detached descendant can retain inherited pipe handles even
+            # after the direct child is dead. Never turn the timeout handler
+            # into another unbounded wait for EOF.
+            try:
+                stdout, stderr = proc.communicate(timeout=2)
+            except subprocess.TimeoutExpired as final_timeout:
+                stdout = final_timeout.output or cleanup_timeout.output or ""
+                stderr = final_timeout.stderr or cleanup_timeout.stderr or ""
+                if isinstance(stdout, bytes):
+                    stdout = stdout.decode(errors="replace")
+                if isinstance(stderr, bytes):
+                    stderr = stderr.decode(errors="replace")
+                stderr += "\nOutput pipes remained open after process-tree cleanup."
+        raise subprocess.TimeoutExpired(
+            command, timeout, output=stdout, stderr=stderr) from None
+    return subprocess.CompletedProcess(command, proc.returncode, stdout, stderr)
 
 
 @dataclass
@@ -116,7 +219,8 @@ def available() -> list[ApiProvider]:
 # command string.
 
 def tool_schemas(ki, *, setup_mode: bool = False,
-                 project_mode: bool = False, flow=None) -> list[dict]:
+                 project_mode: bool = False, flow=None,
+                 installation_only: bool = False) -> list[dict]:
     """``flow`` (a flowgate.FlowSession) filters the list by the project's flow state
     (plan v3 B4): the agent never sees a tool it may not call in this state."""
     tools = [
@@ -132,6 +236,10 @@ def tool_schemas(ki, *, setup_mode: bool = False,
                 "properties": {
                     "path": {"type": "string",
                              "description": "path relative to the KI root, e.g. 'SKILL.md'"},
+                    "start_line": {"type": "integer", "minimum": 1,
+                                   "description": "first line to return; defaults to 1"},
+                    "line_count": {"type": "integer", "minimum": 1, "maximum": 2000,
+                                   "description": "maximum lines to return; defaults to 1000"},
                     "ki": {"type": "string",
                            "description": "which selected KI to read (multi-model chats); default: the primary KI"},
                 },
@@ -429,9 +537,15 @@ def tool_schemas(ki, *, setup_mode: bool = False,
             },
             {
                 "name": "read_work_file",
-                "description": "Read a text file from the writable setup workspace.",
+                "description": (
+                    "Read a text file from the writable setup workspace. Use "
+                    "start_line/line_count to page through large build files."
+                ),
                 "input_schema": {"type": "object", "properties": {
                     "path": {"type": "string"},
+                    "start_line": {"type": "integer", "minimum": 1},
+                    "line_count": {"type": "integer", "minimum": 1,
+                                   "maximum": 2000},
                 }, "required": ["path"]},
             },
             {
@@ -447,13 +561,31 @@ def tool_schemas(ki, *, setup_mode: bool = False,
                 }, "required": ["path", "content"]},
             },
             {
+                "name": "replace_work_text",
+                "description": (
+                    "Apply one exact, bounded text replacement inside an "
+                    "existing setup-workspace file. Use this for a small "
+                    "source/build portability patch when rewriting the whole "
+                    "file would be unsafe. The old text must match exactly."
+                ),
+                "input_schema": {"type": "object", "properties": {
+                    "path": {"type": "string"},
+                    "old": {"type": "string", "minLength": 1},
+                    "new": {"type": "string"},
+                    "expected_count": {"type": "integer", "minimum": 1,
+                                       "maximum": 20},
+                }, "required": ["path", "old", "new"]},
+            },
+            {
                 "name": "run_setup_command",
                 "description": (
                     "Run one non-shell command inside the model workspace and return "
                     "stdout, stderr, and its exit code. The executable, working "
                     "directory, and explicit path arguments are checked against a "
                     "build-tool/workspace allowlist; sudo, inline Python, credentials, "
-                    "and system package installation are intentionally unavailable."
+                    "and system package installation are intentionally unavailable. "
+                    "env.PATH may contain workspace-local toolchain directories; "
+                    "GeoForge validates and prepends them to the inherited PATH."
                 ),
                 "input_schema": {"type": "object", "properties": {
                     "argv": {"type": "array", "items": {"type": "string"},
@@ -542,6 +674,13 @@ def tool_schemas(ki, *, setup_mode: bool = False,
     # families.  A shared operation such as request_user_action must still be
     # declared only once; the later (setup-aware) definition wins.
     out = list({tool["name"]: tool for tool in tools}.values())
+    if installation_only:
+        forbidden = {
+            "run_preflight", "run_ki_tool", "run_calibration",
+            "create_project_plot", "publish_project_view", "fetch_data",
+            "publish_setup_output",
+        }
+        out = [tool for tool in out if tool["name"] not in forbidden]
     if flow is not None:
         allowed = flow.api_tools()
         out = [t for t in out if t["name"] in allowed]
@@ -562,11 +701,156 @@ class ToolError(Exception):
     pass
 
 
-_INSTALL_ONLY_PROBE_FLAGS = {"--version", "-v", "--help", "-h"}
+def _safe_relative_file_listing(base: Path, root: Path, limit: int) -> list[str]:
+    """List a large agent workspace without failing on one transient path.
+
+    Scientific source trees contain deep generated directories, junctions and
+    occasionally paths another build process removes while the agent is
+    inspecting them. ``Path.rglob`` aborts the entire tool call on any such
+    Windows ``FileNotFoundError``. A directory-listing aid is diagnostic only,
+    so skip the unreadable entry and return the bounded evidence collected.
+    """
+    names: list[str] = []
+    for directory, dirs, files in os.walk(
+            base, topdown=True, onerror=lambda _error: None,
+            followlinks=False):
+        dirs.sort()
+        for filename in sorted(files):
+            try:
+                names.append(
+                    (Path(directory) / filename).relative_to(root).as_posix())
+            except (OSError, ValueError):
+                continue
+            if len(names) >= limit:
+                return sorted(names)
+    return sorted(names)
+
+
+def _read_text_page(path: Path, start_line: object = 1,
+                    line_count: object = 1000) -> str:
+    """Read a bounded page without forcing agents to invent shell pipelines."""
+    try:
+        start = int(start_line or 1)
+        count = int(line_count or 1000)
+    except (TypeError, ValueError) as error:
+        raise ToolError("start_line and line_count must be integers") from error
+    if start < 1 or count < 1 or count > 2000:
+        raise ToolError("start_line must be >= 1 and line_count must be 1..2000")
+    lines = path.read_text(encoding="utf-8", errors="replace").splitlines(keepends=True)
+    return "".join(lines[start - 1:start - 1 + count])[:60000]
+
+
+_INSTALL_ONLY_PROBE_FLAGS = {"--version", "-V", "-v", "--help", "-h"}
 _INSTALL_ONLY_BUILD_NAMES = (
     "build", "compile", "configure", "setup", "install", "bootstrap",
     "quickbuild", "mkmf", "checkout", "external",
 )
+_INSTALL_ONLY_CODEGEN_NAMES = {
+    "bison", "win_bison", "flex", "win_flex", "m4", "swig", "protoc",
+    "cython", "f2py",
+}
+_INSTALL_ONLY_PYTHON_CODEGEN = {
+    # RHESSys upstream build generator: committed headers -> one committed
+    # build-time C translation unit. It is not a model/data execution path.
+    "dynamic_field_lookup.py",
+}
+_INSTALL_ONLY_LICENSE_ACCEPTANCE = (
+    "--accept-license", "--accept-licenses", "--accept-eula",
+    "--accept-source-agreements", "--accept-package-agreements",
+    "accept_eula", "accept-eula", "eula=accept", "license=accept",
+)
+
+
+def _is_inside(path: Path, root: Path) -> bool:
+    """Return whether a resolved path is the root or one of its descendants."""
+    return path == root or root in path.parents
+
+
+def _guard_generated_dependency_shim(path: Path, content: str) -> None:
+    """Reject generated modules or packaging that counterfeit dependencies.
+
+    Setup agents may patch an official consumer source tree and rebuild it, but
+    must not manufacture a same-named Python module or wheel merely to make an
+    import probe green.  Direct site-packages writes are already rejected; this
+    also closes the two-step variant where a helper first builds a fake wheel.
+    """
+    path_text = path.as_posix().lower()
+    source = content.lower()
+    path_markers = (
+        "fcntl_shim", "winfcntl", "build_fcntl", "wurlitzer_shim",
+        "install_wurlitzer",
+    )
+    source_module_markers = (
+        "fcntl.py", "winfcntl", "name: fcntl", "name: winfcntl",
+        "wurlitzer.py",
+    )
+    packaging_markers = (
+        "site-packages", "dist-packages", "dist-info", ".whl",
+        "wheel-version", "metadata-version", "zipfile",
+    )
+    fake_fcntl_api = (
+        re.search(r"(?m)^\s*def\s+fcntl\s*\(", source) is not None and
+        "f_getfl" in source
+    )
+    hand_assembled_wheel = (
+        ("zipfile" in source or "tarfile" in source) and
+        any(marker in source for marker in (
+            ".whl", "dist-info", "wheel-version", "metadata-version",
+            "record,"))
+    )
+    synthetic_binary_setup = (
+        path.name.lower() in {"setup.py", "pyproject.toml"} and
+        any(marker in source for marker in (".pyd", "*.so", "*.dll")) and
+        any(marker in source for marker in (
+            "package_data", "data_files", "include_package_data"))
+    )
+    handwritten_metadata = (
+        any(part.lower().endswith(".dist-info") for part in path.parts) or
+        (path.name.upper() in {"METADATA", "WHEEL", "RECORD"} and
+         "dist-info" in path_text)
+    )
+    if (hand_assembled_wheel or synthetic_binary_setup or handwritten_metadata):
+        raise ToolError(
+            "installation agents may not hand-assemble wheels, package "
+            "metadata, or a replacement setup project; patch and run the "
+            "official source package's build backend instead"
+        )
+    if (any(marker in path_text for marker in path_markers) or
+            fake_fcntl_api or
+            (any(marker in source for marker in source_module_markers) and
+             any(marker in source for marker in packaging_markers))):
+        raise ToolError(
+            "installation agents may not generate fcntl/wurlitzer shims or "
+            "replacement wheels; patch the official consumer source and "
+            "rebuild/install it"
+        )
+
+
+def _guard_local_dependency_shim_wheels(argv: list[str], cwd: Path,
+                                        workroot: Path) -> None:
+    """Inspect local wheel arguments so a generated shim cannot reach pip."""
+    for token in argv[1:]:
+        if not token.lower().endswith(".whl"):
+            continue
+        candidate = Path(token)
+        wheel = (candidate.resolve() if candidate.is_absolute()
+                 else (cwd / candidate).resolve())
+        if (wheel != workroot and workroot not in wheel.parents) or not wheel.is_file():
+            continue
+        try:
+            with zipfile.ZipFile(wheel) as archive:
+                members = {name.lower() for name in archive.namelist()}
+        except (OSError, zipfile.BadZipFile):
+            continue
+        if any(
+                name == "fcntl.py" or name.endswith("/fcntl.py") or
+                name == "wurlitzer.py" or name.endswith("/wurlitzer.py")
+                for name in members):
+            raise ToolError(
+                "installation agents may not install a local wheel that "
+                "replaces fcntl or wurlitzer; patch the official consumer "
+                "source and rebuild/install it"
+            )
 
 
 def _guard_installation_only_command(argv: list[str], cwd: Path,
@@ -579,14 +863,36 @@ def _guard_installation_only_command(argv: list[str], cwd: Path,
     passive data.
     """
     command = Path(argv[0]).name.lower()
+    # Workspace-local Windows tools arrive as absolute ``*.exe`` paths. The
+    # policy names the programs, not the platform's executable suffix; without
+    # normalising it, staged gcc.exe/gfortran.exe were mistaken for model
+    # binaries and restricted to --version/--help.
+    command_key = (Path(command).stem if Path(command).suffix.lower() in {
+        ".exe", ".cmd", ".bat",
+    } else command)
     args = argv[1:]
+    resolved_command = Path(argv[0]).resolve()
+    in_workspace = _is_inside(resolved_command, workroot)
 
-    if command in {"awk", "find"}:
+    joined_args = " ".join(args).lower()
+    if any(token in joined_args for token in _INSTALL_ONLY_LICENSE_ACCEPTANCE):
         raise ToolError(
-            f"installation-only mode blocks {command}; it can launch arbitrary "
+            "installation-only mode cannot accept a licence or EULA on the "
+            "user's behalf"
+        )
+
+    if command_key == "tar" and any(arg.lower().endswith(".whl") for arg in args):
+        raise ToolError(
+            "installation agents may not hand-assemble wheel archives; run "
+            "the official source package's build backend instead"
+        )
+
+    if command_key in {"awk", "find"}:
+        raise ToolError(
+            f"installation-only mode blocks {command_key}; it can launch arbitrary "
             "child processes. Use a bounded Python inspection probe instead"
         )
-    if command == "git" and any(arg in {"-c", "--config-env"}
+    if command_key == "git" and any(arg in {"-c", "--config-env"}
                                  or arg.startswith("--config-env=")
                                  for arg in args):
         raise ToolError(
@@ -594,9 +900,199 @@ def _guard_installation_only_command(argv: list[str], cwd: Path,
             "because aliases, pagers, filters and hooks can launch programs"
         )
 
+    # Permit checksum verification from the freshly unpacked portable root,
+    # but only for one workspace file. This lets an agent prove the archive's
+    # pinned digest without exposing a general workspace executable.
+    if command_key in {"sha256sum", "b2sum"}:
+        command_parts = tuple(part.lower() for part in resolved_command.parts)
+        expected_name = f"{command_key}.exe"
+        if (not in_workspace or len(command_parts) < 3 or
+                command_parts[-3:] != ("usr", "bin", expected_name)):
+            raise ToolError(
+                "installation-only checksum utility must be the portable "
+                f"workspace MSYS2 usr/bin/{expected_name}"
+            )
+        if len(args) != 1 or args[0].startswith("-"):
+            raise ToolError(
+                "portable checksum verification requires exactly one "
+                "workspace file"
+            )
+        candidate = Path(args[0])
+        candidate = (candidate.resolve() if candidate.is_absolute()
+                     else (cwd / candidate).resolve())
+        if not _is_inside(candidate, workroot) or not candidate.is_file():
+            raise ToolError("checksum target must be a workspace file")
+        return
+
+    # PETSc officially supports the GNU compilers supplied by MSYS2 on
+    # Windows. A portable MSYS2 archive is useful for that build, but its
+    # package manager must never become a route to the host installation.
+    # Only the pacman located at <workspace>/<portable-root>/usr/bin is
+    # accepted, and options that redirect its database/root are forbidden.
+    if command_key == "pacman":
+        expected_tail = ("usr", "bin", "pacman.exe")
+        command_parts = tuple(part.lower() for part in resolved_command.parts)
+        if (not in_workspace or len(command_parts) < len(expected_tail) or
+                command_parts[-3:] != expected_tail):
+            raise ToolError(
+                "installation-only pacman must be the portable workspace "
+                "MSYS2 usr/bin/pacman.exe"
+            )
+        if len(args) == 1 and args[0] in _INSTALL_ONLY_PROBE_FLAGS:
+            return
+        blocked_options = {
+            "--root", "--sysroot", "--dbpath", "--cachedir", "--gpgdir",
+            "--config", "--hookdir", "--logfile", "--nodeps",
+            "--noscriptlet", "--overwrite", "--assume-installed", "-u",
+            "-r",
+        }
+        if any(
+                token.lower() in blocked_options or
+                any(token.lower().startswith(option + "=")
+                    for option in blocked_options if option.startswith("--"))
+                for token in args):
+            raise ToolError(
+                "portable pacman may not redirect its root/database, remove "
+                "packages, or bypass dependency/script safety"
+            )
+        operations = [token for token in args if token.startswith("-") and
+                      token in {
+                          "-Q", "-Qq", "-Qi", "-Qk", "-Ql", "-Qs", "-Qdt",
+                          "-Ss", "-Si", "-Sl", "-S", "-Sy", "-Syy", "-Su",
+                          "-Syu", "-Syyu",
+                      }]
+        if len(operations) != 1:
+            raise ToolError(
+                "portable pacman requires exactly one bounded query or sync "
+                "operation"
+            )
+        operation = operations[0]
+        allowed_flags = {
+            operation, "--needed", "--noconfirm", "--noprogressbar",
+            "--disable-download-timeout", "--downloadonly",
+        }
+        if any(token.startswith("-") and token not in allowed_flags
+               for token in args):
+            raise ToolError("portable pacman option is not allowed")
+        mutating = operation in {"-S", "-Sy", "-Syy", "-Su", "-Syu", "-Syyu"}
+        if mutating and "--noconfirm" not in args:
+            raise ToolError(
+                "portable pacman mutations require --noconfirm so setup "
+                "cannot freeze on an invisible prompt"
+            )
+        packages = [token for token in args if not token.startswith("-")]
+        if any(not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9+_.@-]*", package)
+               for package in packages):
+            raise ToolError(
+                "portable pacman accepts repository package names only, not "
+                "URLs or package files"
+            )
+        return
+
+    # Permit the portable shell only as a script interpreter. Command strings
+    # (bash -c/-lc), stdin scripts and script arguments stay blocked; they
+    # would erase the path-token and executable policy enforced here.
+    if command_key in {"bash", "sh"}:
+        expected_name = f"{command_key}.exe"
+        command_parts = tuple(part.lower() for part in resolved_command.parts)
+        if (not in_workspace or len(command_parts) < 3 or
+                command_parts[-3:] != ("usr", "bin", expected_name)):
+            raise ToolError(
+                "installation-only shell must be the portable workspace "
+                f"MSYS2 usr/bin/{expected_name}"
+            )
+        shell_args = list(args)
+        flags = []
+        while shell_args and shell_args[0].startswith("-"):
+            flags.append(shell_args.pop(0))
+        if any(flag not in {"--noprofile", "--norc", "--login", "-l"}
+               for flag in flags):
+            raise ToolError(
+                "portable shell command strings and stdin execution are "
+                "blocked; invoke one explicit workspace .sh file"
+            )
+        if len(shell_args) != 1:
+            raise ToolError(
+                "portable shell requires exactly one workspace .sh file and "
+                "does not accept script arguments"
+            )
+        script = Path(shell_args[0])
+        script = (script.resolve() if script.is_absolute()
+                  else (cwd / script).resolve())
+        if (not _is_inside(script, workroot) or script.suffix.lower() != ".sh" or
+                not script.is_file()):
+            raise ToolError(
+                "portable shell script must be an existing .sh file inside "
+                "the setup workspace"
+            )
+        try:
+            if script.stat().st_size > 250_000:
+                raise ToolError("portable shell scripts are limited to 250 KB")
+            source = script.read_text(encoding="utf-8", errors="strict")
+        except UnicodeDecodeError as error:
+            raise ToolError("portable shell script must be UTF-8 text") from error
+        active_source = "\n".join(
+            line for line in source.splitlines()
+            if not line.lstrip().startswith("#")
+        ).lower()
+        blocked_commands = (
+            "sudo", "runas", "powershell", "pwsh", "cmd", "msiexec",
+            "winget", "choco", "wsl", "docker", "reg", "sc", "schtasks",
+            "setx", "curl", "wget", "pacman",
+        )
+        if any(re.search(
+                rf"(?m)(?:^|[;&|()]\s*){re.escape(name)}(?:\.exe)?\b",
+                active_source) for name in blocked_commands):
+            raise ToolError(
+                "portable shell script may not invoke host administration, "
+                "network download, or package-manager commands"
+            )
+        if re.search(
+                r"(?m)(?:^|[;&|($]\s*)find(?:\.exe)?\s+(?:\.|[\"']\.[\"'])"
+                r"(?:\s|$)", active_source):
+            raise ToolError(
+                "portable shell script may not recursively scan or rewrite a "
+                "whole checkout with `find .`; patch only the reported build "
+                "files"
+            )
+        if (re.search(r"(?m)(?:^|[;&|()]\s*)(?:ba|z|k)?sh\s+-[^\n]*c\b",
+                      active_source) or
+                any(token in active_source
+                    for token in _INSTALL_ONLY_LICENSE_ACCEPTANCE) or
+                re.search(r"(?:^|[\s'\"])(?:~[/\\]|\.\.[/\\])",
+                          active_source)):
+            raise ToolError(
+                "portable shell script contains a command-string, licence "
+                "acceptance, or host/parent path escape"
+            )
+        # MSYS2 spells a Windows path such as D:\work as /d/work. Translate
+        # those explicit drive mounts back before enforcing the same workspace
+        # boundary; /mingw64 and /usr are private to the portable MSYS2 root.
+        for match in re.finditer(
+                r"(?i)(?<![A-Za-z0-9_])/(?:mnt/)?([A-Z])/([^\s'\"]+)",
+                source):
+            candidate = Path(
+                f"{match.group(1)}:/{match.group(2)}").resolve()
+            if not _is_inside(candidate, workroot):
+                raise ToolError(
+                    "portable shell script contains an MSYS drive path "
+                    "outside the setup workspace"
+                )
+        for match in re.finditer(r"(?i)(?<![A-Za-z0-9])([A-Z]:[/\\][^\s'\"]+)",
+                                 source):
+            candidate = Path(match.group(1)).resolve()
+            if not _is_inside(candidate, workroot):
+                raise ToolError(
+                    "portable shell script contains a Windows path outside "
+                    "the setup workspace"
+                )
+        return
+
     # Build systems may compile, but their explicit test/run targets would
     # cross from installation into scientific execution.
-    if command in {"make", "gmake", "ninja", "meson", "cmake", "cargo", "go"}:
+    if command_key in {
+            "make", "gmake", "mingw32-make", "ninja", "meson", "cmake",
+            "cargo", "go"}:
         blocked_targets = {"test", "tests", "check", "run", "submit", "example", "examples"}
         if any(arg.lower().lstrip("-") in blocked_targets for arg in args):
             raise ToolError(
@@ -605,19 +1101,72 @@ def _guard_installation_only_command(argv: list[str], cwd: Path,
             )
         return
 
+    # micromamba is a single-file, workspace-stageable package manager. Keep
+    # both its cache/root and environment prefix inside this KI workspace, and
+    # do not expose its generic model-execution facility in install-only mode.
+    if command_key == "micromamba":
+        operations = {arg.lower() for arg in args if not arg.startswith("-")}
+        if len(args) == 1 and args[0] in _INSTALL_ONLY_PROBE_FLAGS:
+            return
+        if "run" in operations or not operations.intersection({
+                "create", "install", "update", "list", "info", "search"}):
+            raise ToolError(
+                "installation-only micromamba may create/install/inspect an "
+                "environment but may not run model commands"
+            )
+
+        def option_paths(names: set[str]) -> list[Path]:
+            found: list[Path] = []
+            for index, token in enumerate(args):
+                value = ""
+                if token in names and index + 1 < len(args):
+                    value = args[index + 1]
+                elif any(token.startswith(name + "=") for name in names):
+                    value = token.split("=", 1)[1]
+                if value:
+                    candidate = Path(value)
+                    found.append(
+                        candidate.resolve() if candidate.is_absolute()
+                        else (cwd / candidate).resolve())
+            return found
+
+        prefixes = option_paths({"-p", "--prefix"})
+        roots = option_paths({"-r", "--root-prefix"})
+        if operations.intersection({"create", "install", "update"}) and (
+                not prefixes or not roots):
+            raise ToolError(
+                "micromamba create/install/update requires both a workspace "
+                "--root-prefix and --prefix"
+            )
+        for candidate in [*prefixes, *roots]:
+            if candidate != workroot and workroot not in candidate.parents:
+                raise ToolError("micromamba prefix escapes the setup workspace")
+        return
+
     # Package managers, compilers, source-control and read-only inspection
     # tools are installation operations rather than model invocations.
-    if command in {
+    if command_key in {
         "git", "pkg-config", "pip", "pip3", "uv", "rustc", "gcc", "g++",
         "clang", "clang++", "gfortran", "tar", "unzip", "curl", "wget",
-        "patch", "sed", "ls", "cp", "mv", "ln", "chmod",
+        "7z", "7za", "7zr", "innoextract", "patch", "sed", "ls", "cp",
+        "mv", "ln", "chmod", "ar", "ranlib", "dlltool", "gendef", "nm",
+        "objdump", "strip",
         "file", "otool", "xcode-select", "brew",
     }:
         return
 
+    # Source builds legitimately execute generators before compiling. They
+    # are neither scientific runs nor example payloads; blocking a staged
+    # flex/bison binary made an otherwise complete RHESSys build ask the user
+    # for permission that the installation workflow had already granted.
+    if command_key in _INSTALL_ONLY_CODEGEN_NAMES:
+        return
+
     # Python is also used for small workspace inspection scripts and package
     # installation.  Do not let a generated script hide a model invocation.
-    if command.startswith("python"):
+    if command_key.startswith("python"):
+        if len(args) == 1 and args[0] in _INSTALL_ONLY_PROBE_FLAGS:
+            return
         if len(args) >= 2 and args[0] == "-m" and args[1] in {
                 "pip", "ensurepip", "venv", "py_compile", "compileall"}:
             return
@@ -629,6 +1178,13 @@ def _guard_installation_only_command(argv: list[str], cwd: Path,
         script = Path(args[0])
         script = script.resolve() if script.is_absolute() else (cwd / script).resolve()
         name = script.name.lower()
+        try:
+            source_text = script.read_text(encoding="utf-8", errors="replace")
+        except OSError as e:
+            raise ToolError(f"cannot inspect installation Python script: {e}") from e
+        _guard_generated_dependency_shim(script, source_text)
+        if name in _INSTALL_ONLY_PYTHON_CODEGEN:
+            return
         if any(word in name for word in _INSTALL_ONLY_BUILD_NAMES):
             return
         if script.parent != workroot or not any(
@@ -637,10 +1193,7 @@ def _guard_installation_only_command(argv: list[str], cwd: Path,
                 "installation-only mode blocked this Python model/data command; "
                 "only build helpers or root-level inspection probes may run"
             )
-        try:
-            source = script.read_text(encoding="utf-8", errors="replace").lower()
-        except OSError as e:
-            raise ToolError(f"cannot inspect installation probe: {e}") from e
+        source = source_text.lower()
         if any(token in source for token in (
                 "subprocess", "os.system", "os.popen", "popen(", "runpy", "exec(", "eval(")):
             raise ToolError(
@@ -649,10 +1202,8 @@ def _guard_installation_only_command(argv: list[str], cwd: Path,
             )
         return
 
-    resolved = Path(argv[0]).resolve()
-    in_workspace = resolved == workroot or workroot in resolved.parents
     if in_workspace:
-        if any(word in command for word in _INSTALL_ONLY_BUILD_NAMES):
+        if any(word in command_key for word in _INSTALL_ONLY_BUILD_NAMES):
             return
         if len(args) == 1 and args[0] in _INSTALL_ONLY_PROBE_FLAGS:
             return
@@ -689,6 +1240,14 @@ def execute_tool(name: str, args: dict, ki, cfg, *, setup_mode: bool = False,
         (setup_context or {}).get("project_root") or workroot
     ).resolve()
     progress_root = project_root
+    if (bool((setup_context or {}).get("installation_only")) and name in {
+            "run_preflight", "run_ki_tool", "run_calibration",
+            "create_project_plot", "publish_project_view", "fetch_data",
+            "publish_setup_output"}):
+        raise ToolError(
+            f"{name} is unavailable during an installation-only test; use "
+            "only a cheap executable startup or declared import probe"
+        )
 
     # A chat owns its scenario files, but the scientific software is installed
     # once in the current KI's managed workspace.  That binary role is a narrow
@@ -751,13 +1310,13 @@ def execute_tool(name: str, args: dict, ki, cfg, *, setup_mode: bool = False,
         p, _r = _ki_scoped(args.get("path", ""))
         if not p.is_file():
             raise ToolError(f"no such file in this KI: {args.get('path')}")
-        text = p.read_text(encoding="utf-8", errors="replace")
-        return text[:60000]
+        return _read_text_page(
+            p, args.get("start_line", 1), args.get("line_count", 1000))
 
     if name == "list_ki_files":
         base, ki_root = _ki_scoped(args.get("subdir") or ".")
-        names = sorted(str(f.relative_to(ki_root)) for f in base.rglob("*") if f.is_file())
-        return "\n".join(names[:400]) or "(empty)"
+        names = _safe_relative_file_listing(base, ki_root, 400)
+        return "\n".join(names) or "(empty)"
 
     if name == "run_preflight":
         from . import install as _install
@@ -774,7 +1333,8 @@ def execute_tool(name: str, args: dict, ki, cfg, *, setup_mode: bool = False,
                 continue
             for i, line in enumerate(f.read_text(encoding="utf-8", errors="replace").splitlines(), 1):
                 if kw in line.lower():
-                    hits.append(f"{f.relative_to(root)}:{i}: {line.strip()[:200]}")
+                    hits.append(
+                        f"{f.relative_to(root).as_posix()}:{i}: {line.strip()[:200]}")
         return "\n".join(hits[:40]) or f"no diagnostics mention {kw!r}"
 
     if name in ("list_skills", "read_skill"):
@@ -799,7 +1359,9 @@ def execute_tool(name: str, args: dict, ki, cfg, *, setup_mode: bool = False,
             if not f.is_file() or "memory" in f.relative_to(project_root).parts:
                 continue
             try:
-                names.append(f"{f.relative_to(project_root)} ({f.stat().st_size} bytes)")
+                names.append(
+                    f"{f.relative_to(project_root).as_posix()} "
+                    f"({f.stat().st_size} bytes)")
             except OSError:
                 continue
         return "\n".join(names[:1000]) or "(no project files yet)"
@@ -834,7 +1396,10 @@ def execute_tool(name: str, args: dict, ki, cfg, *, setup_mode: bool = False,
                             f"{flow.state.value} (protected or outside the writable subtrees)")
         p.parent.mkdir(parents=True, exist_ok=True)
         p.write_text(content, encoding="utf-8")
-        return f"wrote {rel} ({len(content.encode('utf-8'))} bytes)"
+        # Tool results are consumed by agents on every host. Keep project paths
+        # in the API's portable slash form instead of leaking Windows `\\`
+        # separators that are frequently copied into later JSON/tool calls.
+        return f"wrote {rel.as_posix()} ({len(content.encode('utf-8'))} bytes)"
 
     if project_mode and name == "run_ki_tool":
         tool_ki_name, tool_root = getattr(ki, "name", root.name), root
@@ -872,7 +1437,8 @@ def execute_tool(name: str, args: dict, ki, cfg, *, setup_mode: bool = False,
             raise ToolError(f"project directory does not exist: {args.get('cwd')}")
         for token in arguments:
             value = token.split("=", 1)[1] if token.startswith("-") and "=" in token else token
-            if not (value.startswith(("/", "./", "../")) or "/" in value):
+            if not (value.startswith(("/", "./", "../")) or
+                    "/" in value or "\\" in value):
                 continue
             candidate = Path(value)
             resolved = candidate.resolve() if candidate.is_absolute() else (cwd / candidate).resolve()
@@ -907,11 +1473,8 @@ def execute_tool(name: str, args: dict, ki, cfg, *, setup_mode: bool = False,
             before = _fg._snapshot(project_root)
         started = time.time()
         try:
-            proc = subprocess.run(
-                command, cwd=str(cwd),
-                env=child_env, capture_output=True, text=True, errors="replace",
-                timeout=timeout,
-            )
+            proc = _run_subprocess_tree(
+                command, cwd=str(cwd), env=child_env, timeout=timeout)
         except subprocess.TimeoutExpired as e:
             tail = ((e.stdout or "") + (e.stderr or ""))[-12000:]
             if flow is not None:
@@ -1112,25 +1675,99 @@ def execute_tool(name: str, args: dict, ki, cfg, *, setup_mode: bool = False,
         base = _inside_work(args.get("subdir") or ".")
         if not base.is_dir():
             raise ToolError(f"no such workspace directory: {args.get('subdir')}")
-        names = sorted(str(f.relative_to(workroot)) for f in base.rglob("*") if f.is_file())
-        return "\n".join(names[:800]) or "(empty)"
+        names = _safe_relative_file_listing(base, workroot, 800)
+        return "\n".join(names) or "(empty)"
 
     if setup_mode and name == "read_work_file":
         p = _inside_work(args.get("path") or "")
         if not p.is_file():
             raise ToolError(f"no such workspace file: {args.get('path')}")
-        return p.read_text(encoding="utf-8", errors="replace")[:60000]
+        return _read_text_page(
+            p, args.get("start_line", 1), args.get("line_count", 1000))
 
     if setup_mode and name == "write_work_file":
         p = _inside_work(args.get("path") or "")
+        relative_parts = {part.lower() for part in p.relative_to(workroot).parts}
+        if (bool((setup_context or {}).get("installation_only")) and
+                p.parent == workroot and p.name in {
+                    "status.json", "installation-test.json",
+                    ".geoforge-install.json",
+                }):
+            raise ToolError(
+                f"{p.name} is GeoForge-owned verification state and cannot "
+                "be written by the installation agent"
+            )
+        if (bool((setup_context or {}).get("installation_only")) and
+                relative_parts.intersection({"site-packages", "dist-packages"})):
+            raise ToolError(
+                "installation agents may not write directly into site-packages; "
+                "patch the official workspace source and rebuild/install it"
+            )
         content = args.get("content")
         if not isinstance(content, str):
             raise ToolError("content must be text")
+        if bool((setup_context or {}).get("installation_only")):
+            _guard_generated_dependency_shim(p, content)
         if len(content.encode("utf-8")) > 250_000:
             raise ToolError("write_work_file is limited to 250 KB")
         p.parent.mkdir(parents=True, exist_ok=True)
         p.write_text(content, encoding="utf-8")
-        return f"wrote {p.relative_to(workroot)} ({len(content.encode('utf-8'))} bytes)"
+        return (
+            f"wrote {p.relative_to(workroot).as_posix()} "
+            f"({len(content.encode('utf-8'))} bytes)"
+        )
+
+    if setup_mode and name == "replace_work_text":
+        p = _inside_work(args.get("path") or "")
+        if not p.is_file():
+            raise ToolError(f"no such workspace file: {args.get('path')}")
+        relative_parts = {part.lower() for part in p.relative_to(workroot).parts}
+        if (bool((setup_context or {}).get("installation_only")) and
+                p.parent == workroot and p.name in {
+                    "status.json", "installation-test.json",
+                    ".geoforge-install.json",
+                }):
+            raise ToolError(
+                f"{p.name} is GeoForge-owned verification state and cannot "
+                "be written by the installation agent"
+            )
+        if (bool((setup_context or {}).get("installation_only")) and
+                relative_parts.intersection({"site-packages", "dist-packages"})):
+            raise ToolError(
+                "installation agents may not patch site-packages in place; "
+                "patch the official workspace source and rebuild/install it"
+            )
+        old, new = args.get("old"), args.get("new")
+        if (not isinstance(old, str) or not old or
+                not isinstance(new, str)):
+            raise ToolError("old must be non-empty text and new must be text")
+        try:
+            expected = int(args.get("expected_count", 1))
+        except (TypeError, ValueError) as error:
+            raise ToolError("expected_count must be an integer") from error
+        if expected < 1 or expected > 20:
+            raise ToolError("expected_count must be 1..20")
+        if len(old.encode("utf-8")) > 100_000 or len(new.encode("utf-8")) > 100_000:
+            raise ToolError("replacement text is limited to 100 KB")
+        raw = p.read_bytes()
+        if len(raw) > 5_000_000:
+            raise ToolError("replace_work_text is limited to files under 5 MB")
+        try:
+            text = raw.decode("utf-8", errors="strict")
+        except UnicodeDecodeError as error:
+            raise ToolError("replace_work_text requires a UTF-8 text file") from error
+        actual = text.count(old)
+        if actual != expected:
+            raise ToolError(
+                f"expected {expected} exact match(es), found {actual}; "
+                "read the relevant page and retry with more context"
+            )
+        updated = text.replace(old, new, expected)
+        p.write_text(updated, encoding="utf-8", newline="")
+        return (
+            f"replaced {expected} exact match(es) in "
+            f"{p.relative_to(workroot).as_posix()}"
+        )
 
     if setup_mode and name == "run_setup_command":
         argv = args.get("argv")
@@ -1139,13 +1776,23 @@ def execute_tool(name: str, args: dict, ki, cfg, *, setup_mode: bool = False,
             raise ToolError("argv must be a non-empty list of short strings")
         executable = argv[0]
         allowed = {
-            "git", "cmake", "make", "gmake", "ninja", "meson", "pkg-config",
+            "git", "cmake", "make", "gmake", "mingw32-make", "ninja",
+            "meson", "pkg-config", "micromamba",
             "python", "python3", "pip", "pip3", "uv", "cargo", "rustc", "go",
             "gcc", "g++", "clang", "clang++", "gfortran", "tar", "unzip",
-            "curl", "wget", "patch", "sed", "awk", "find", "ls", "cp", "mv", "ln",
-            "chmod", "file", "otool", "xcode-select", "brew",
+            "7z", "7za", "7zr", "innoextract", "curl", "wget", "patch",
+            "sed", "awk", "find", "ls", "cp", "mv", "ln", "ar", "ranlib",
+            "dlltool", "gendef", "nm", "objdump", "strip",
+            "chmod", "file", "otool", "xcode-select", "brew", "bison", "flex",
+            "win_bison", "win_flex", "m4", "swig", "protoc", "cython", "f2py",
         }
         exe_path = Path(executable)
+        executable_name = exe_path.name.lower()
+        executable_key = (
+            Path(executable_name).stem
+            if Path(executable_name).suffix.lower() in {".exe", ".cmd", ".bat"}
+            else executable_name
+        )
         external_roots = []
         for raw in (setup_context or {}).get("existing_roots") or []:
             try:
@@ -1153,7 +1800,12 @@ def execute_tool(name: str, args: dict, ki, cfg, *, setup_mode: bool = False,
             except (OSError, RuntimeError):
                 continue
             external_roots.append(candidate.parent if candidate.is_file() else candidate)
-        if exe_path.is_absolute() or "/" in executable:
+        # ``Path.is_absolute`` alone does not distinguish a Windows relative
+        # executable (``binaries\\tools\\python.exe``) from a bare command.
+        # Treat both native separators as paths before consulting the command
+        # allowlist; otherwise a real workspace-local toolchain is rejected as
+        # an unknown command exactly when the setup agent tries to use it.
+        if exe_path.is_absolute() or "/" in executable or "\\" in executable:
             resolved = (workroot / exe_path).resolve() if not exe_path.is_absolute() else exe_path.resolve()
             cfg_python = Path(cfg.python).resolve()
             permitted_roots = [workroot, root,
@@ -1162,10 +1814,24 @@ def execute_tool(name: str, args: dict, ki, cfg, *, setup_mode: bool = False,
             if resolved != cfg_python and not any(
                     resolved == base or base in resolved.parents for base in permitted_roots):
                 raise ToolError(f"executable is outside the setup workspace: {executable}")
+            if (os.name == "nt" and resolved.suffix.lower() == ".exe" and
+                    resolved.is_file()):
+                try:
+                    with resolved.open("rb") as executable_file:
+                        pe_header = executable_file.read(2)
+                except OSError as error:
+                    raise ToolError(
+                        f"cannot inspect Windows executable: {error}") from error
+                if pe_header != b"MZ":
+                    raise ToolError(
+                        f"{resolved.name} is not a Windows PE executable (missing "
+                        "MZ header); if the download endpoint returned an archive, "
+                        "extract the real executable before running it"
+                    )
             argv[0] = str(resolved)
-        elif executable not in allowed:
+        elif executable_key not in allowed:
             raise ToolError(f"command is not in the setup allowlist: {executable}")
-        if Path(argv[0]).name == "brew" and len(argv) > 1 and argv[1] not in (
+        if executable_key == "brew" and len(argv) > 1 and argv[1] not in (
                 "--prefix", "--version", "list", "info", "config"):
             raise ToolError("Homebrew changes require the user; create a permission request")
 
@@ -1174,6 +1840,7 @@ def execute_tool(name: str, args: dict, ki, cfg, *, setup_mode: bool = False,
             raise ToolError(f"command directory does not exist: {args.get('cwd')}")
         if bool((setup_context or {}).get("installation_only")):
             _guard_installation_only_command(argv, cwd, workroot)
+            _guard_local_dependency_shim_wheels(argv, cwd, workroot)
         # Reject path arguments that escape the workspace. This is not a
         # shell, but programs such as cp, curl and git still accept output
         # paths of their own. Compiler/system include flags are allowed only
@@ -1186,7 +1853,8 @@ def execute_tool(name: str, args: dict, ki, cfg, *, setup_mode: bool = False,
             value = token.split("=", 1)[1] if token.startswith("-") and "=" in token else token
             if value.startswith(("http://", "https://", "git@")):
                 return
-            if not (value.startswith(("/", "./", "../")) or "/" in value):
+            if not (value.startswith(("/", "./", "../")) or
+                    "/" in value or "\\" in value):
                 return
             candidate = Path(value)
             resolved = candidate.resolve() if candidate.is_absolute() else (cwd / candidate).resolve()
@@ -1207,15 +1875,56 @@ def execute_tool(name: str, args: dict, ki, cfg, *, setup_mode: bool = False,
             if "-c" in argv:
                 raise ToolError("inline Python is unavailable; write a workspace script and run it")
         timeout = max(1, min(int(args.get("timeout_seconds") or 300), 3600))
+        # Some scientific executables ignore conventional --help/--version
+        # flags and immediately enter their normal blocking input loop.  A
+        # startup probe is only a load/response check, so never let one make
+        # the Setup UI appear frozen for the normal five-minute command limit.
+        if (bool((setup_context or {}).get("installation_only")) and
+                len(argv) == 2 and argv[1] in _INSTALL_ONLY_PROBE_FLAGS):
+            timeout = min(timeout, 20)
         extra_env = args.get("env") or {}
         if not isinstance(extra_env, dict):
             raise ToolError("env must be an object")
         safe_env = {}
-        banned = {"HOME", "PATH", "SHELL", "DYLD_INSERT_LIBRARIES", "PYTHONPATH"}
+        path_prefix: list[str] = []
+        banned = {"HOME", "SHELL", "DYLD_INSERT_LIBRARIES", "PYTHONPATH"}
+        workspace_path_env = {
+            "CONDA_PKGS_DIRS", "CONDA_ENVS_DIRS", "MAMBA_ROOT_PREFIX",
+            "CONDA_PREFIX", "CONDARC", "MAMBARC", "MSYS2_ROOT",
+            "PETSC_DIR", "TMP", "TEMP", "TMPDIR",
+        }
         for key, value in extra_env.items():
             if (not re.fullmatch(r"[A-Z_][A-Z0-9_]{0,63}", str(key)) or
                     key in banned or not isinstance(value, str) or len(value) > 8000):
                 raise ToolError(f"unsafe environment override: {key}")
+            if key == "PATH":
+                for entry in value.split(os.pathsep):
+                    if not entry:
+                        continue
+                    candidate = Path(entry)
+                    resolved = (candidate.resolve() if candidate.is_absolute()
+                                else (cwd / candidate).resolve())
+                    if not any(
+                            resolved == base or base in resolved.parents
+                            for base in (workroot, root,
+                                         Path(cfg.roles.get(
+                                             "binaries", workroot)).resolve(),
+                                         *external_roots)):
+                        raise ToolError(
+                            f"PATH entry escapes the setup workspace: {entry}")
+                    path_prefix.append(str(resolved))
+                continue
+            if key in workspace_path_env:
+                for entry in value.split(os.pathsep):
+                    if not entry:
+                        continue
+                    candidate = Path(entry)
+                    resolved = (candidate.resolve() if candidate.is_absolute()
+                                else (cwd / candidate).resolve())
+                    if resolved != workroot and workroot not in resolved.parents:
+                        raise ToolError(
+                            f"environment path escapes the setup workspace: "
+                            f"{key}={entry}")
             safe_env[key] = value
         # A tool or build script must never inherit the API key that is driving
         # the agent. Keep the normal build environment, remove credentials.
@@ -1229,11 +1938,21 @@ def execute_tool(name: str, args: dict, ki, cfg, *, setup_mode: bool = False,
         if provider_id:
             from .settings import with_provider_proxy
             child_env = with_provider_proxy(provider_id, child_env)
+        command_path = Path(argv[0]).resolve()
+        if (os.name == "nt" and command_path.name.lower() == "pacman.exe"
+                and workroot in command_path.parents
+                and tuple(part.lower() for part in command_path.parts[-3:])
+                    == ("usr", "bin", "pacman.exe")):
+            # Portable pacman's post-install hooks need its own sh/coreutils.
+            # A GUI-launched parent need not have any MSYS2 tools on PATH.
+            path_prefix.insert(0, str(command_path.parent))
+        if path_prefix:
+            safe_env["PATH"] = os.pathsep.join(
+                [*path_prefix, child_env.get("PATH", "")])
         try:
-            proc = subprocess.run(
+            proc = _run_subprocess_tree(
                 argv, cwd=str(cwd), env={**child_env, **safe_env},
-                capture_output=True, text=True, errors="replace", timeout=timeout,
-            )
+                timeout=timeout)
         except subprocess.TimeoutExpired as e:
             tail = ((e.stdout or "") + (e.stderr or ""))[-12000:]
             return f"TIMEOUT after {timeout}s\n{tail}"
@@ -1301,7 +2020,7 @@ def execute_tool(name: str, args: dict, ki, cfg, *, setup_mode: bool = False,
         link_note = (f", {link_count} internal links copied as files"
                      if link_count else "")
         return (
-            f"published {source_rel} to {destination_rel} "
+            f"published {source_rel.as_posix()} to {destination_rel.as_posix()} "
             f"({len(files)} files, {total} bytes{link_note})"
         )
 
@@ -1474,7 +2193,10 @@ def run(prov: ApiProvider, ki, cfg, system: str, task: str,
     model_id = prov.models.get(want, want)
     tool_context = dict(setup_context or {})
     tool_context.setdefault("provider_id", f"api:{prov.name}")
-    tools = tool_schemas(ki, setup_mode=setup_mode, project_mode=project_mode, flow=flow)
+    tools = tool_schemas(
+        ki, setup_mode=setup_mode, project_mode=project_mode, flow=flow,
+        installation_only=bool(tool_context.get("installation_only")),
+    )
     # Prior turns travel as REAL messages, not flattened into one user blob
     # with USER:/YOU: markers — the vendor's own multi-turn handling is the
     # thing that makes context work, and counterfeit markers cannot exist in a

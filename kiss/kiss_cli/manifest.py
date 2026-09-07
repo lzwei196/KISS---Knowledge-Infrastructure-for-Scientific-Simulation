@@ -104,6 +104,11 @@ class Manifest:
     data: list[DataNeed] = field(default_factory=list)
     #: command proving the install works, run after preflight
     reference_case: str | None = None
+    #: output emitted by the real model early in startup.  Some compiled
+    #: solvers have no version flag: they print this banner, then stop because
+    #: no project input was supplied.  The runnable probe uses the marker only
+    #: to distinguish that model-owned input error from a missing interpreter.
+    startup_marker: str = ""
     notes: str = ""
     #: free-text guidance handed to the agent when automation stops short
     agent_hint: str = ""
@@ -134,6 +139,7 @@ class Manifest:
             system_deps=list(raw.get("system_deps") or []),
             data=[DataNeed.from_dict(d) for d in (raw.get("data") or [])],
             reference_case=raw.get("reference_case"),
+            startup_marker=raw.get("startup_marker", ""),
             notes=raw.get("notes", ""),
             agent_hint=raw.get("agent_hint", ""),
         )

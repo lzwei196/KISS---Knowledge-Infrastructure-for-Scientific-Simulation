@@ -121,6 +121,25 @@ def cleanup_target(target: Path, workroot: Path) -> str:
             return "" if not resolved.exists() else "directory still exists"
         except OSError as exc:
             last = exc
+    # Deep Windows source trees can leave a directory behind even after the
+    # read-only retry (CE-QUAL-W2 has paths near the Win32 boundary). CMake's
+    # native filesystem helper removes the same already-validated exact target
+    # without crossing through cmd.exe or constructing a shell command.
+    if os.name == "nt":
+        cmake = shutil.which("cmake")
+        if cmake:
+            try:
+                completed = subprocess.run(
+                    [cmake, "-E", "remove_directory", str(resolved)],
+                    capture_output=True, text=True, timeout=300,
+                )
+                if not resolved.exists():
+                    return ""
+                detail = (completed.stderr or completed.stdout).strip()
+                if detail:
+                    last = OSError(detail[-500:])
+            except (OSError, subprocess.TimeoutExpired) as exc:
+                last = exc
     return repr(last)
 
 

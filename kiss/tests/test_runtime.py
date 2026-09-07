@@ -38,7 +38,9 @@ class ProviderHealthTests(unittest.TestCase):
         result = subprocess.CompletedProcess(
             [], 0, stdout=json.dumps({"loggedIn": False}), stderr="",
         )
-        with mock.patch.object(providers.shutil, "which", return_value="/bin/claude"), \
+        cleared = {name: "" for name in providers._CLAUDE_ENV_AUTH}
+        with mock.patch.dict(providers.os.environ, cleared), \
+             mock.patch.object(providers.shutil, "which", return_value="/bin/claude"), \
              mock.patch.object(providers.subprocess, "run", return_value=result):
             health = provider.health(refresh=True)
         self.assertTrue(health.installed)
@@ -498,7 +500,7 @@ class ProviderHealthTests(unittest.TestCase):
                 roles={"binaries": root / "binaries"},
             )
             with mock.patch.object(
-                    api.subprocess, "run",
+                    api, "_run_subprocess_tree",
                     side_effect=PermissionError(13, "Permission denied", str(tool))):
                 output = api.execute_tool(
                     "run_setup_command",
@@ -754,14 +756,39 @@ print(MARKER, len(text), implementation.__file__)
             binary.chmod(0o755)
             preflight = root / "preflight_check.py"
             preflight.write_text(
-                f'check_file("{root}/Demo/build/bin/demo", "Demo", executable=True)\n'
+                "def check_file(path, label, executable=False): pass\n"
+                f'check_file("{root.as_posix()}/Demo/build/bin/demo", "Demo", executable=True)\n'
             )
             ki = SimpleNamespace(preflight=preflight, root=root / "ki")
             cfg = SimpleNamespace(root=root)
 
             notes = install.place_where_the_ki_expects(ki, binary, cfg, prefix)
 
-            self.assertTrue((root / "Demo").is_symlink())
+            # Windows may use a junction when unprivileged symlinks are
+            # disabled; both provide one non-duplicated install tree.
+            self.assertTrue((root / "Demo").is_dir())
+            self.assertEqual((root / "Demo").resolve(), prefix.resolve())
+            self.assertIn("linked install tree", notes[0])
+
+    @unittest.skipUnless(os.name == "nt", "Windows executable suffix")
+    def test_windows_exe_links_to_suffixless_declared_install_tree(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            prefix = root / "binaries" / "Demo"
+            binary = prefix / "build" / "bin" / "demo.exe"
+            binary.parent.mkdir(parents=True)
+            binary.write_bytes(b"MZ")
+            preflight = root / "preflight_check.py"
+            preflight.write_text(
+                "def check_file(path, label, executable=False): pass\n"
+                f'check_file("{root.as_posix()}/Demo/build/bin/demo", '
+                '"Demo", executable=True)\n'
+            )
+            notes = install.place_where_the_ki_expects(
+                SimpleNamespace(preflight=preflight, root=root / "ki"),
+                binary, SimpleNamespace(root=root), prefix,
+            )
+            self.assertTrue((root / "Demo").is_dir())
             self.assertEqual((root / "Demo").resolve(), prefix.resolve())
             self.assertIn("linked install tree", notes[0])
 
@@ -818,6 +845,31 @@ print(MARKER, len(text), implementation.__file__)
 
             self.assertTrue(placed.is_file())
             self.assertTrue((placed.parent / "tiff.dll").is_file())
+            self.assertTrue(notes)
+
+    def test_agent_install_normalises_implicit_windows_exe_suffix(self):
+        with tempfile.TemporaryDirectory() as td, \
+             mock.patch.object(install.os, "name", "nt"):
+            root = Path(td)
+            package = root / "scratch" / "rhessys"
+            binary = package / "rhessys7.4.exe"
+            binary.parent.mkdir(parents=True)
+            binary.write_bytes(b"MZ")
+            (binary.parent / "netcdf.dll").write_bytes(b"dll")
+            man = Manifest(
+                model="RHESSys", install_dir="RHESSys/source/repo",
+                acquire=Acquire(
+                    strategy="build", produces="rhessys/rhessys7.4"),
+            )
+            cfg = SimpleNamespace(roles={"binaries": root / "binaries"})
+
+            placed, notes = install.place_agent_install(man, binary, cfg)
+
+            expected = (root / "binaries" / "RHESSys" / "source" /
+                        "repo" / "rhessys" / "rhessys7.4.exe")
+            self.assertEqual(placed, expected)
+            self.assertTrue(expected.is_file())
+            self.assertTrue((expected.parent / "netcdf.dll").is_file())
             self.assertTrue(notes)
 
     def test_builtin_git_acquisition_inherits_selected_provider_proxy(self):
@@ -1009,6 +1061,22 @@ print(MARKER, len(text), implementation.__file__)
 
             self.assertEqual(runnable.declared_imports(ki), ["porepy"])
 
+    def test_runnable_reads_named_import_module_list(self):
+        with tempfile.TemporaryDirectory() as td:
+            preflight = Path(td) / "preflight_check.py"
+            preflight.write_text(
+                "IMPORT_MODULES = ['lisflood', 'netCDF4', 'pcraster']\n"
+                "def check_runtime_imports(checks, python_exe):\n"
+                "    for module in IMPORT_MODULES:\n"
+                "        pass\n",
+                encoding="utf-8",
+            )
+            ki = SimpleNamespace(preflight=preflight)
+            self.assertEqual(
+                runnable.declared_imports(ki),
+                ["lisflood", "netCDF4", "pcraster"],
+            )
+
     def test_missing_imports_sees_ki_tools_and_common_sibling(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
@@ -1027,6 +1095,91 @@ print(MARKER, len(text), implementation.__file__)
                 ),
                 [],
             )
+
+    def test_missing_import_probe_uses_headless_environment(self):
+        completed = subprocess.CompletedProcess([], 0, stdout="", stderr="")
+        with mock.patch.object(
+                runnable.subprocess, "run", return_value=completed) as run:
+            self.assertEqual(
+                runnable.missing_imports(["simfire.sim.simulation"],
+                                         sys.executable),
+                [],
+            )
+        env = run.call_args.kwargs["env"]
+        self.assertEqual(env["SDL_VIDEODRIVER"], "dummy")
+        self.assertEqual(env["PYGAME_HIDE_SUPPORT_PROMPT"], "1")
+        self.assertEqual(env["MPLBACKEND"], "Agg")
+
+    @unittest.skipUnless(os.name == "nt", "Windows conda activation layout")
+    def test_conda_runtime_exposes_native_dlls_and_esmf_makefile(self):
+        with tempfile.TemporaryDirectory() as td:
+            prefix = Path(td) / "env"
+            python = prefix / "python.exe"
+            python.parent.mkdir(parents=True)
+            python.write_bytes(b"MZ")
+            (prefix / "conda-meta").mkdir()
+            for relative in (
+                    "Library/mingw-w64/bin", "Library/usr/bin",
+                    "Library/bin", "Library/lib", "Scripts", "bin"):
+                (prefix / relative).mkdir(parents=True, exist_ok=True)
+            esmf_mk = prefix / "Library" / "lib" / "esmf.mk"
+            esmf_mk.write_text("ESMF_VERSION_STRING=8.4.0\n")
+
+            env = paths.with_python_runtime(python, {"PATH": "C:\\base"})
+
+            self.assertEqual(env["ESMFMKFILE"], str(esmf_mk.resolve()))
+            path_items = env["PATH"].split(os.pathsep)
+            resolved_prefix = prefix.resolve()
+            self.assertEqual(path_items[0], str(resolved_prefix))
+            self.assertLess(
+                path_items.index(str(resolved_prefix / "Library" / "bin")),
+                path_items.index("C:\\base"),
+            )
+
+    @unittest.skipUnless(os.name == "nt", "Windows conda activation layout")
+    def test_runnable_probe_activates_recorded_conda_python(self):
+        completed = subprocess.CompletedProcess([], 0, stdout="", stderr="")
+        with tempfile.TemporaryDirectory() as td:
+            prefix = Path(td) / "env"
+            python = prefix / "python.exe"
+            python.parent.mkdir(parents=True)
+            python.write_bytes(b"MZ")
+            (prefix / "conda-meta").mkdir()
+            (prefix / "Library" / "bin").mkdir(parents=True)
+            esmf_mk = prefix / "Library" / "lib" / "esmf.mk"
+            esmf_mk.parent.mkdir(parents=True)
+            esmf_mk.write_text("ESMF_VERSION_STRING=8.4.0\n")
+            with mock.patch.object(
+                    runnable.subprocess, "run", return_value=completed) as run:
+                self.assertEqual(
+                    runnable.missing_imports(["esmpy"], str(python)), [],
+                )
+
+        self.assertEqual(
+            run.call_args.kwargs["env"]["ESMFMKFILE"], str(esmf_mk.resolve()),
+        )
+
+    def test_missing_imports_treats_broken_interpreter_as_missing(self):
+        with mock.patch.object(
+                runnable.subprocess, "run", side_effect=FileNotFoundError()):
+            self.assertEqual(
+                runnable.missing_imports(["simfire", "xarray"], "missing-python"),
+                ["simfire", "xarray"],
+            )
+
+    def test_select_python_reports_closest_workspace_environment(self):
+        with mock.patch.object(
+                runnable, "_python_candidates",
+                return_value=["workspace-python", "system-python"]), \
+             mock.patch.object(
+                 runnable, "missing_imports",
+                 side_effect=[["rasterio", "xarray"],
+                              ["simfire", "rasterio", "xarray"]]):
+            selected = runnable.select_python(
+                None, "system-python",
+                ["simfire", "rasterio", "xarray"],
+            )
+        self.assertEqual(selected, "workspace-python")
 
     def test_runnable_finds_exact_agent_build_in_model_tree(self):
         with tempfile.TemporaryDirectory() as td, \
@@ -1048,6 +1201,28 @@ print(MARKER, len(text), implementation.__file__)
             )
 
             self.assertEqual(runnable.find_binary(ki, cfg=cfg), built)
+
+    def test_runnable_appends_exe_to_versioned_windows_binary_name(self):
+        with tempfile.TemporaryDirectory() as td, \
+             mock.patch.object(runnable.os, "name", "nt"):
+            root = Path(td)
+            built = (root / "binaries" / "RHESSys" / "source" / "repo" /
+                     "rhessys" / "rhessys7.4.exe")
+            built.parent.mkdir(parents=True)
+            built.write_bytes(b"MZ")
+            ki = SimpleNamespace(
+                name="RHESSys", preflight=None, meta={"language": "c"},
+            )
+            man = Manifest(
+                model="RHESSys", install_dir="RHESSys/source/repo",
+                acquire=Acquire(
+                    strategy="build", produces="rhessys/rhessys7.4"),
+            )
+            cfg = SimpleNamespace(
+                root=root, roles={"binaries": root / "binaries"},
+            )
+
+            self.assertEqual(runnable.find_binary(ki, man, cfg), built)
 
     def test_runnable_finds_compiled_binary_in_managed_sibling(self):
         with tempfile.TemporaryDirectory() as td, \
@@ -1110,6 +1285,90 @@ print(MARKER, len(text), implementation.__file__)
             self.assertNotEqual(found, python)
             self.assertEqual(found.name, "telemac2d.exe")
 
+    def test_compiled_startup_marker_accepts_later_missing_project_input(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            binary = root / "telemac2d.exe"
+            binary.write_bytes(b"MZ")
+            ki = SimpleNamespace(
+                name="TELEMAC_MASCARET", preflight=None,
+                meta={"language": "fortran"},
+            )
+            man = Manifest(
+                model="TELEMAC_MASCARET", binary_type="PE32",
+                startup_marker="2D VERSION 9.1 FORTRAN 2003",
+                acquire=Acquire(strategy="build", produces="telemac2d.exe"),
+            )
+            cfg = SimpleNamespace(
+                root=root, python=sys.executable,
+                roles={"binaries": root},
+            )
+            output = (
+                "READ_CONFIG: FILE CONFIG NOT FOUND: CONFIG\n"
+                "2D    VERSION 9.1    FORTRAN 2003\n"
+                "Fortran runtime error: Cannot open file 'T2DDICO': "
+                "No such file or directory\n"
+            )
+            completed = subprocess.CompletedProcess(
+                [str(binary), "--version"], 1, stdout=output, stderr="",
+            )
+            with mock.patch.object(runnable, "find_binary", return_value=binary), \
+                 mock.patch.object(runnable, "_file_kind", return_value="pe"), \
+                 mock.patch.object(runnable.platform, "system", return_value="Windows"), \
+                 mock.patch.object(runnable.os, "access", return_value=True), \
+                 mock.patch.object(runnable.subprocess, "run", return_value=completed):
+                verdict = runnable.check(ki, man, cfg, python=sys.executable)
+
+            self.assertTrue(verdict.usable)
+            self.assertTrue(verdict.linked)
+            self.assertTrue(verdict.responds)
+            self.assertEqual(verdict.detail, "2D VERSION 9.1 FORTRAN 2003")
+
+    def test_startup_marker_does_not_hide_actual_runtime_gaps(self):
+        failures = {
+            "missing DLL": (
+                "2D VERSION 9.1 FORTRAN 2003\n"
+                "error while loading shared libraries: libmodel.dll"
+            ),
+            "missing command": "helper: command not found",
+            "missing interpreter": (
+                "/usr/bin/env: missing-python: No such file or directory"
+            ),
+        }
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            binary = root / "model.exe"
+            binary.write_bytes(b"MZ")
+            ki = SimpleNamespace(
+                name="Compiled", preflight=None,
+                meta={"language": "fortran"},
+            )
+            man = Manifest(
+                model="Compiled", binary_type="PE32",
+                startup_marker="2D VERSION 9.1 FORTRAN 2003",
+                acquire=Acquire(strategy="build", produces="model.exe"),
+            )
+            cfg = SimpleNamespace(
+                root=root, python=sys.executable,
+                roles={"binaries": root},
+            )
+            for label, output in failures.items():
+                completed = subprocess.CompletedProcess(
+                    [str(binary), "--version"], 1,
+                    stdout=output, stderr="",
+                )
+                with self.subTest(label=label), \
+                     mock.patch.object(runnable, "find_binary", return_value=binary), \
+                     mock.patch.object(runnable, "_file_kind", return_value="pe"), \
+                     mock.patch.object(runnable.platform, "system", return_value="Windows"), \
+                     mock.patch.object(runnable.os, "access", return_value=True), \
+                     mock.patch.object(runnable.subprocess, "run", return_value=completed):
+                    verdict = runnable.check(
+                        ki, man, cfg, python=sys.executable,
+                    )
+                self.assertFalse(verdict.usable)
+                self.assertFalse(verdict.linked)
+
     def test_pip_wrapped_compiled_model_uses_import_contract(self):
         with tempfile.TemporaryDirectory() as td, \
              mock.patch.object(runnable, "select_python", return_value=sys.executable), \
@@ -1142,6 +1401,7 @@ class EnvironmentAndTlsTests(unittest.TestCase):
         with mock.patch.dict(shellenv.os.environ,
                              {"HOME": "/tmp/geoforge-home", "SHELL": "/bin/zsh",
                               "PATH": "/usr/bin:/bin"}, clear=True), \
+             mock.patch.object(shellenv.platform, "system", return_value="Darwin"), \
              mock.patch.object(shellenv.subprocess, "run", return_value=completed) as run:
             shellenv.adopt()
             argv = run.call_args.args[0]
@@ -1239,12 +1499,13 @@ class KimiSecurityTests(unittest.TestCase):
         home = Path.home().resolve()
         project = home / "Documents" / "GeoForge project"
         text = kimi_security.profile(cwd=project)
-        deny = f'(deny file-read* (subpath "{home}"))'
-        allow = f'(allow file-read* (subpath "{project}"))'
+        deny = f'(deny file-read* (subpath {kimi_security._literal(home)}))'
+        allow = f'(allow file-read* (subpath {kimi_security._literal(project)}))'
         self.assertIn(deny, text)
         self.assertIn(allow, text)
         self.assertIn(
-            f'(allow file-read* (subpath "{home / ".agents" / "skills"}"))',
+            f'(allow file-read* (subpath '
+            f'{kimi_security._literal(home / ".agents" / "skills")}))',
             text,
         )
         self.assertLess(text.index(deny), text.index(allow))
@@ -1258,10 +1519,15 @@ class KimiSecurityTests(unittest.TestCase):
         self.assertTrue(kimi_security.is_runtime_read_path(skills))
         self.assertTrue(kimi_security.is_runtime_read_path(skills / "example" / "SKILL.md"))
         self.assertIn(
-            f'(allow file-read-metadata (literal "{home / ".agents"}"))', text)
-        self.assertIn(f'(allow file-read* (subpath "{skills}"))', text)
-        self.assertNotIn(f'(allow file-read* (subpath "{home / ".agents"}"))', text)
-        self.assertNotIn(f'(allow file-write* (subpath "{skills}"))', text)
+            f'(allow file-read-metadata (literal '
+            f'{kimi_security._literal(home / ".agents")}))', text)
+        self.assertIn(
+            f'(allow file-read* (subpath {kimi_security._literal(skills)}))', text)
+        self.assertNotIn(
+            f'(allow file-read* (subpath '
+            f'{kimi_security._literal(home / ".agents")}))', text)
+        self.assertNotIn(
+            f'(allow file-write* (subpath {kimi_security._literal(skills)}))', text)
 
     def test_scoped_kimi_uses_explicit_skills_instead_of_watching_home(self):
         with tempfile.TemporaryDirectory() as td:
@@ -1340,15 +1606,16 @@ class ClipboardTests(unittest.TestCase):
         self.assertNotIn("webview.start(_install_edit_menu)", source)
 
     def test_native_project_folder_picker_returns_one_selected_folder(self):
-        native = SimpleNamespace(FOLDER_DIALOG="folder")
-        bridge = desktop_app._DesktopApi(native)
-        bridge.window = SimpleNamespace(
-            create_file_dialog=mock.Mock(return_value=("/tmp/research",)))
+        with tempfile.TemporaryDirectory() as td:
+            native = SimpleNamespace(FOLDER_DIALOG="folder")
+            bridge = desktop_app._DesktopApi(native)
+            selected = str(Path(td) / "research")
+            bridge.window = SimpleNamespace(
+                create_file_dialog=mock.Mock(return_value=(selected,)))
 
-        self.assertEqual(
-            bridge.choose_project_parent("/tmp"), "/tmp/research")
-        bridge.window.create_file_dialog.assert_called_once_with(
-            "folder", directory="/tmp", allow_multiple=False)
+            self.assertEqual(bridge.choose_project_parent(td), selected)
+            bridge.window.create_file_dialog.assert_called_once_with(
+                "folder", directory=td, allow_multiple=False)
 
     def test_native_project_folder_picker_starts_at_existing_ancestor(self):
         native = SimpleNamespace(FOLDER_DIALOG="folder")
@@ -1750,9 +2017,9 @@ class SessionProjectTests(unittest.TestCase):
             self.assertEqual(cfg.roles["home"], shared.roles["home"])
             self.assertEqual(cfg.roles["forcing"], project / "inputs" / "forcing")
             self.assertEqual(cfg.roles["outputs"], project / "outputs" / "Demo")
-            self.assertIn(str(project / "inputs" / "forcing"), materialised)
-            self.assertIn(str(project / "outputs" / "Demo"), materialised)
-            self.assertIn(str(shared.roles["home"] / "Demo" / "bin" / "model"),
+            self.assertIn((project / "inputs" / "forcing").as_posix(), materialised)
+            self.assertIn((project / "outputs" / "Demo").as_posix(), materialised)
+            self.assertIn((shared.roles["home"] / "Demo" / "bin" / "model").as_posix(),
                           materialised)
 
             # A validated legacy deck may need to keep inputs and generated
@@ -2779,7 +3046,9 @@ class AgentSetupTests(unittest.TestCase):
             target = setup.prepare_common(cfg, root / "repo")
 
             installed = (target / "ki_tools_common" / "__init__.py").read_text()
-            self.assertIn(str(cfg.roles["outputs"]), installed)
+            # Replacements are embedded in Python source, so paths use forward
+            # slashes even on Windows (native backslashes could become escapes).
+            self.assertIn(cfg.roles["outputs"].as_posix(), installed)
 
     def test_agent_prepare_maps_legacy_ki_tools_before_first_preflight(self):
         with tempfile.TemporaryDirectory() as td:
@@ -2823,6 +3092,55 @@ class AgentSetupTests(unittest.TestCase):
             self.assertIn("installation has not failed", shown["message"])
             self.assertIn("AI Settings", shown["message"])
 
+    def test_subprocess_runner_is_noninteractive_and_kills_tree_on_timeout(self):
+        class TimedOutProcess:
+            pid = 43210
+            returncode = -1
+
+            def __init__(self):
+                self.communications = 0
+
+            def communicate(self, timeout=None):
+                self.communications += 1
+                if self.communications == 1:
+                    raise subprocess.TimeoutExpired(["build"], timeout)
+                return "partial stdout", "partial stderr"
+
+            def kill(self):
+                return None
+
+        process = TimedOutProcess()
+        with mock.patch.object(api.subprocess, "Popen", return_value=process) as popen, \
+             mock.patch.object(api, "_terminate_process_tree") as terminate:
+            with self.assertRaises(subprocess.TimeoutExpired) as caught:
+                api._run_subprocess_tree(
+                    ["build"], cwd=".", env={}, timeout=1)
+
+        terminate.assert_called_once_with(process)
+        self.assertEqual(caught.exception.output, "partial stdout")
+        self.assertIs(popen.call_args.kwargs["stdin"], subprocess.DEVNULL)
+        if os.name == "nt":
+            self.assertEqual(
+                popen.call_args.kwargs["creationflags"],
+                getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000),
+            )
+        else:
+            self.assertTrue(popen.call_args.kwargs["start_new_session"])
+
+    @unittest.skipUnless(os.name == "nt", "Windows taskkill process trees")
+    def test_windows_timeout_uses_taskkill_tree_force(self):
+        process = SimpleNamespace(pid=54321, kill=mock.Mock())
+        completed = subprocess.CompletedProcess([], 0)
+        with mock.patch.object(
+                api.subprocess, "run", return_value=completed) as taskkill:
+            api._terminate_process_tree(process)
+
+        command = taskkill.call_args.args[0]
+        self.assertEqual(command[-4:], ["/PID", "54321", "/T", "/F"])
+        self.assertIs(taskkill.call_args.kwargs["stdin"], subprocess.DEVNULL)
+        self.assertIs(taskkill.call_args.kwargs["stdout"], subprocess.DEVNULL)
+        self.assertIs(taskkill.call_args.kwargs["stderr"], subprocess.DEVNULL)
+
     def test_api_setup_command_inherits_its_provider_proxy(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
@@ -2841,7 +3159,7 @@ class AgentSetupTests(unittest.TestCase):
 
             with mock.patch.object(
                     settings, "with_provider_proxy", side_effect=routed) as route, \
-                 mock.patch.object(api.subprocess, "run", return_value=completed) as run:
+                 mock.patch.object(api, "_run_subprocess_tree", return_value=completed) as run:
                 result = api.execute_tool(
                     "run_setup_command", {"argv": ["git", "--version"]},
                     SimpleNamespace(root=ki_root), cfg, setup_mode=True,
@@ -2870,7 +3188,7 @@ class AgentSetupTests(unittest.TestCase):
             )
             completed = subprocess.CompletedProcess(
                 ["file", str(binary)], 0, stdout="model: executable\n", stderr="")
-            with mock.patch.object(api.subprocess, "run", return_value=completed):
+            with mock.patch.object(api, "_run_subprocess_tree", return_value=completed):
                 result = api.execute_tool(
                     "run_setup_command", {"argv": ["file", str(binary)]},
                     SimpleNamespace(root=ki_root), cfg, setup_mode=True,
@@ -2895,12 +3213,410 @@ class AgentSetupTests(unittest.TestCase):
             task = setup.agent_task(
                 SimpleNamespace(name="Demo"), SimpleNamespace(), Path(td),
                 installation_only=True,
+                manifest_hint="Use CPython 3.9 only; patch official source first.",
             )
             self.assertIn("installation-only stress test", task)
             self.assertIn("Do NOT run the KI preflight", task)
             self.assertIn("Do NOT download", task)
             self.assertIn("cheap startup probe", task)
             self.assertIn("Do not substitute a toy", task)
+            self.assertIn("Never fabricate a compatibility distribution", task)
+            self.assertIn("standard-library shadow module", task)
+            self.assertIn("Do not create or overwrite GeoForge's", task)
+            self.assertIn("installation-test.json", task)
+            self.assertIn("workspace-local distribution", task)
+            self.assertIn("Do not ask", task)
+            self.assertIn("merely because a command is missing from PATH", task)
+            self.assertIn("curl", task)
+            self.assertIn("Python NuGet", task)
+            self.assertIn("Do not bypass", task)
+            self.assertIn("absence", task)
+            self.assertIn("of a prebuilt Python wheel", task)
+            self.assertIn("WinLibs", task)
+            self.assertIn("7-Zip", task)
+            self.assertIn("innoextract", task)
+            self.assertIn("winflexbison", task)
+            self.assertIn("netCDF-C", task)
+            self.assertIn("not a permission question", task)
+            self.assertIn("MANIFEST-SPECIFIC INSTALLATION ROUTE", task)
+            self.assertIn("Use CPython 3.9 only", task)
+            self.assertIn("Do not merely speculate", task)
+            self.assertIn("compiler/linker failure", task)
+
+    def test_installation_only_hides_and_blocks_scientific_tools(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            ki_root = root / "ki"
+            ki_root.mkdir()
+            cfg = SimpleNamespace(
+                root=root, python=sys.executable,
+                roles={"binaries": root / "binaries"},
+            )
+            names = {
+                tool["name"] for tool in api.tool_schemas(
+                    SimpleNamespace(root=ki_root), setup_mode=True,
+                    installation_only=True,
+                )
+            }
+            self.assertNotIn("run_preflight", names)
+            self.assertIn("run_builtin_setup", names)
+            with self.assertRaisesRegex(api.ToolError, "installation-only test"):
+                api.execute_tool(
+                    "run_preflight", {}, SimpleNamespace(root=ki_root), cfg,
+                    setup_mode=True,
+                    setup_context={"installation_only": True},
+                )
+    def test_installation_agent_receives_exact_final_import_contract(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            preflight = root / "preflight_check.py"
+            preflight.write_text(
+                "def check_import(module, critical=True): pass\n"
+                "check_import('simfire.sim.simulation')\n"
+                "check_import('rasterio')\n",
+                encoding="utf-8",
+            )
+            ki = SimpleNamespace(root=root, preflight=preflight)
+            man = Manifest(
+                model="SimFire", python_deps=["rasterio", "xarray"],
+                acquire=Acquire(strategy="pip", package="simfire==2.0.1",
+                                produces="simfire"),
+            )
+            contract = gui._installation_import_contract(ki, man)
+            self.assertIn("simfire.sim.simulation", contract)
+            self.assertIn("rasterio", contract)
+            self.assertIn("xarray", contract)
+            self.assertIn("one interpreter", contract)
+            guidance = gui._installation_manifest_guidance(man)
+            self.assertIn("strategy: pip", guidance)
+            self.assertIn("simfire==2.0.1", guidance)
+            self.assertIn("expected product: simfire", guidance)
+
+    def test_topoflow_manifest_uses_pinned_official_source(self):
+        manifest = Manifest.load(
+            Path(__file__).parents[1] / "manifests" / "TopoFlow.yaml")
+        self.assertEqual(manifest.acquire.strategy, "pip")
+        self.assertEqual(manifest.acquire.produces, "topoflow")
+        self.assertIn("github.com/peckhams/topoflow36.git@", manifest.acquire.package)
+        self.assertNotIn("@master", manifest.acquire.package)
+        self.assertIn("cfunits", manifest.python_deps)
+
+    def test_apex_manifest_does_not_require_wine_on_windows(self):
+        manifest = Manifest.load(
+            Path(__file__).parents[1] / "manifests" / "APEX.yaml")
+        self.assertEqual(manifest.binary_type, "PE32")
+        self.assertNotIn("wine", manifest.system_deps)
+        self.assertEqual(manifest.reference_case, "APEX0806.exe")
+        self.assertIn("Do not substitute", manifest.agent_hint)
+        self.assertIn("APEX1501", manifest.agent_hint)
+        self.assertIn("headless extraction", manifest.agent_hint)
+
+    def test_alpine3d_manifest_deploys_official_windows_package(self):
+        manifest = Manifest.load(
+            Path(__file__).parents[1] / "manifests" / "Alpine3D.yaml")
+        self.assertEqual(manifest.acquire.strategy, "build")
+        self.assertEqual(
+            manifest.acquire.ref,
+            "7188347dc69bcc7b99fad0e3f6523584b57b8414",
+        )
+        self.assertEqual(manifest.binary_type, "PE32")
+        self.assertEqual(
+            manifest.acquire.produces,
+            "source/repo/Source/alpine3d/bin/alpine3d.exe",
+        )
+        self.assertIn("300c211c79aee15", manifest.agent_hint)
+        self.assertIn("NSIS installer", manifest.agent_hint)
+        self.assertIn("7z2603-x64.exe", manifest.agent_hint)
+        self.assertIn("binaries/Alpine3D/source/repo", manifest.agent_hint)
+        self.assertIn("libmeteoio.dll", manifest.agent_hint)
+        self.assertIn("must never be copied or renamed", manifest.agent_hint)
+
+    def test_esmf_manifest_requires_native_core_and_esmpy(self):
+        manifest = Manifest.load(
+            Path(__file__).parents[1] / "manifests" / "ESMF.yaml")
+        self.assertEqual(manifest.acquire.strategy, "build")
+        self.assertEqual(
+            manifest.acquire.ref,
+            "99356176e374c49273893bbb9564705915dba621",
+        )
+        self.assertEqual(manifest.binary_type, "PE32")
+        self.assertEqual(manifest.verified, "observed")
+        self.assertEqual(
+            manifest.acquire.produces,
+            "env/Library/bin/ESMF_RegridWeightGen.exe",
+        )
+        self.assertIn("nompi_py311h597d70b_2", manifest.agent_hint)
+        self.assertIn("nompi_h693c31f_5", manifest.agent_hint)
+        self.assertIn("ESMFMKFILE", manifest.agent_hint)
+        self.assertIn("esmpy.Manager", manifest.agent_hint)
+        self.assertIn("never copy or rename Python", manifest.agent_hint)
+        preflight = (Path(__file__).parents[2] / "models" / "ESMF" /
+                     "preflight_check.py")
+        ki = SimpleNamespace(preflight=preflight)
+        self.assertEqual(
+            runnable.declared_imports(ki),
+            ["numpy", "netCDF4", "esmpy", "esmpy.api.esmpymanager"],
+        )
+        self.assertEqual(
+            runnable.declared(ki),
+            ["KISSPATH_BINARIES/ESMF/env/Library/bin/"
+             "ESMF_RegridWeightGen.exe"],
+        )
+        contract = preflight.read_text(encoding="utf-8")
+        self.assertIn("esmpy.Manager", contract)
+        self.assertIn("esmpy.Grid", contract)
+        self.assertIn("esmpy.Field", contract)
+
+    def test_apex_execution_uses_native_binary_on_windows(self):
+        path = (Path(__file__).parents[2] / "models" / "APEX" / "tools" /
+                "s6_run_apex.py")
+        spec = importlib.util.spec_from_file_location("apex_s6_runtime", path)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        binary = Path("C:/model/APEX0806.exe")
+        self.assertEqual(module._runtime_command(binary, "nt"), [str(binary)])
+        self.assertEqual(
+            module._runtime_command(binary, "posix"),
+            ["wine", "./APEX0806.exe"],
+        )
+
+    def test_ce_qual_w2_manifest_deploys_official_windows_binary(self):
+        manifest = Manifest.load(
+            Path(__file__).parents[1] / "manifests" / "CE_QUAL_W2.yaml")
+        self.assertEqual(manifest.acquire.strategy, "build")
+        self.assertEqual(
+            manifest.acquire.ref,
+            "5544026e3f1a39c0c9e827bd3dc2bbc13a94636c",
+        )
+        self.assertEqual(manifest.acquire.produces, "bin/w2_v5")
+        self.assertTrue(any(
+            "executables/model/w2_v45_64.exe" in command
+            for command in manifest.acquire.commands
+        ))
+        self.assertNotIn("gfortran", manifest.system_deps)
+
+    def test_hype_manifest_downloads_observed_windows_release(self):
+        manifest = Manifest.load(
+            Path(__file__).parents[1] / "manifests" / "HYPE.yaml")
+        self.assertEqual(manifest.acquire.strategy, "download")
+        self.assertEqual(manifest.verified, "observed")
+        self.assertEqual(
+            manifest.acquire.sha256,
+            "f029ddd0ab9377eea1effb2ae1081c236b6c99950bba3b947f012fbd405a966b",
+        )
+        self.assertEqual(
+            manifest.acquire.produces,
+            "hype_5_35_0_exe/HYPE.exe",
+        )
+        self.assertIn("not a Git repository", manifest.agent_hint)
+
+    def test_hexwatershed_manifest_stages_workspace_gdal(self):
+        manifest = Manifest.load(
+            Path(__file__).parents[1] / "manifests" / "HexWatershed.yaml")
+        self.assertEqual(
+            manifest.acquire.ref,
+            "e96ef94547b19d2a6d7949a6c735c7ed4750a6f2",
+        )
+        self.assertIn("micromamba", manifest.agent_hint)
+        self.assertIn("mingw-w64-ucrt-x86_64-gdal", manifest.agent_hint)
+        self.assertIn("mingw-w64-ucrt-x86_64-netcdf-cxx", manifest.agent_hint)
+        self.assertIn("file(GET_RUNTIME_DEPENDENCIES)", manifest.agent_hint)
+        self.assertIn("ABI-incompatible", manifest.agent_hint)
+        self.assertIn("/share/apps/gdal/2.3.1", manifest.agent_hint)
+        self.assertIn("changliao1025/hexwatershed", manifest.agent_hint)
+        self.assertIn("pip check", manifest.agent_hint)
+        self.assertIn("pyflowline", manifest.python_deps)
+
+    def test_rhessys_manifest_pins_real_tag_and_windows_codegen(self):
+        manifest = Manifest.load(
+            Path(__file__).parents[1] / "manifests" / "RHESSys.yaml")
+        self.assertEqual(manifest.acquire.strategy, "build")
+        self.assertEqual(
+            manifest.acquire.ref,
+            "91dccef178e5df33be2f8105f68e3cda819b7bb1",
+        )
+        self.assertEqual(manifest.binary_type, "PE32")
+        self.assertEqual(manifest.acquire.produces, "rhessys/rhessys7.4.exe")
+        self.assertIn("winflexbison", manifest.agent_hint)
+        self.assertIn("mingw32-make.exe", manifest.agent_hint)
+        self.assertIn("start_line/line_count", manifest.agent_hint)
+        self.assertIn("classic-only", manifest.agent_hint)
+        self.assertIn("13.3.0", manifest.agent_hint)
+        self.assertIn("dynamic_field_lookup.py", manifest.agent_hint)
+        self.assertIn("typedef short bool", manifest.agent_hint)
+        self.assertIn("gendef.exe", manifest.agent_hint)
+        self.assertIn("dlltool.exe", manifest.agent_hint)
+        self.assertIn("-o rhessys7.4.exe", manifest.agent_hint)
+
+    def test_simfire_manifest_uses_pinned_official_source(self):
+        manifest = Manifest.load(
+            Path(__file__).parents[1] / "manifests" / "SimFire.yaml")
+        self.assertEqual(manifest.binary_type, "Python")
+        self.assertEqual(manifest.acquire.strategy, "pip")
+        self.assertIn(
+            "github.com/mitrefireline/simfire.git@5d76a16de45e7058e5080f2cf4c5b5b2f9f1d0ae",
+            manifest.acquire.package,
+        )
+        self.assertIn("CPython 3.9", manifest.agent_hint)
+        self.assertIn("gcc.exe", manifest.agent_hint)
+        self.assertIn("rasterio", manifest.python_deps)
+        self.assertIn("xarray", manifest.python_deps)
+        self.assertIn("do not rewrite or shim", manifest.agent_hint)
+        self.assertIn("contextlib.nullcontext", manifest.agent_hint)
+
+    def test_summa_manifest_pins_file_manager_v3_source(self):
+        manifest = Manifest.load(
+            Path(__file__).parents[1] / "manifests" / "SUMMA.yaml")
+        self.assertEqual(manifest.binary_type, "PE32")
+        self.assertEqual(
+            manifest.acquire.ref,
+            "2213bc57358e6709b48217cfce64f96a4b90b287",
+        )
+        self.assertEqual(manifest.acquire.produces, "bin/summa.exe")
+        self.assertIn("netCDF-Fortran", manifest.agent_hint)
+        self.assertIn("F_MASTER", manifest.agent_hint)
+        self.assertIn("libnetcdf.dll.a", manifest.agent_hint)
+
+    def test_rapid_manifest_pins_portable_msys2_petsc_route(self):
+        manifest = Manifest.load(
+            Path(__file__).parents[1] / "manifests" / "RAPID.yaml")
+        self.assertEqual(manifest.binary_type, "PE32")
+        self.assertEqual(
+            manifest.acquire.ref,
+            "83145101ac8b49b8269e330cfc1372876fce8d7d",
+        )
+        self.assertEqual(manifest.acquire.produces, "src/rapid.exe")
+        self.assertIn("a2d047e8ee213c3c6a49a8de427eb1069df12207c0422ff1b3cbb5c905c34221",
+                      manifest.agent_hint)
+        self.assertIn("746207a3cb30cd796a872832cd0f2ba14a6b454b",
+                      manifest.agent_hint)
+        self.assertIn("petsc-3.13.6.tar.gz", manifest.agent_hint)
+        self.assertIn("02ca534a14c800a96f139f54530ac048b1727eb6703975920953bcb502771b1c",
+                      manifest.agent_hint)
+        self.assertIn("Do not pass any `--with-petsc4py`", manifest.agent_hint)
+        self.assertIn("`diffutils`", manifest.agent_hint)
+        self.assertIn("--with-mpi=0", manifest.agent_hint)
+        self.assertIn("`bash -c`", manifest.agent_hint)
+        self.assertIn("never use the GUI installer", manifest.agent_hint)
+
+    def test_lisflood_manifest_uses_bounded_micromamba_runtime(self):
+        manifest = Manifest.load(
+            Path(__file__).parents[1] / "manifests" / "LISFLOOD.yaml")
+        self.assertEqual(manifest.acquire.package, "lisflood-model==5.0.0")
+        self.assertEqual(manifest.acquire.produces, "lisflood")
+        self.assertIn("Python 3.11", manifest.agent_hint)
+        self.assertIn("--root-prefix", manifest.agent_hint)
+        self.assertIn("--prefix", manifest.agent_hint)
+        self.assertIn("do not use `micromamba run`", manifest.agent_hint)
+
+    def test_swap_manifest_uses_official_hashed_windows_release(self):
+        manifest = Manifest.load(
+            Path(__file__).parents[1] / "manifests" / "SWAP.yaml")
+        self.assertEqual(manifest.acquire.strategy, "download")
+        self.assertEqual(manifest.acquire.produces, "swap.exe")
+        self.assertEqual(
+            manifest.acquire.sha256,
+            "55a0de22beb0dfedf9d0bca64a7a6ac816ccef02237b2ce9f94c3e750127b257",
+        )
+        self.assertIn("v4.2.0", manifest.acquire.url)
+        self.assertNotIn("gfortran", manifest.system_deps)
+
+    def test_swat_plus_manifest_pins_observed_windows_build(self):
+        manifest = Manifest.load(
+            Path(__file__).parents[1] / "manifests" / "SWAT_Plus.yaml")
+        self.assertEqual(manifest.binary_type, "PE32")
+        self.assertEqual(
+            manifest.acquire.ref,
+            "cb442f7c05fc3bfc34349c446010f452d2737ca0",
+        )
+        self.assertEqual(manifest.acquire.produces, "swatplus.exe")
+        self.assertTrue(any("swatplus-62.0.0" in command
+                            for command in manifest.acquire.commands))
+        self.assertIn("revision 59.3", manifest.notes)
+
+    def test_direct_download_can_use_stable_manifest_filename(self):
+        with tempfile.TemporaryDirectory() as td:
+            prefix = Path(td)
+            acquire = Acquire(
+                strategy="download",
+                url="https://example.invalid/model-v1.exe",
+                produces="model.exe",
+            )
+            manifest = SimpleNamespace(acquire=acquire)
+            opener = mock.Mock()
+            opener.open.return_value = io.BytesIO(b"MZ-real-release")
+            with mock.patch.object(
+                    install.urllib.request, "build_opener", return_value=opener):
+                step, binary = install._acq_download(
+                    manifest, prefix, sys.executable)
+            self.assertTrue(step.ok)
+            self.assertEqual(binary, prefix / "model.exe")
+            self.assertEqual(binary.read_bytes(), b"MZ-real-release")
+
+    def test_julia_probe_uses_workspace_runtime_project_and_depot(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            binaries = root / "binaries"
+            julia = binaries / "julia-1.10.7" / "bin" / "julia.exe"
+            julia.parent.mkdir(parents=True)
+            julia.write_bytes(b"MZ")
+            (binaries / "julia_depot").mkdir()
+            project = root / "ki" / "julia"
+            project.mkdir(parents=True)
+            (project / "Project.toml").write_text(
+                '[deps]\nWflow = "d48b7d99-76e7-47ae-b1d5-ff0c1cf9a818"\n',
+                encoding="utf-8",
+            )
+            cfg = SimpleNamespace(root=root, roles={"binaries": binaries})
+            completed = subprocess.CompletedProcess([], 0, stdout="", stderr="")
+            with mock.patch.object(
+                    runnable.subprocess, "run", return_value=completed) as run:
+                ok, detail = runnable._probe_julia_project(
+                    SimpleNamespace(root=root / "ki"), cfg, 25)
+            self.assertTrue(ok)
+            self.assertIn("Wflow", detail)
+            argv = run.call_args.args[0]
+            self.assertTrue(os.path.samefile(argv[0], julia))
+            self.assertEqual(argv[-1], "using Wflow")
+            self.assertEqual(
+                run.call_args.kwargs["env"]["JULIA_DEPOT_PATH"],
+                str(binaries / "julia_depot"),
+            )
+
+    def test_numbered_workspace_venv_is_a_python_candidate(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            python = root / "venv39" / "Scripts" / "python.exe"
+            python.parent.mkdir(parents=True)
+            python.write_bytes(b"MZ")
+            cfg = SimpleNamespace(
+                root=root,
+                roles={"binaries": root / "binaries",
+                       "python_env": root / "venv"},
+            )
+            candidates = runnable._python_candidates(cfg, sys.executable)
+            self.assertTrue(any(os.path.samefile(item, python)
+                                for item in candidates))
+
+    def test_python_candidates_reload_agent_recorded_workspace_interpreter(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            model_python = root / "private-python" / "python.exe"
+            model_python.parent.mkdir()
+            model_python.write_bytes(b"MZ")
+            (root / "kiss.toml").write_text(
+                "[kiss]\n"
+                f"root = {json.dumps(str(root))}\n"
+                "python = \"private-python/python.exe\"\n",
+                encoding="utf-8",
+            )
+            cfg = SimpleNamespace(
+                root=root, python=sys.executable,
+                roles={"binaries": root / "binaries",
+                       "python_env": root / "venv"},
+            )
+            candidates = runnable._python_candidates(cfg, sys.executable)
+            self.assertTrue(os.path.samefile(candidates[0], model_python))
 
     def test_agent_final_preflight_becomes_the_saved_verification_state(self):
         with tempfile.TemporaryDirectory() as td:
@@ -2934,7 +3650,7 @@ class AgentSetupTests(unittest.TestCase):
         self.assertIn("nf-config", manifest.system_deps)
         self.assertEqual(manifest.data, [])
         preflight = (Path(__file__).parents[2] / "models" / "WRF_Hydro" /
-                     "preflight_check.py").read_text()
+                    "preflight_check.py").read_text(encoding="utf-8")
         self.assertNotIn('check_dir("KISSPATH_FORCING"', preflight)
 
     def test_windows_release_manifests_do_not_require_source_toolchains(self):
@@ -3034,29 +3750,73 @@ class AgentSetupTests(unittest.TestCase):
             })
             self.assertEqual(state["attention"]["title"], "Agent connection stopped")
 
-    def test_dssat_runtime_source_fixes_are_idempotent(self):
+    def test_dssat_manifest_pins_observed_windows_build(self):
         manifest = Manifest.load(
             Path(__file__).parents[1] / "manifests" / "DSSAT.yaml")
-        patch_commands = manifest.acquire.commands[:2]
-        with tempfile.TemporaryDirectory() as td:
-            root = Path(td)
-            nitrogen = root / "Soil" / "Inorganic_N" / "OPSOILNI.for"
-            water = root / "Soil" / "SoilWater" / "OPSWBL.for"
-            nitrogen.parent.mkdir(parents=True)
-            water.parent.mkdir(parents=True)
-            nitrogen.write_text(
-                "'(T',SPACES,'X,\"Total Inorganic N @dep(ppm):\")'\n")
-            water.write_text("FORMAT(X,I4,1X,I3.3,1X,I5,1X\n & 5(20(F8.4)))\n")
+        self.assertEqual(manifest.binary_type, "PE32")
+        self.assertEqual(
+            manifest.acquire.ref,
+            "40793f8d654ca033d027ec3a6cea53cf2f546602",
+        )
+        self.assertEqual(manifest.acquire.produces,
+                         "build/bin/dscsm048.exe")
+        self.assertEqual(manifest.acquire.commands[0],
+                         "cmake -S . -B build -DCMAKE_BUILD_TYPE=RELEASE")
+        self.assertNotIn("python3 -c", "\n".join(manifest.acquire.commands))
+        self.assertIn("WinLibs", manifest.agent_hint)
 
-            for _ in range(2):
-                for command in patch_commands:
-                    subprocess.run(command, cwd=root, shell=True, check=True)
+    def test_trigrs_manifest_uses_current_public_usgs_archive(self):
+        manifest = Manifest.load(
+            Path(__file__).parents[1] / "manifests" / "TRIGRS.yaml")
+        self.assertEqual(manifest.binary_type, "PE32")
+        self.assertEqual(
+            manifest.acquire.repo,
+            "https://code.usgs.gov/usgs/landslides-trigrs.git",
+        )
+        self.assertEqual(
+            manifest.acquire.ref,
+            "969c409f7bc63e7616ebe34dfd5f6afd967f2d2d",
+        )
+        self.assertEqual(manifest.acquire.produces,
+                         "src/TRIGRS/trg.exe")
+        command = "\n".join(manifest.acquire.commands)
+        self.assertIn("mingw32-make.exe", command)
+        self.assertIn("MPIF90=gfortran", command)
+        self.assertIn("CCFLAGS=-lm", command)
+        self.assertIn("GIT_TERMINAL_PROMPT=0", manifest.agent_hint)
+        self.assertIn("Do not use the obsolete", manifest.agent_hint)
+        self.assertIn("WinLibs", manifest.agent_hint)
+        self.assertIn("binaries/TRIGRS/src/TRIGRS/trg.exe",
+                      manifest.agent_hint)
+        self.assertIn("libgfortran-5.dll", manifest.agent_hint)
 
-            self.assertIn(
-                "',\"Total Inorganic N @dep(ppm):\")'", nitrogen.read_text())
-            fixed_water = water.read_text()
-            self.assertIn("I5,1X,\n", fixed_water)
-            self.assertNotIn("I5,1X,,", fixed_water)
+    def test_telemac_manifest_builds_real_serial_windows_core(self):
+        manifest = Manifest.load(
+            Path(__file__).parents[1] / "manifests" /
+            "TELEMAC_MASCARET.yaml")
+        self.assertEqual(manifest.binary_type, "PE32")
+        self.assertEqual(
+            manifest.acquire.repo,
+            "https://gitlab.pam-retd.fr/otm/telemac-mascaret.git",
+        )
+        self.assertEqual(
+            manifest.acquire.ref,
+            "a040e817390e787c5395be95663381ae85a4c0e3",
+        )
+        self.assertEqual(manifest.acquire.produces,
+                         "b/bin/telemac2d.exe")
+        self.assertNotIn("git-lfs", manifest.system_deps)
+        self.assertNotIn("mpi", manifest.system_deps)
+        self.assertNotIn("metis", manifest.system_deps)
+        hint = manifest.agent_hint
+        self.assertIn("GIT_LFS_SKIP_SMUDGE=1", hint)
+        self.assertIn("homere_telemac2d", hint)
+        self.assertIn("target_link_libraries(parallel PUBLIC special)", hint)
+        self.assertIn("2D VERSION 9.1 FORTRAN 2003", hint)
+        self.assertEqual(manifest.startup_marker,
+                         "2D VERSION 9.1 FORTRAN 2003")
+        self.assertIn("pip check", hint)
+        self.assertIn("binaries/TELEMAC_MASCARET/b/bin/telemac2d.exe", hint)
 
     def test_human_request_can_receive_a_file_and_resume(self):
         with tempfile.TemporaryDirectory() as td:
@@ -3390,6 +4150,93 @@ class AgentSetupTests(unittest.TestCase):
                     ki, cfg, setup_mode=True,
                 )
 
+    def test_setup_file_listing_survives_a_disappearing_directory(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+
+            def interrupted_walk(base, **kwargs):
+                yield str(Path(base) / "nested"), [], ["kept.txt"]
+                kwargs["onerror"](FileNotFoundError("build directory vanished"))
+
+            with mock.patch.object(api.os, "walk", side_effect=interrupted_walk):
+                files = api._safe_relative_file_listing(root, root, 800)
+            self.assertEqual(files, ["nested/kept.txt"])
+
+    def test_setup_text_reader_pages_large_build_files(self):
+        with tempfile.TemporaryDirectory() as td:
+            path = Path(td) / "makefile"
+            path.write_text(
+                "".join(f"line-{number}\n" for number in range(1, 1501)),
+                encoding="utf-8",
+            )
+            self.assertEqual(
+                api._read_text_page(path, start_line=1085, line_count=3),
+                "line-1085\nline-1086\nline-1087\n",
+            )
+            with self.assertRaisesRegex(api.ToolError, "line_count"):
+                api._read_text_page(path, start_line=1, line_count=2001)
+
+    @unittest.skipUnless(os.name == "nt", "Windows path spelling")
+    def test_setup_command_accepts_workspace_relative_windows_executable(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            ki_root = root / "ki"
+            ki_root.mkdir()
+            tool = root / "binaries" / "tools" / "python.exe"
+            tool.parent.mkdir(parents=True)
+            tool.write_bytes(b"MZ")
+            cfg = SimpleNamespace(
+                root=root, python=sys.executable,
+                roles={"binaries": root / "binaries"},
+            )
+            completed = subprocess.CompletedProcess(
+                [str(tool), "-m", "venv", "venv39"], 0,
+                stdout="created", stderr="",
+            )
+            with mock.patch.object(api, "_run_subprocess_tree", return_value=completed) as run:
+                output = api.execute_tool(
+                    "run_setup_command", {
+                        "argv": ["binaries\\tools\\python.exe", "-m", "venv", "venv39"],
+                    },
+                    SimpleNamespace(root=ki_root), cfg, setup_mode=True,
+                    setup_context={"installation_only": True},
+                )
+            self.assertIn("exit_code=0", output)
+            self.assertTrue(os.path.samefile(run.call_args.args[0][0], tool))
+
+    def test_setup_command_allows_only_workspace_path_prefixes(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            ki_root = root / "ki"
+            tool_bin = root / "binaries" / "toolchain" / "bin"
+            ki_root.mkdir()
+            tool_bin.mkdir(parents=True)
+            cfg = SimpleNamespace(
+                root=root, python=sys.executable,
+                roles={"binaries": root / "binaries"},
+            )
+            completed = subprocess.CompletedProcess(
+                ["git", "--version"], 0, stdout="ok", stderr="")
+            with mock.patch.object(api, "_run_subprocess_tree", return_value=completed) as run:
+                output = api.execute_tool(
+                    "run_setup_command", {
+                        "argv": ["git", "--version"],
+                        "env": {"PATH": str(tool_bin)},
+                    },
+                    SimpleNamespace(root=ki_root), cfg, setup_mode=True,
+                )
+            self.assertIn("exit_code=0", output)
+            first = run.call_args.kwargs["env"]["PATH"].split(os.pathsep)[0]
+            self.assertTrue(os.path.samefile(first, tool_bin))
+            with self.assertRaisesRegex(api.ToolError, "PATH entry escapes"):
+                api.execute_tool(
+                    "run_setup_command", {
+                        "argv": ["git", "--version"],
+                        "env": {"PATH": str(root.parent)},
+                    },
+                    SimpleNamespace(root=ki_root), cfg, setup_mode=True,
+                )
+
     def test_installation_only_tool_boundary_blocks_model_runs(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
@@ -3412,7 +4259,7 @@ class AgentSetupTests(unittest.TestCase):
                     ki, cfg, setup_mode=True, setup_context=context,
                 )
             with mock.patch.object(
-                    api.subprocess, "run",
+                    api, "_run_subprocess_tree",
                     return_value=subprocess.CompletedProcess(
                         [str(model), "--version"], 0, stdout="DART 11.24.1", stderr="")):
                 output = api.execute_tool(
@@ -3420,6 +4267,27 @@ class AgentSetupTests(unittest.TestCase):
                     ki, cfg, setup_mode=True, setup_context=context,
                 )
             self.assertIn("DART 11.24.1", output)
+
+    def test_installation_only_agent_cannot_forge_verification_state(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            ki_root = root / "ki"
+            ki_root.mkdir()
+            cfg = SimpleNamespace(
+                root=root, python=sys.executable,
+                roles={"binaries": root / "binaries"},
+            )
+            for filename in (
+                    "status.json", "installation-test.json",
+                    ".geoforge-install.json"):
+                with self.subTest(filename=filename), self.assertRaisesRegex(
+                        api.ToolError, "GeoForge-owned verification state"):
+                    api.execute_tool(
+                        "write_work_file",
+                        {"path": filename, "content": '{"ok": true}'},
+                        SimpleNamespace(root=ki_root), cfg, setup_mode=True,
+                        setup_context={"installation_only": True},
+                    )
 
     def test_installation_only_tool_boundary_allows_build_not_reference_script(self):
         with tempfile.TemporaryDirectory() as td:
@@ -3440,7 +4308,7 @@ class AgentSetupTests(unittest.TestCase):
             context = {"installation_only": True}
 
             with mock.patch.object(
-                    api.subprocess, "run",
+                    api, "_run_subprocess_tree",
                     return_value=subprocess.CompletedProcess(
                         [str(build), "nompi"], 0, stdout="built", stderr="")):
                 output = api.execute_tool(
@@ -3453,6 +4321,640 @@ class AgentSetupTests(unittest.TestCase):
                     "run_setup_command",
                     {"argv": [sys.executable, reference.name]},
                     ki, cfg, setup_mode=True, setup_context=context,
+                )
+
+    def test_installation_only_allows_workspace_source_generators(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            ki_root = root / "ki"
+            ki_root.mkdir()
+            generator = root / "tools" / "win_bison.exe"
+            grammar = root / "source" / "parser.y"
+            generator.parent.mkdir()
+            grammar.parent.mkdir()
+            generator.write_bytes(b"MZ")
+            grammar.write_text("%%\n")
+            cfg = SimpleNamespace(
+                root=root, python=sys.executable,
+                roles={"binaries": root / "binaries"},
+            )
+            completed = subprocess.CompletedProcess(
+                [str(generator), "-d", str(grammar)], 0,
+                stdout="generated", stderr="",
+            )
+            with mock.patch.object(
+                    api, "_run_subprocess_tree", return_value=completed):
+                output = api.execute_tool(
+                    "run_setup_command",
+                    {"argv": [str(generator), "-d", str(grammar)]},
+                    SimpleNamespace(root=ki_root), cfg, setup_mode=True,
+                    setup_context={"installation_only": True},
+                )
+            self.assertIn("generated", output)
+
+    def test_setup_allowlist_normalizes_bare_windows_executable_suffix(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            ki_root = root / "ki"
+            ki_root.mkdir()
+            cfg = SimpleNamespace(
+                root=root, python=sys.executable,
+                roles={"binaries": root / "binaries"},
+            )
+            completed = subprocess.CompletedProcess(
+                ["win_bison.exe", "--version"], 0,
+                stdout="win_bison 2.5.25", stderr="",
+            )
+            with mock.patch.object(
+                    api, "_run_subprocess_tree", return_value=completed):
+                output = api.execute_tool(
+                    "run_setup_command",
+                    {"argv": ["win_bison.exe", "--version"]},
+                    SimpleNamespace(root=ki_root), cfg, setup_mode=True,
+                    setup_context={"installation_only": True},
+                )
+            self.assertIn("win_bison 2.5.25", output)
+
+    def test_installation_only_allows_workspace_mingw_make(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            ki_root = root / "ki"
+            ki_root.mkdir()
+            make = root / "toolchain" / "bin" / "mingw32-make.exe"
+            make.parent.mkdir(parents=True)
+            make.write_bytes(b"MZ")
+            cfg = SimpleNamespace(
+                root=root, python=sys.executable,
+                roles={"binaries": root / "binaries"},
+            )
+            completed = subprocess.CompletedProcess(
+                [str(make), "all"], 0, stdout="built", stderr="",
+            )
+            with mock.patch.object(
+                    api, "_run_subprocess_tree", return_value=completed):
+                output = api.execute_tool(
+                    "run_setup_command",
+                    {"argv": [str(make), "all"]},
+                    SimpleNamespace(root=ki_root), cfg, setup_mode=True,
+                    setup_context={"installation_only": True},
+                )
+            self.assertIn("built", output)
+
+    def test_installation_only_allows_workspace_archive_extractor(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            ki_root = root / "ki"
+            ki_root.mkdir()
+            extractor = root / "tools" / "7zr.exe"
+            installer = root / "downloads" / "setup.exe"
+            extractor.parent.mkdir()
+            installer.parent.mkdir()
+            extractor.write_bytes(b"MZ")
+            installer.write_bytes(b"MZ")
+            cfg = SimpleNamespace(
+                root=root, python=sys.executable,
+                roles={"binaries": root / "binaries"},
+            )
+            completed = subprocess.CompletedProcess(
+                [str(extractor), "x", str(installer)], 0,
+                stdout="extracted", stderr="",
+            )
+            with mock.patch.object(
+                    api, "_run_subprocess_tree", return_value=completed):
+                output = api.execute_tool(
+                    "run_setup_command",
+                    {"argv": [str(extractor), "x", str(installer)]},
+                    SimpleNamespace(root=ki_root), cfg, setup_mode=True,
+                    setup_context={"installation_only": True},
+                )
+            self.assertIn("extracted", output)
+
+    def test_installation_only_allows_bounded_workspace_micromamba(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            ki_root = root / "ki"
+            ki_root.mkdir()
+            micromamba = root / "tools" / "micromamba.exe"
+            micromamba.parent.mkdir()
+            micromamba.write_bytes(b"MZ")
+            cfg = SimpleNamespace(
+                root=root, python=sys.executable,
+                roles={"binaries": root / "binaries"},
+            )
+            argv = [str(micromamba), "create", "--root-prefix",
+                    str(root / "mamba-root"), "--prefix", str(root / "env"),
+                    "python=3.12", "pcraster", "gdal"]
+            completed = subprocess.CompletedProcess(
+                argv, 0, stdout="created", stderr="")
+            with mock.patch.object(
+                    api, "_run_subprocess_tree", return_value=completed):
+                output = api.execute_tool(
+                    "run_setup_command", {
+                        "argv": argv,
+                        "env": {"CONDA_PKGS_DIRS": str(root / "p")},
+                    },
+                    SimpleNamespace(root=ki_root), cfg, setup_mode=True,
+                    setup_context={"installation_only": True},
+                )
+            self.assertIn("created", output)
+            with self.assertRaisesRegex(
+                    api.ToolError, "environment path escapes"):
+                api.execute_tool(
+                    "run_setup_command", {
+                        "argv": argv,
+                        "env": {"CONDA_PKGS_DIRS": str(root.parent)},
+                    }, SimpleNamespace(root=ki_root), cfg, setup_mode=True,
+                    setup_context={"installation_only": True},
+                )
+            with self.assertRaisesRegex(api.ToolError, "requires both"):
+                api.execute_tool(
+                    "run_setup_command", {
+                        "argv": [str(micromamba), "install", "pcraster"],
+                    }, SimpleNamespace(root=ki_root), cfg, setup_mode=True,
+                    setup_context={"installation_only": True},
+                )
+            with self.assertRaisesRegex(api.ToolError, "may not run"):
+                api.execute_tool(
+                    "run_setup_command", {
+                        "argv": [str(micromamba), "run", "python", "--version"],
+                    }, SimpleNamespace(root=ki_root), cfg, setup_mode=True,
+                    setup_context={"installation_only": True},
+                )
+
+    def test_installation_only_allows_only_bounded_portable_pacman(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            ki_root = root / "ki"
+            ki_root.mkdir()
+            pacman = root / "msys64" / "usr" / "bin" / "pacman.exe"
+            pacman.parent.mkdir(parents=True)
+            pacman.write_bytes(b"MZ")
+            cfg = SimpleNamespace(
+                root=root, python=sys.executable,
+                roles={"binaries": root / "binaries"},
+            )
+            argv = [
+                str(pacman), "-S", "--needed", "--noconfirm",
+                "make", "mingw-w64-x86_64-toolchain",
+            ]
+            completed = subprocess.CompletedProcess(
+                argv, 0, stdout="installed", stderr="")
+            with mock.patch.object(
+                    api, "_run_subprocess_tree", return_value=completed):
+                output = api.execute_tool(
+                    "run_setup_command", {"argv": argv},
+                    SimpleNamespace(root=ki_root), cfg, setup_mode=True,
+                    setup_context={"installation_only": True},
+                )
+            self.assertIn("installed", output)
+
+            blocked_commands = (
+                [str(pacman), "-S", "make"],
+                [str(pacman), "-U", "--noconfirm", "local.pkg.tar.zst"],
+                [str(pacman), "-S", "--noconfirm", "--root", str(root)],
+                [str(pacman), "-S", "--noconfirm", "https://example/pkg"],
+                [str(pacman), "-S", "--noconfirm", "--accept-license", "make"],
+            )
+            for blocked in blocked_commands:
+                with self.subTest(argv=blocked):
+                    with self.assertRaises(api.ToolError):
+                        api.execute_tool(
+                            "run_setup_command", {"argv": blocked},
+                            SimpleNamespace(root=ki_root), cfg, setup_mode=True,
+                            setup_context={"installation_only": True},
+                        )
+
+    def test_installation_only_allows_workspace_portable_checksum(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            ki_root = root / "ki"
+            ki_root.mkdir()
+            sha256sum = root / "msys64" / "usr" / "bin" / "sha256sum.exe"
+            sha256sum.parent.mkdir(parents=True)
+            sha256sum.write_bytes(b"MZ")
+            archive = root / "msys2-base.tar.xz"
+            archive.write_bytes(b"archive")
+            cfg = SimpleNamespace(
+                root=root, python=sys.executable,
+                roles={"binaries": root / "binaries"},
+            )
+            argv = [str(sha256sum), str(archive)]
+            completed = subprocess.CompletedProcess(
+                argv, 0, stdout="digest  msys2-base.tar.xz", stderr="")
+            with mock.patch.object(
+                    api, "_run_subprocess_tree", return_value=completed):
+                output = api.execute_tool(
+                    "run_setup_command", {"argv": argv},
+                    SimpleNamespace(root=ki_root), cfg, setup_mode=True,
+                    setup_context={"installation_only": True},
+                )
+            self.assertIn("digest", output)
+            with self.assertRaisesRegex(api.ToolError, "workspace file"):
+                api.execute_tool(
+                    "run_setup_command", {
+                        "argv": [str(sha256sum), str(root.parent / "outside")],
+                    }, SimpleNamespace(root=ki_root), cfg, setup_mode=True,
+                    setup_context={"installation_only": True},
+                )
+
+    def test_installation_only_portable_shell_requires_one_safe_script(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            ki_root = root / "ki"
+            ki_root.mkdir()
+            bash = root / "msys64" / "usr" / "bin" / "bash.exe"
+            bash.parent.mkdir(parents=True)
+            bash.write_bytes(b"MZ")
+            script = root / "build-petsc.sh"
+            script.write_text(
+                "#!/usr/bin/env bash\n"
+                "set -eu\n"
+                "cd source/petsc\n"
+                "/usr/bin/python ./configure --with-mpi=0\n"
+                "make all\n",
+                encoding="utf-8",
+            )
+            cfg = SimpleNamespace(
+                root=root, python=sys.executable,
+                roles={"binaries": root / "binaries"},
+            )
+            argv = [str(bash), "--noprofile", "--norc", str(script)]
+            completed = subprocess.CompletedProcess(
+                argv, 0, stdout="built", stderr="")
+            with mock.patch.object(
+                    api, "_run_subprocess_tree", return_value=completed):
+                output = api.execute_tool(
+                    "run_setup_command", {"argv": argv},
+                    SimpleNamespace(root=ki_root), cfg, setup_mode=True,
+                    setup_context={"installation_only": True},
+                )
+            self.assertIn("built", output)
+
+            script.write_text(
+                "cd /" + root.drive[:1].lower() +
+                root.as_posix()[2:] + "/source/petsc\nmake all\n",
+                encoding="utf-8",
+            )
+            with mock.patch.object(
+                    api, "_run_subprocess_tree", return_value=completed):
+                output = api.execute_tool(
+                    "run_setup_command", {"argv": [str(bash), str(script)]},
+                    SimpleNamespace(root=ki_root), cfg, setup_mode=True,
+                    setup_context={"installation_only": True},
+                )
+            self.assertIn("built", output)
+
+            with self.assertRaisesRegex(api.ToolError, "command strings"):
+                api.execute_tool(
+                    "run_setup_command", {
+                        "argv": [str(bash), "-lc", "make all"],
+                    }, SimpleNamespace(root=ki_root), cfg, setup_mode=True,
+                    setup_context={"installation_only": True},
+                )
+            script.write_text("sudo pacman -S make\n", encoding="utf-8")
+            with self.assertRaisesRegex(api.ToolError, "host administration"):
+                api.execute_tool(
+                    "run_setup_command", {"argv": [str(bash), str(script)]},
+                    SimpleNamespace(root=ki_root), cfg, setup_mode=True,
+                    setup_context={"installation_only": True},
+                )
+            script.write_text(
+                "find . -type f -print0 | while read -r file; do\n"
+                "  sed -i 's/x/y/' \"$file\"\n"
+                "done\n",
+                encoding="utf-8",
+            )
+            with self.assertRaisesRegex(api.ToolError, "whole checkout"):
+                api.execute_tool(
+                    "run_setup_command", {"argv": [str(bash), str(script)]},
+                    SimpleNamespace(root=ki_root), cfg, setup_mode=True,
+                    setup_context={"installation_only": True},
+                )
+
+    def test_setup_workspace_path_env_covers_portable_msys_build_roots(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            ki_root = root / "ki"
+            ki_root.mkdir()
+            cfg = SimpleNamespace(
+                root=root, python=sys.executable,
+                roles={"binaries": root / "binaries"},
+            )
+            completed = subprocess.CompletedProcess(
+                ["git", "--version"], 0, stdout="git version", stderr="")
+            with mock.patch.object(
+                    api, "_run_subprocess_tree", return_value=completed):
+                output = api.execute_tool(
+                    "run_setup_command", {
+                        "argv": ["git", "--version"],
+                        "env": {
+                            "MSYS2_ROOT": str(root / "msys64"),
+                            "PETSC_DIR": str(root / "source" / "petsc"),
+                            "TMP": str(root / "tmp"),
+                        },
+                    }, SimpleNamespace(root=ki_root), cfg, setup_mode=True,
+                    setup_context={"installation_only": True},
+                )
+            self.assertIn("git version", output)
+            with self.assertRaisesRegex(api.ToolError, "environment path escapes"):
+                api.execute_tool(
+                    "run_setup_command", {
+                        "argv": ["git", "--version"],
+                        "env": {"PETSC_DIR": str(root.parent)},
+                    }, SimpleNamespace(root=ki_root), cfg, setup_mode=True,
+                    setup_context={"installation_only": True},
+                )
+
+    def test_setup_exact_text_replacement_is_workspace_bounded(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            ki_root = root / "ki"
+            ki_root.mkdir()
+            source = root / "source.c"
+            source.write_text("before\nold call\nafter\n", encoding="utf-8")
+            cfg = SimpleNamespace(
+                root=root, python=sys.executable,
+                roles={"binaries": root / "binaries"},
+            )
+            output = api.execute_tool(
+                "replace_work_text", {
+                    "path": "source.c", "old": "old call", "new": "new call",
+                }, SimpleNamespace(root=ki_root), cfg, setup_mode=True,
+                setup_context={"installation_only": True},
+            )
+            self.assertIn("replaced 1 exact match", output)
+            self.assertEqual(
+                source.read_text(encoding="utf-8"),
+                "before\nnew call\nafter\n",
+            )
+            with self.assertRaisesRegex(api.ToolError, "found 0"):
+                api.execute_tool(
+                    "replace_work_text", {
+                        "path": "source.c", "old": "missing", "new": "x",
+                    }, SimpleNamespace(root=ki_root), cfg, setup_mode=True,
+                    setup_context={"installation_only": True},
+                )
+            outside = root.parent / "outside-source.c"
+            outside.write_text("old call", encoding="utf-8")
+            try:
+                with self.assertRaisesRegex(api.ToolError, "absolute workspace"):
+                    api.execute_tool(
+                        "replace_work_text", {
+                            "path": str(outside), "old": "old call", "new": "x",
+                        }, SimpleNamespace(root=ki_root), cfg, setup_mode=True,
+                        setup_context={"installation_only": True},
+                    )
+            finally:
+                outside.unlink(missing_ok=True)
+
+    def test_installation_agent_cannot_write_dependency_shims_to_site_packages(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            ki_root = root / "ki"
+            ki_root.mkdir()
+            site = root / "venv" / "Lib" / "site-packages"
+            site.mkdir(parents=True)
+            cfg = SimpleNamespace(
+                root=root, python=sys.executable,
+                roles={"binaries": root / "binaries"},
+            )
+            with self.assertRaisesRegex(api.ToolError, "may not write directly"):
+                api.execute_tool(
+                    "write_work_file", {
+                        "path": "venv/Lib/site-packages/fcntl.py",
+                        "content": "# fake compatibility module\n",
+                    }, SimpleNamespace(root=ki_root), cfg, setup_mode=True,
+                    setup_context={"installation_only": True},
+                )
+            installed = site / "dependency.py"
+            installed.write_text("old\n", encoding="utf-8")
+            with self.assertRaisesRegex(api.ToolError, "may not patch"):
+                api.execute_tool(
+                    "replace_work_text", {
+                        "path": "venv/Lib/site-packages/dependency.py",
+                        "old": "old", "new": "new",
+                    }, SimpleNamespace(root=ki_root), cfg, setup_mode=True,
+                    setup_context={"installation_only": True},
+                )
+
+    def test_installation_agent_cannot_generate_dependency_shim_wheel(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            ki_root = root / "ki"
+            ki_root.mkdir()
+            cfg = SimpleNamespace(
+                root=root, python=sys.executable,
+                roles={"binaries": root / "binaries"},
+            )
+            content = (
+                "import zipfile\n"
+                "zipfile.ZipFile('compat.whl', 'w').writestr('fcntl.py', "
+                "'F_GETFL=3\\ndef fcntl(fd, cmd, arg=0): return 0\\n')\n"
+            )
+            with self.assertRaisesRegex(api.ToolError, "hand-assemble wheels"):
+                api.execute_tool(
+                    "write_work_file", {
+                        "path": "build_compat_wheel.py", "content": content,
+                    }, SimpleNamespace(root=ki_root), cfg, setup_mode=True,
+                    setup_context={"installation_only": True},
+                )
+
+            with self.assertRaisesRegex(api.ToolError, "hand-assemble wheels"):
+                api.execute_tool(
+                    "write_work_file", {
+                        "path": "make_noise_wheel.py",
+                        "content": (
+                            "import zipfile\n"
+                            "zipfile.ZipFile('noise.whl', 'w').writestr("
+                            "'noise-1.2.2.dist-info/METADATA', 'x')\n"
+                        ),
+                    }, SimpleNamespace(root=ki_root), cfg, setup_mode=True,
+                    setup_context={"installation_only": True},
+                )
+
+            with self.assertRaisesRegex(api.ToolError, "replacement setup project"):
+                api.execute_tool(
+                    "write_work_file", {
+                        "path": "noise-stage/setup.py",
+                        "content": (
+                            "from setuptools import setup\n"
+                            "setup(name='noise', package_data={'noise': ['*.pyd']})\n"
+                        ),
+                    }, SimpleNamespace(root=ki_root), cfg, setup_mode=True,
+                    setup_context={"installation_only": True},
+                )
+
+            with self.assertRaisesRegex(api.ToolError, "hand-assemble wheel archives"):
+                api.execute_tool(
+                    "run_setup_command", {
+                        "argv": ["tar", "-cf", "noise.whl", "noise-stage"],
+                    }, SimpleNamespace(root=ki_root), cfg, setup_mode=True,
+                    setup_context={"installation_only": True},
+                )
+
+            helper = root / "build_existing_wheel.py"
+            helper.write_text(content, encoding="utf-8")
+            with self.assertRaisesRegex(api.ToolError, "hand-assemble wheels"):
+                api.execute_tool(
+                    "run_setup_command", {
+                        "argv": [sys.executable, helper.name],
+                    }, SimpleNamespace(root=ki_root), cfg, setup_mode=True,
+                    setup_context={"installation_only": True},
+                )
+
+    def test_installation_agent_cannot_pip_install_local_dependency_shim(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            ki_root = root / "ki"
+            ki_root.mkdir()
+            wheel = root / "compat-1.0-py3-none-any.whl"
+            with zipfile.ZipFile(wheel, "w") as archive:
+                archive.writestr("fcntl.py", "F_GETFL = 3\n")
+            cfg = SimpleNamespace(
+                root=root, python=sys.executable,
+                roles={"binaries": root / "binaries"},
+            )
+            with self.assertRaisesRegex(api.ToolError, "may not install"):
+                api.execute_tool(
+                    "run_setup_command", {
+                        "argv": [sys.executable, "-m", "pip", "install", str(wheel)],
+                    }, SimpleNamespace(root=ki_root), cfg, setup_mode=True,
+                    setup_context={"installation_only": True},
+                )
+
+    def test_installation_only_allows_workspace_windows_compiler_arguments(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            ki_root = root / "ki"
+            ki_root.mkdir()
+            compiler = root / "toolchain" / "bin" / "gcc.exe"
+            source = root / "source" / "extension.c"
+            compiler.parent.mkdir(parents=True)
+            source.parent.mkdir()
+            compiler.write_bytes(b"MZ")
+            source.write_text("int value = 1;\n")
+            cfg = SimpleNamespace(
+                root=root, python=sys.executable,
+                roles={"binaries": root / "binaries"},
+            )
+            completed = subprocess.CompletedProcess(
+                [str(compiler), "-Iinclude", "-c", str(source)], 0,
+                stdout="compiled", stderr="",
+            )
+            with mock.patch.object(
+                    api, "_run_subprocess_tree", return_value=completed):
+                output = api.execute_tool(
+                    "run_setup_command", {
+                        "argv": [str(compiler), "-Iinclude", "-c", str(source)],
+                    }, SimpleNamespace(root=ki_root), cfg, setup_mode=True,
+                    setup_context={"installation_only": True},
+                )
+            self.assertIn("compiled", output)
+
+    def test_installation_only_allows_workspace_python_version_probe(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            ki_root = root / "ki"
+            ki_root.mkdir()
+            python = root / "venv" / "Scripts" / "python.exe"
+            python.parent.mkdir(parents=True)
+            python.write_bytes(b"MZ")
+            cfg = SimpleNamespace(
+                root=root, python=sys.executable,
+                roles={"binaries": root / "binaries"},
+            )
+            completed = subprocess.CompletedProcess(
+                [str(python), "--version"], 0,
+                stdout="Python 3.9.13", stderr="",
+            )
+            with mock.patch.object(
+                    api, "_run_subprocess_tree", return_value=completed):
+                output = api.execute_tool(
+                    "run_setup_command",
+                    {"argv": [str(python), "--version"]},
+                    SimpleNamespace(root=ki_root), cfg, setup_mode=True,
+                    setup_context={"installation_only": True},
+                )
+            self.assertIn("Python 3.9.13", output)
+
+    def test_installation_only_allows_upstream_python_codegen(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            ki_root = root / "ki"
+            ki_root.mkdir()
+            generator = root / "source" / "bin" / "dynamic_field_lookup.py"
+            generator.parent.mkdir(parents=True)
+            generator.write_text(
+                "from pathlib import Path\n"
+                "Path('generated.c').write_text('int generated;\\n')\n",
+                encoding="utf-8",
+            )
+            output = root / "source" / "util" / "index_struct_fields.c"
+            output.parent.mkdir()
+            cfg = SimpleNamespace(
+                root=root, python=sys.executable,
+                roles={"binaries": root / "binaries"},
+            )
+            completed = subprocess.CompletedProcess(
+                [sys.executable, str(generator), "--output", str(output)],
+                0, stdout="generated", stderr="",
+            )
+            with mock.patch.object(
+                    api, "_run_subprocess_tree", return_value=completed):
+                result = api.execute_tool(
+                    "run_setup_command", {
+                        "argv": [sys.executable, str(generator),
+                                 "--output", str(output)],
+                    }, SimpleNamespace(root=ki_root), cfg, setup_mode=True,
+                    setup_context={"installation_only": True},
+                )
+            self.assertIn("generated", result)
+
+    def test_installation_only_caps_startup_probe_timeout(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            ki_root = root / "ki"
+            ki_root.mkdir()
+            binary = root / "binaries" / "model.exe"
+            binary.parent.mkdir()
+            binary.write_bytes(b"MZ")
+            cfg = SimpleNamespace(
+                root=root, python=sys.executable,
+                roles={"binaries": root / "binaries"},
+            )
+            completed = subprocess.CompletedProcess(
+                [str(binary), "--help"], 0, stdout="usage", stderr="",
+            )
+            with mock.patch.object(
+                    api, "_run_subprocess_tree", return_value=completed) as run:
+                output = api.execute_tool(
+                    "run_setup_command", {
+                        "argv": [str(binary), "--help"],
+                        "timeout_seconds": 600,
+                    }, SimpleNamespace(root=ki_root), cfg, setup_mode=True,
+                    setup_context={"installation_only": True},
+                )
+            self.assertIn("usage", output)
+            self.assertEqual(run.call_args.kwargs["timeout"], 20)
+
+    @unittest.skipUnless(os.name == "nt", "Windows PE validation")
+    def test_setup_rejects_archive_renamed_as_exe(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            ki_root = root / "ki"
+            ki_root.mkdir()
+            archive = root / "micromamba.exe"
+            archive.write_bytes(b"BZh91AY&SY")
+            cfg = SimpleNamespace(
+                root=root, python=sys.executable,
+                roles={"binaries": root / "binaries"},
+            )
+            with self.assertRaisesRegex(api.ToolError, "not a Windows PE"):
+                api.execute_tool(
+                    "run_setup_command",
+                    {"argv": [str(archive), "--version"]},
+                    SimpleNamespace(root=ki_root), cfg, setup_mode=True,
+                    setup_context={"installation_only": True},
                 )
 
     def test_cli_written_handoff_cannot_inject_a_link(self):
@@ -3597,6 +5099,8 @@ class PlatformParityTests(unittest.TestCase):
 
         with mock.patch.object(clipboard.subprocess, "run", fake_run), \
              mock.patch.object(clipboard.platform, "system", lambda: osname), \
+             mock.patch.object(clipboard.shutil, "which",
+                               lambda name: f"/usr/bin/{name}"), \
              mock.patch.object(clipboard, "_mac_read", lambda: None), \
              mock.patch.object(clipboard, "_mac_write", lambda _t: None):
             read = clipboard.read_text()
@@ -3631,7 +5135,10 @@ class PlatformParityTests(unittest.TestCase):
         importlib.reload(clipboard)          # restore for the rest of the suite
         self.assertEqual(flags.get("creationflags"),
                          getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000))
-        self.assertEqual(clipboard._SPAWN, {})   # and nothing extra elsewhere
+        expected = ({"creationflags": getattr(
+            subprocess, "CREATE_NO_WINDOW", 0x08000000)}
+            if os.name == "nt" else {})
+        self.assertEqual(clipboard._SPAWN, expected)
 
     def test_every_package_manager_names_the_same_tools(self):
         # A tool missing from one table means that platform silently drops it
@@ -3689,8 +5196,13 @@ class PlatformParityTests(unittest.TestCase):
 
     def test_posix_hints_are_left_alone(self):
         # The Windows adaptation must not leak onto macOS or Linux.
-        self.assertIn("in Terminal", providers.PROVIDERS["claude"].auth)
-        self.assertIn("curl -fsSL", providers.PROVIDERS["kimi"].install)
+        with mock.patch.object(os, "name", "posix"):
+            posix = importlib.reload(providers)
+            claude_auth = posix.PROVIDERS["claude"].auth
+            kimi_install = posix.PROVIDERS["kimi"].install
+        importlib.reload(providers)
+        self.assertIn("in Terminal", claude_auth)
+        self.assertIn("curl -fsSL", kimi_install)
 
     def test_windows_reveal_passes_select_and_path_as_one_argument(self):
         # explorer takes "/select,<path>" as a single token. Split in two it

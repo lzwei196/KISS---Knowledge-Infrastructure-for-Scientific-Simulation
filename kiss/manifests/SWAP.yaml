@@ -1,0 +1,24 @@
+kiss_manifest_version: 1
+model: SWAP
+binary_type: PE32
+verified: observed
+install_dir: SWAP
+
+acquire:
+  strategy: download
+  url: https://github.com/SWAP-model/SWAP/releases/download/v4.2.0/swap4.2.0-mingw.exe
+  sha256: 55a0de22beb0dfedf9d0bca64a7a6ac816ccef02237b2ce9f94c3e750127b257
+  produces: swap.exe
+
+python_deps: [numpy, matplotlib]
+
+reference_case: swap.exe
+
+notes: >-
+  OBSERVED on Windows on 2026-09-06: the official SWAP v4.2.0 MinGW release
+  asset matched its GitHub release SHA-256, had a valid PE header, and loaded
+  through the installation runtime probe. Project inputs are prepared later.
+
+agent_hint: >-
+  Install the official Windows x64 release asset. Do not require a Fortran
+  compiler when this published binary is available.

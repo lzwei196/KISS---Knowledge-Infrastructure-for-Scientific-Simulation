@@ -13,7 +13,7 @@ package:
     v0604 (BREC #2008-17, 2008) science lineage, run as the v0806 user-guide binding'
   binary:
     path: KISSPATH_KI_ROOT/APEX/knowledge_infrastructure/reference/APEX0806.exe
-    type: PE32_wine
+    type: PE32_native_or_wine
 pipeline:
   stages: []
 tools:

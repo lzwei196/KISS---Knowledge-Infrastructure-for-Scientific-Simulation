@@ -133,6 +133,12 @@ def _terminal_fault_only(ws: Path, stderr: str, err_text: str) -> tuple[bool, st
                   f"*.ACY spans YR#=1..{span} == NBYR={nbyr}")
 
 
+def _runtime_command(binary: Path, platform_name: str | None = None) -> list[str]:
+    """Return the native Windows or Wine compatibility launch command."""
+    return ([str(binary)] if (platform_name or os.name) == "nt" else
+            ["wine", f"./{BINARY_NAME}"])
+
+
 def run(workspace, *, timeout: int = 600) -> dict:
     ws = Path(workspace).expanduser().resolve()
     validate_inputs(ws)
@@ -151,8 +157,12 @@ def run(workspace, *, timeout: int = 600) -> dict:
             except OSError:
                 pass
 
+    # APEX0806 is a Windows executable. Native Windows must launch it directly;
+    # Wine is only the compatibility host on macOS/Linux. Requiring Wine on
+    # Windows made a valid protected binary permanently unusable there.
+    command = _runtime_command(bin_path)
     proc = subprocess.run(
-        ["wine", f"./{BINARY_NAME}"],
+        command,
         cwd=str(ws),
         capture_output=True,
         text=True,

@@ -203,14 +203,26 @@ class Policy:
         if self.posture is Posture.DANGER_FULL_ACCESS:
             return True
         try:
-            t = str(Path(target).resolve())
+            target_path = Path(target).resolve()
         except OSError:
             return False
         for g in self.all_grants():
             if g.kind != kind:
                 continue
-            base = g.path
-            if t == base or t.startswith(base.rstrip("/") + "/"):
+            # A hard-coded slash prefix works on POSIX but never matches the
+            # backslashes returned by ``Path.resolve`` on Windows. Use actual
+            # path containment so verified binaries remain visible to agents
+            # on every host (and avoid sibling-prefix false positives).
+            base_path = Path(g.path)
+            if not base_path.is_absolute():
+                if str(target) == g.path:
+                    return True
+                continue
+            try:
+                base_path = base_path.resolve()
+            except OSError:
+                continue
+            if target_path == base_path or base_path in target_path.parents:
                 return True
         return False
 

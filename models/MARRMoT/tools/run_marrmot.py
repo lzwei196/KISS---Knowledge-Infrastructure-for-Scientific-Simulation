@@ -35,6 +35,8 @@ import re
 
 import numpy as np
 
+from octave_runtime import marrmot_source, octave_executable, octave_path
+
 # Directory holding KI-local Octave shims (e.g. an lsqnonlin.m that wraps core
 # fsolve for installs without the Octave-Forge optim package). Added to the
 # Octave path AFTER the MARRMoT genpath so MARRMoT's solver cascade still works
@@ -94,10 +96,10 @@ def _octave_has(func_name):
     """
     try:
         probe = subprocess.run(
-            ["octave", "--no-gui", "--no-window-system", "--eval",
-             f"exit(exist('{func_name}') > 0)"],
+            [octave_executable(), "--no-gui", "--no-window-system", "--eval",
+             f"assert(exist('{func_name}') > 0)"],
             capture_output=True, text=True, timeout=30)
-        return probe.returncode != 0
+        return probe.returncode == 0
     except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
         return False
 
@@ -140,7 +142,7 @@ def validate_inputs(args):
 
     # Check Octave is available
     try:
-        result = subprocess.run(["octave", "--version"],
+        result = subprocess.run([octave_executable(), "--version"],
                                 capture_output=True, text=True, timeout=10)
         if result.returncode != 0:
             errors.append("Octave not found or not working")
@@ -186,7 +188,9 @@ def build_octave_script(forcing_csv, model_name, theta, s0,
     else:
         s0_str = "zeros(1, m.numStores)"
 
-    shim_dir = SHIM_DIR
+    shim_dir = octave_path(SHIM_DIR)
+    forcing_csv, marrmot_path, output_csv = map(
+        octave_path, (forcing_csv, marrmot_path, output_csv))
 
     script = f"""\
 % Auto-generated MARRMoT run script
@@ -325,7 +329,9 @@ def build_calibration_script(forcing_csv, obs_csv, model_name, marrmot_path,
     pre-cal rows act as spin-up and are excluded from scoring). Writes the best
     theta and its calibration NSE to ``output_json``.
     """
-    shim_dir = SHIM_DIR
+    shim_dir = octave_path(SHIM_DIR)
+    forcing_csv, obs_csv, marrmot_path, output_json = map(
+        octave_path, (forcing_csv, obs_csv, marrmot_path, output_json))
     script = f"""\
 % Auto-generated MARRMoT Monte-Carlo calibration script
 addpath(genpath('{marrmot_path}'));
@@ -501,7 +507,9 @@ def build_cmaes_calibration_script(forcing_csv, obs_csv, model_name, marrmot_pat
     gauged only Mar-Oct) need no extra masking. inverse_flag=1 so CMA-ES
     minimises -OF (KGE/NSE are maximised).
     """
-    shim_dir = SHIM_DIR
+    shim_dir = octave_path(SHIM_DIR)
+    forcing_csv, obs_csv, marrmot_path, output_json = map(
+        octave_path, (forcing_csv, obs_csv, marrmot_path, output_json))
     lb_str = ('[' + ', '.join(str(x) for x in lb) + ']') if lb else '[]'
     ub_str = ('[' + ', '.join(str(x) for x in ub) + ']') if ub else '[]'
     script = f"""\
@@ -684,7 +692,7 @@ def process_calibrate(args):
     timed_out = False
     try:
         result = subprocess.run(
-            ["octave", "--no-gui", "--no-window-system", script_path],
+            [octave_executable(), "--no-gui", "--no-window-system", script_path],
             capture_output=True, text=True, timeout=args.timeout, cwd=output_dir)
         print(result.stdout[-1500:], file=sys.stderr)
     except subprocess.TimeoutExpired as exc:
@@ -750,17 +758,7 @@ def process_calibrate(args):
 
 
 def _resolve_marrmot_path(marrmot_path):
-    if marrmot_path:
-        return marrmot_path
-    candidates = [
-        "KISSPATH_INTERNAL_NOT_SHIPPED/auto_dissect/_work/MARRMoT/source/repo/MARRMoT",
-        os.path.expanduser("~/MARRMoT/MARRMoT"),
-        "./MARRMoT",
-    ]
-    for c in candidates:
-        if os.path.isdir(c):
-            return c
-    return None
+    return marrmot_source(marrmot_path)
 
 
 def process(args):
@@ -768,21 +766,10 @@ def process(args):
     model_name, theta, s0 = load_params(args)
 
     # Determine MARRMoT source path
-    marrmot_path = args.marrmot_path
+    marrmot_path = _resolve_marrmot_path(args.marrmot_path)
     if not marrmot_path:
-        # Try common locations
-        candidates = [
-            "KISSPATH_INTERNAL_NOT_SHIPPED/auto_dissect/_work/MARRMoT/source/repo/MARRMoT",
-            os.path.expanduser("~/MARRMoT/MARRMoT"),
-            "./MARRMoT",
-        ]
-        for c in candidates:
-            if os.path.isdir(c):
-                marrmot_path = c
-                break
-        if not marrmot_path:
-            return {"status": "error",
-                    "errors": ["Cannot find MARRMoT source directory"]}
+        return {"status": "error",
+                "errors": ["Cannot find MARRMoT source directory"]}
 
     # Prepare output paths
     output_dir = os.path.dirname(args.output) or "."
@@ -815,7 +802,7 @@ def process(args):
     # Execute
     try:
         result = subprocess.run(
-            ["octave", "--no-gui", "--no-window-system", script_path],
+            [octave_executable(), "--no-gui", "--no-window-system", script_path],
             capture_output=True, text=True,
             timeout=args.timeout,
             cwd=output_dir,

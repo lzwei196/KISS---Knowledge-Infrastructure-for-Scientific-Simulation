@@ -197,6 +197,9 @@ def write_setup(ki, man, cfg, dest: Path, *, built_in_command: str) -> list[Path
     dest.mkdir(parents=True, exist_ok=True)
     meta = ki.meta or {}
     hint = man.agent_hint if man else ""
+    notes = getattr(ki, "installation_notes", None)
+    if notes:
+        hint = f"Read `{notes}` for the recorded installation experience on this OS.\n\n{hint}"
     body = f"""# {ki.name} — GeoForge autonomous setup
 
 You are the setup agent for **{ki.name}**. Own the loop until the scientific

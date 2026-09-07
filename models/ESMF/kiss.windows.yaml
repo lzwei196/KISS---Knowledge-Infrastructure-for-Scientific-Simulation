@@ -1,0 +1,67 @@
+# Windows installation recipe carried inside the KI package.
+# Keep the legacy shared manifest in kiss/manifests synchronized for older apps.
+kiss_manifest_version: 1
+model: ESMF
+binary_type: PE32
+verified: observed
+install_dir: ESMF
+
+acquire:
+  strategy: build
+  repo: https://github.com/esmf-org/esmf.git
+  ref: 99356176e374c49273893bbb9564705915dba621
+  commands: []
+  produces: env/Library/bin/ESMF_RegridWeightGen.exe
+  system_deps: [git]
+
+system_deps: [git]
+python_deps: [numpy, netCDF4]
+
+reference_case: env/Library/bin/ESMF_PrintInfo.exe
+
+notes: >-
+  OBSERVED on Windows on 2026-09-06 with the official conda-forge
+  ESMF/ESMPy 8.4.0 nompi pairing. The real PE utilities reported ESMF 8.4.0,
+  ESMF_PrintInfo and esmf.mk reported linked NetCDF support, and ESMPy
+  initialised its native core for a 2-by-2 Grid/Field write/read operation.
+  GeoForge's independent final check resolved the canonical PE product and
+  returned installed/ready. A bare or shimmed Python import is not a valid
+  installation. Newer ESMF releases do not currently have official
+  conda-forge win-64 packages.
+
+agent_hint: >-
+  On Windows use the last official conda-forge native pairing; do not attempt
+  to compile current ESMF with an improvised MSVC/MinGW mixture and do not
+  create a placeholder `esmpy` module. Bootstrap workspace-local micromamba
+  from `https://micro.mamba.pm/api/micromamba/win-64/latest`. That response is
+  a `.tar.bz2` conda package, not an executable: extract the actual
+  `Library/bin/micromamba.exe` before running it. Keep its root/package cache
+  at a short workspace path. Create the environment exactly at
+  `binaries/ESMF/env` with conda-forge only and no user rc, installing exact
+  `esmpy=8.4.0=nompi_py311h597d70b_2`, `esmf=8.4.0=nompi_h693c31f_5`,
+  `netCDF4`, and `python=3.11`. Record
+  `binaries/ESMF/env/python.exe` as `[kiss].python` in `kiss.toml`. The ESMPy
+  package build SHA-256 is
+  `ec6f50bca562123bfea26a46016024913d61e5678cf4c4414d3ee88840ecb6e4`.
+  The final product must be the real PE executable at the manifest's exact
+  relative path `env/Library/bin/ESMF_RegridWeightGen.exe`, accompanied by
+  `ESMF_PrintInfo.exe`, `Library/lib/esmf.dll`,
+  `Library/lib/esmf_fullylinked.dll`, and `Library/lib/esmf.mk`; never copy or
+  rename Python, a shell script, or a launcher to satisfy `produces`. A direct
+  micromamba create command must pass the fully resolved absolute environment
+  prefix to `-p`, never the relative text `binaries/ESMF/env`; otherwise conda
+  writes relative library locations into `esmf.mk`. Verify `ESMF_LIBSDIR` and
+  `ESMF_NETCDF_LIBPATH` in the installed `esmf.mk` resolve to this environment.
+  A direct
+  process invocation needs normal conda activation variables. For an explicit
+  manual probe, set `ESMFMKFILE` to
+  `binaries/ESMF/env/Library/lib/esmf.mk` and prepend the environment root,
+  `Library/mingw-w64/bin`, `Library/usr/bin`, `Library/bin`, `Library/lib`,
+  `Scripts`, and `bin` to PATH, or use the extracted micromamba's `run -p`
+  command. Require
+  both probes: `ESMF_PrintInfo.exe` must report ESMF 8.4.0 and NetCDF support;
+  environment Python must import NumPy and ESMPy, initialise
+  `esmpy.Manager(debug=False)`, create a 2-by-2 `esmpy.Grid` using a NumPy
+  int32 max_index, attach an `esmpy.Field`, assign four values and read their
+  correct sum. Scientific coupling inputs are user data and are not required
+  for this installation probe.

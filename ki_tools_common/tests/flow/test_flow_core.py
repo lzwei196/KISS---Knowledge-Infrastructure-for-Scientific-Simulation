@@ -414,8 +414,10 @@ def test_policy_claude_planning_is_read_only_plus_plan_files(tmp_path):
     bash = [t for t in tools if t.startswith("Bash(")]
     assert bash == []  # script --help/preflight may mutate; planning only reads
     writes = [t for t in tools if t.startswith(("Write(", "Edit("))]
-    assert set(writes) == {f"Write(/{tmp_path}/runs/plan.json)", f"Edit(/{tmp_path}/runs/plan.json)",
-                           f"Write(/{tmp_path}/runs/data-inventory.json)", f"Edit(/{tmp_path}/runs/data-inventory.json)"}
+    expected_root = (f"//{tmp_path.drive[0].lower()}{tmp_path.as_posix()[2:]}"
+                     if tmp_path.drive else "/" + str(tmp_path))
+    assert set(writes) == {f"Write({expected_root}/runs/plan.json)", f"Edit({expected_root}/runs/plan.json)",
+                           f"Write({expected_root}/runs/data-inventory.json)", f"Edit({expected_root}/runs/data-inventory.json)"}
 
 
 def test_policy_claude_executing_is_rebuilt_from_scratch(tmp_path):
@@ -660,10 +662,15 @@ def test_temp_files_live_under_protected_tree_and_evidence_scans_all_writable_tr
     assert "artifacts/handmade.png" in receipts.evidence(tmp_path, pj, a)["unreceipted_artifacts"]
 
 
-def test_validate_accepts_extensionless_executable_tool(tmp_path):
+def test_validate_accepts_extensionless_executable_tool(tmp_path, monkeypatch):
     ki = _fake_ki(tmp_path)
     exe = ki / "tools" / "run_model"; exe.write_text("#!/bin/sh\necho hi\n"); os.chmod(exe, 0o755)
     pj = _good_plan(ki); pj["steps"][0]["tool"] = str(exe)
     assert plan.validate(pj, _INV, ["M"], {"M": ki}) == []
     os.chmod(exe, 0o644)
+    if os.name == "nt":
+        # Windows chmod changes the read-only bit, not POSIX execute access.
+        # Exercise denial of execute access without assuming that Unix mode
+        # bits are enforced by NTFS.
+        monkeypatch.setattr(os, "access", lambda path, mode: False)
     assert any("not a runnable" in e for e in plan.validate(pj, _INV, ["M"], {"M": ki}))

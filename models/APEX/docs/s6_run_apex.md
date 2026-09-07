@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Run the real APEX0806 Windows binary under Wine inside the workspace. This stage is the execution boundary: do not substitute a Python approximation for the model.
+Run the real APEX0806 Windows binary directly on Windows or under Wine on macOS/Linux inside the workspace. This stage is the execution boundary: do not substitute a Python approximation for the model.
 
 ## Inputs
 
@@ -25,7 +25,7 @@ python preflight_check.py
 python tools/s6_run_apex.py --workspace /tmp/apex_ws --timeout 600
 ```
 
-`tools/s6_run_apex.py` copies `reference/APEX0806.exe` into the workspace if needed, deletes stale run outputs first, then runs:
+`tools/s6_run_apex.py` copies `reference/APEX0806.exe` into the workspace if needed, deletes stale run outputs first, then runs the executable natively on Windows. On macOS/Linux it runs:
 
 ```python
 subprocess.run(["wine", "./APEX0806.exe"], cwd=workspace, capture_output=True, text=True, timeout=timeout)

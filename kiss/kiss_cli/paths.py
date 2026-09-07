@@ -297,6 +297,50 @@ def with_ki_tools_common(cfg: KissConfig, env: dict[str, str] | None = None) -> 
     return out
 
 
+def with_python_runtime(python: str | Path,
+                        env: dict[str, str] | None = None) -> dict[str, str]:
+    """Activate a workspace-local conda interpreter for child processes.
+
+    Starting ``<prefix>/python.exe`` directly is not equivalent to conda
+    activation on Windows. Native extension packages may need DLLs from the
+    prefix's Library directories; ESMF additionally requires the package's
+    real ``esmf.mk`` path. Keep this mechanical and prefix-local: no global
+    environment is changed and ESMFMKFILE is set only when that exact conda
+    artifact exists.
+    """
+    out = dict(os.environ if env is None else env)
+    if os.name != "nt":
+        return out
+    try:
+        prefix = Path(python).expanduser().resolve(strict=False).parent
+    except (OSError, RuntimeError, ValueError):
+        return out
+    if not (prefix / "conda-meta").is_dir():
+        return out
+
+    activation = [
+        prefix,
+        prefix / "Library" / "mingw-w64" / "bin",
+        prefix / "Library" / "usr" / "bin",
+        prefix / "Library" / "bin",
+        prefix / "Library" / "lib",
+        prefix / "Scripts",
+        prefix / "bin",
+    ]
+    base_path = out.get("PATH", os.environ.get("PATH", ""))
+    existing = [item for item in base_path.split(os.pathsep) if item]
+    for item in reversed([str(path) for path in activation if path.is_dir()]):
+        if item in existing:
+            existing.remove(item)
+        existing.insert(0, item)
+    out["PATH"] = os.pathsep.join(existing)
+
+    esmf_mk = prefix / "Library" / "lib" / "esmf.mk"
+    if esmf_mk.is_file():
+        out["ESMFMKFILE"] = str(esmf_mk)
+    return out
+
+
 #: Top-level directories the authoring prefixes live under. Each is overlaid
 #: with a tmpfs before anything is bound beneath it.
 #:

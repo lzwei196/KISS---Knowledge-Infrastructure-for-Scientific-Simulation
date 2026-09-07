@@ -15,8 +15,19 @@ from pathlib import Path
 MODEL_ID = "FSM2"
 KI_DIR = Path(__file__).resolve().parent
 MODEL_DIR = KI_DIR.parent
-SOURCE_DIR = MODEL_DIR / "source" / "repo"
-BINARY = SOURCE_DIR / "FSM2"
+MANIFEST_SOURCE_DIR = Path("KISSPATH_BINARIES/FSM2/source/repo")
+SOURCE_DIR = (MANIFEST_SOURCE_DIR if MANIFEST_SOURCE_DIR.is_dir()
+              else MODEL_DIR / "source" / "repo")
+
+
+def resolve_binary(source_dir: Path) -> Path:
+    """Resolve the native Windows product or a legacy suffix-free executable."""
+    names = ("FSM2.exe", "FSM2") if sys.platform == "win32" else ("FSM2", "FSM2.exe")
+    return next((source_dir / name for name in names if (source_dir / name).is_file()),
+                source_dir / names[0])
+
+
+BINARY = resolve_binary(SOURCE_DIR)
 TRIPLETS = KI_DIR / "diagnostics" / "triplets.yaml"
 
 CHECKS: list[dict[str, object]] = []

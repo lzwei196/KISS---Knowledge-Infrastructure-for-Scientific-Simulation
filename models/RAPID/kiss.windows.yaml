@@ -1,0 +1,150 @@
+kiss_manifest_version: 1
+model: RAPID
+binary_type: PE32
+verified: unverified
+install_dir: RAPID/source/repo
+
+acquire:
+  strategy: build
+  repo: https://github.com/c-h-david/rapid.git
+  ref: 83145101ac8b49b8269e330cfc1372876fce8d7d
+  commands:
+    - make -C src rapid
+  produces: src/rapid.exe
+  system_deps: [git, make, gcc, gfortran]
+
+system_deps: [git, make, gcc, gfortran]
+python_deps: [numpy, pandas, xarray, netCDF4]
+
+reference_case: src/rapid.exe --version
+
+notes: >-
+  The official RAPID main-branch source is pinned to commit 83145101 (the
+  current 2008-2024 Fortran/PETSc implementation). Windows compilation remains
+  unverified until one clean portable-MSYS2 installation links and launches
+  the actual model executable.
+
+agent_hint: >-
+  Do not report that PETSc is unsupported on Windows. PETSc's official Windows
+  documentation explicitly supports MSYS2/MinGW GNU compilers for standalone
+  Windows libraries and applications. Use only a portable MSYS2 archive inside
+  this setup workspace; never use the GUI installer, SFX installer, a system
+  MSYS2 installation, WSL, Docker, registry changes, shortcuts, an uninstaller,
+  elevated commands, or a system package manager. The pinned official archive
+  for this recipe is
+  `https://github.com/msys2/msys2-installer/releases/download/2026-06-11/msys2-base-x86_64-20260611.tar.xz`
+  with SHA-256
+  `a2d047e8ee213c3c6a49a8de427eb1069df12207c0422ff1b3cbb5c905c34221`.
+  Download it as an ordinary file and verify that exact checksum. A Python
+  verification helper must be named like `verify_checksum.py` and written at
+  the setup-workspace root (not below `m`), or after extraction invoke the
+  workspace portable `usr/bin/sha256sum.exe` directly on the archive before
+  the first package transaction. Extract under a short workspace path such as
+  `m`; the archive contains the `msys64` directory. Never run a recursive
+  whole-tree newline conversion (`find .`, per-file grep/perl/sed, or similar):
+  that process fan-out is extremely slow on Windows and can make Setup appear
+  frozen. MSYS2 documents this
+  archive as the same file payload as its SFX archive without Windows
+  integration. Initialize it by invoking its absolute
+  workspace `usr/bin/bash.exe` with `--login` and one explicit UTF-8 workspace
+  `.sh` script. Every later shell action must likewise be in an explicit
+  workspace `.sh` script. Pass the script's absolute Windows path too, e.g.
+  `bash.exe --login D:/<setup-workspace>/init.sh`; login changes its working
+  directory, so a relative script name can fail despite the file existing.
+  Do not duplicate scripts in the portable home directory. `bash -c`,
+  `bash -lc`, stdin scripts and script
+  arguments are deliberately unavailable. Do not accept any licence/EULA.
+  Invoke the portable `usr/bin/pacman.exe` directly, never through a shell, and
+  keep its own root/database/cache. In each direct pacman invocation, provide
+  `env.PATH` with that same workspace portable `usr/bin` directory so its
+  post-install hooks can locate `mkdir`, `cp`, and certificate tools. A hook
+  saying those programs are absent can be a PATH error even when coreutils
+  is installed. Run bounded, noninteractive sync/install
+  transactions with `--noconfirm`; this only answers pacman's package
+  transaction questions and is not permission to accept a licence. A suitable
+  MINGW64 package set is `make`, `diffutils`, `python`,
+  `python-setuptools`, `patch`,
+  `mingw-w64-x86_64-gcc`, `mingw-w64-x86_64-gcc-fortran`,
+  `mingw-w64-x86_64-openblas`, `mingw-w64-x86_64-netcdf`, and
+  `mingw-w64-x86_64-netcdf-fortran`. If the base runtime updates first, let the
+  direct pacman call finish and invoke a second direct sync transaction rather
+  than launching an interactive terminal. All PATH, TMP/TEMP/TMPDIR, source,
+  cache, build and output paths must remain inside this KI setup workspace.
+  Before PETSc configure, create a short workspace `tmp` directory and export
+  `TMP`, `TEMP`, and `TMPDIR` to its MSYS path so compiler probes never use the
+  user's AppData Temp directory.
+  RAPID's own official installation guide pins PETSc 3.13.6. Use PETSc's
+  official LF-preserving release archive directly, not a Windows Git checkout:
+  `https://ftp.mcs.anl.gov/pub/petsc/release-snapshots/petsc-3.13.6.tar.gz`
+  with SHA-256
+  `02ca534a14c800a96f139f54530ac048b1727eb6703975920953bcb502771b1c`.
+  This archive corresponds to the peeled v3.13.6 commit
+  `746207a3cb30cd796a872832cd0f2ba14a6b454b` and already carries PETSc's
+  generated Fortran stubs, avoiding the Git-clone-only sowing/bfort regeneration
+  path. Verify the exact checksum before extraction. Do not clone PETSc, build
+  sowing, or normalize its whole source tree. The MSYS
+  `python-setuptools` package is required because PETSc 3.13.6 still imports
+  `distutils.sysconfig`, removed from bare modern Python. Modern MSYS2 GCC's
+  verbose configuration includes
+  `--with-bugurl=https://github.com/msys2/MINGW-packages/issues`. PETSc 3.13.6
+  incorrectly treats the `//github.com/...` URL suffix as a library directory,
+  emits `-L//github.com/...`, and makes the Windows linker wait on a UNC share.
+  In the workspace PETSc copy, patch only
+  `config/BuildSystem/config/compilers.py`: immediately before its generic
+  `if arg.find(':') >= 0` HPUX-path branch, skip tokens containing `://`.
+  Confirm no configure/link command contains `-L//`; do not wait for that UNC
+  lookup to time out. Configure PETSc
+  in an explicit portable-shell script with the MINGW64 gcc/gfortran, static
+  libraries, `--with-mpi=0`, `--with-shared-libraries=0`,
+  `--with-debugging=0`, `--with-fortranlib-autodetect=0`,
+  `--with-proc-filesystem=0`, and the workspace
+  portable OpenBLAS library. Do not pass any `--with-petsc4py` option: the
+  PETSc 3.13.6 release configuration auto-skips petsc4py when the portable MSYS
+  Python has no NumPy, while explicitly passing this old package option reaches
+  a shared-library-only validation path. PETSc's
+  MPIUNI backend is intentional for this single-process Windows build and
+  avoids installing MS-MPI outside the workspace. The proc-filesystem option
+  prevents a Cygwin-only `getpagesize()` probe from entering a native MinGW
+  build. Before building, apply two additional build-only fixes in this
+  workspace PETSc copy. In generated
+  `<PETSC_ARCH>/lib/petsc/conf/petscvariables`, replace the `OMAKE_PRINTDIR`
+  option `--print-directory` with `--no-print-directory`; otherwise PETSc
+  3.13.6 prepends its parallel flags to GNU make's bare `w` option and the
+  recursive build treats `w` as a target. Unset inherited MAKEFLAGS/MFLAGS
+  and invoke `make --no-print-directory all`; PETSc selects its own bounded
+  parallelism. In PETSc's `gmakefile`, use a GNU-ar response-file archive
+  recipe for the MinGW AR path: write the exact prerequisite object names
+  `$^` using shell `printf '%s\n' $^ > $@.args`, invoke
+  `$(AR) $(AR_FLAGS) $@ @$@.args`, then `$(RANLIB) $@`. Keep the forward-slash
+  relative object names; `cygpath -w` emits backslashes that GNU ar's response
+  parser consumes as escapes. The response file avoids the Windows native
+  argv limit when archiving approximately 1400 PETSc objects. Do not change
+  which objects enter the archive. Build PETSc without its test or check
+  targets. Obtain RAPID from the exact official commit archive
+  `https://codeload.github.com/c-h-david/rapid/tar.gz/83145101ac8b49b8269e330cfc1372876fce8d7d`
+  with SHA-256
+  `f5c90f309384a8b00d51125239e9e046015a37d65bb5f86b7b53c5d8baf0e9c0`.
+  Verify that checksum before extraction. Do not download a moving `main`
+  or `master` archive. Build this pinned RAPID source with `PETSC_DIR` and
+  `PETSC_ARCH`, `NETCDF_INCLUDE=-I/mingw64/include`, and
+  `NETCDF_LIB=-L/mingw64/lib -lnetcdff -lnetcdf`. Patch only portable build
+  mechanics in the workspace checkout when needed; do not alter RAPID routing,
+  calibration, data-assimilation, I/O or scientific defaults. In particular,
+  the upstream makefile's final `ln -sf` test-tree convenience link may be
+  removed or replaced with an ordinary workspace copy because creating a
+  Windows symlink is not part of the model build. If its Git-based version
+  script cannot derive a version from the archive, pass a quoted Fortran
+  string identifying the actual source commit (`83145101`) as RAPID_VERSION;
+  do not invent a release version. The mandatory final executable location,
+  relative to the setup-workspace root, is
+  `binaries/RAPID/source/repo/src/rapid.exe` (install_dir plus produces,
+  beneath binaries). A successfully built executable left only under a
+  scratch path such as `b/rapid-83145101.../src` fails the independent
+  installation probe. Create the canonical directory and copy the actual
+  compiled PE executable there. Stage the complete runtime
+  DLL dependency closure from the workspace MINGW64 `bin` directory beside
+  that canonical `binaries/RAPID/source/repo/src/rapid.exe`. Finally run this
+  canonical PE executable, not the scratch-build copy, with exactly
+  `--version` and `--help` using only its staged DLL directory plus the normal
+  Windows system PATH. A working probe prints `RAPID:` and exits zero; do not
+  run a scientific reference case during installation-only setup.

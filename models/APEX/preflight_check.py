@@ -171,21 +171,23 @@ def check_binary(checks: list[dict]) -> None:
 
 
 def check_wine_and_start(checks: list[dict]) -> None:
-    wine = shutil.which("wine")
+    native_windows = os.name == "nt"
+    wine = None if native_windows else shutil.which("wine")
+    launcher = str(BINARY) if native_windows else wine
     add_check(
         checks,
         kind="binary",
-        subject="wine",
+        subject="native Windows runtime" if native_windows else "wine",
         critical=True,
-        status=wine is not None,
+        status=native_windows or wine is not None,
         fix=f"Install Wine or put it on PATH so APEX0806.exe can run; see {DIAGNOSTICS}.",
     )
-    if wine is None or not BINARY.is_file():
+    if launcher is None or not BINARY.is_file():
         return
 
     try:
         proc = subprocess.run(
-            [wine, str(BINARY)],
+            [launcher] if native_windows else [launcher, str(BINARY)],
             cwd=tempfile.gettempdir(),
             input="\n",
             capture_output=True,
@@ -199,22 +201,25 @@ def check_wine_and_start(checks: list[dict]) -> None:
             or "YEAR" in output
             or "Fortran Pause" in output
         )
-        fix = f"`wine {BINARY}` did not reach APEX startup; inspect Wine/APEX errors and {DIAGNOSTICS}."
+        command = str(BINARY) if native_windows else f"wine {BINARY}"
+        fix = f"`{command}` did not reach APEX startup; inspect runtime/APEX errors and {DIAGNOSTICS}."
     except subprocess.TimeoutExpired as exc:
         output = ((exc.stdout or b"") if isinstance(exc.stdout, bytes) else (exc.stdout or ""))
         output += ((exc.stderr or b"") if isinstance(exc.stderr, bytes) else (exc.stderr or ""))
         if isinstance(output, bytes):
             output = output.decode(errors="replace")
         started = "APEXRUN.DAT IS MISSING" in output or "Fortran Pause" in output
-        fix = f"`wine {BINARY}` timed out before recognizable startup; inspect Wine/APEX errors and {DIAGNOSTICS}."
+        command = str(BINARY) if native_windows else f"wine {BINARY}"
+        fix = f"`{command}` timed out before recognizable startup; inspect runtime/APEX errors and {DIAGNOSTICS}."
     except Exception as exc:  # noqa: BLE001 - report every blocker, do not crash.
         started = False
-        fix = f"`wine {BINARY}` raised {type(exc).__name__}: {exc}; see {DIAGNOSTICS}."
+        command = str(BINARY) if native_windows else f"wine {BINARY}"
+        fix = f"`{command}` raised {type(exc).__name__}: {exc}; see {DIAGNOSTICS}."
 
     add_check(
         checks,
         kind="run",
-        subject=f"wine starts {Path(os.path.realpath(BINARY))}",
+        subject=f"APEX starts via {'Windows' if native_windows else 'Wine'}: {Path(os.path.realpath(BINARY))}",
         critical=True,
         status=started,
         fix=fix,

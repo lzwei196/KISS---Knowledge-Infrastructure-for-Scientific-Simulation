@@ -41,6 +41,13 @@ DEFAULT_OPTIONS = {
 }
 
 
+def resolve_binary(source_dir: str) -> Path:
+    """Find the native build product while retaining older POSIX checkouts."""
+    names = ("FSM2.exe", "FSM2") if sys.platform == "win32" else ("FSM2", "FSM2.exe")
+    root = Path(source_dir)
+    return next((root / name for name in names if (root / name).is_file()), root / names[0])
+
+
 # ---------------------------------------------------------------------------
 # Validation
 # ---------------------------------------------------------------------------
@@ -102,7 +109,8 @@ def compile_fsm2(
     compiler : str
         Fortran compiler command.
     output_binary : str, optional
-        Where to place the binary. Default: source_dir/FSM2.
+        Where to place the binary. Default: source_dir/FSM2.exe on Windows,
+        source_dir/FSM2 elsewhere.
 
     Returns
     -------
@@ -111,7 +119,7 @@ def compile_fsm2(
     if options is None:
         options = DEFAULT_OPTIONS.copy()
 
-    src_dir = Path(source_dir) / "src"
+    src_dir = Path(source_dir).resolve() / "src"
     opts_file = src_dir / "OPTS.h"
 
     # Write OPTS.h
@@ -134,9 +142,11 @@ def compile_fsm2(
         sources.insert(4, "FSM2_PREPNC.F90")
         sources.insert(6, "FSM2_WRITENC.F90")
 
-    binary_name = "FSM2"
+    binary_name = "FSM2.exe" if sys.platform == "win32" else "FSM2"
     if output_binary is None:
-        output_binary = str(Path(source_dir) / binary_name)
+        output_binary = str(src_dir.parent / binary_name)
+    else:
+        output_binary = str(Path(output_binary).resolve())
 
     # Build compile command
     cmd = [compiler, "-cpp", "-O3", "-o", binary_name]
@@ -307,7 +317,7 @@ def main():
     if args.compile_only:
         compile_fsm2(args.source_dir)
     elif args.run_only:
-        binary = args.binary or str(Path(args.source_dir) / "FSM2")
+        binary = args.binary or str(resolve_binary(args.source_dir))
         run_fsm2(binary, args.namelist, args.run_dir)
     else:
         compile_and_run(args.source_dir, args.namelist, run_dir=args.run_dir)

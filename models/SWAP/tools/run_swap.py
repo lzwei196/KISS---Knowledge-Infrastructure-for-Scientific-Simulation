@@ -21,12 +21,21 @@ import time
 import re
 from pathlib import Path
 
-# The SWAP executable this KI is validated against: the Meson build of the
-# pinned v4.2.0 source tree. Recorded so a run's evidence is attributable.
-PINNED_SWAP_BINARY = ("KISSPATH_INTERNAL_NOT_SHIPPED/auto_dissect/"
-                      "_work/SWAP/source/repo/builddir/swap")
-PINNED_SWAP_SHA256 = \
-    "a696efc5344daa53b3ddeebd3664656d0822959a5b2f4f863efc710469f1cf97"
+# The SWAP executable this KI is validated against. Windows uses the official
+# v4.2.0 MinGW release; POSIX keeps the observed Meson build pin.
+if os.name == "nt":
+    PINNED_SWAP_BINARY = "KISSPATH_BINARIES/SWAP/swap.exe"
+    PINNED_SWAP_SHA256 = \
+        "55a0de22beb0dfedf9d0bca64a7a6ac816ccef02237b2ce9f94c3e750127b257"
+    PINNED_SWAP_MAGIC = b"MZ"
+    PINNED_SWAP_FORMAT = "Windows PE"
+else:
+    PINNED_SWAP_BINARY = ("KISSPATH_INTERNAL_NOT_SHIPPED/auto_dissect/"
+                          "_work/SWAP/source/repo/builddir/swap")
+    PINNED_SWAP_SHA256 = \
+        "a696efc5344daa53b3ddeebd3664656d0822959a5b2f4f863efc710469f1cf97"
+    PINNED_SWAP_MAGIC = b"\x7fELF"
+    PINNED_SWAP_FORMAT = "ELF"
 
 
 def resolve_binary(requested=None, allow_unpinned=False):
@@ -39,7 +48,7 @@ def resolve_binary(requested=None, allow_unpinned=False):
       * $PATH is NEVER searched and no fallback is ever chosen — a stray
         `swap` on PATH could be any program, and a metric produced by an
         unidentified binary is unattributable evidence;
-      * missing / non-executable / non-ELF aborts with exit status 2;
+      * missing / non-executable / wrong native format aborts with exit status 2;
       * the sha256 actually executed is printed every run, and a mismatch
         against the recorded pin is reported as a loud WARNING (a legitimate
         rebuild changes the hash — a silent swap must still be visible).
@@ -72,8 +81,8 @@ def resolve_binary(requested=None, allow_unpinned=False):
         magic = f.read(4)
         f.seek(0)
         digest = hashlib.sha256(f.read()).hexdigest()
-    if magic != b"\x7fELF":
-        print(f"ERROR: {path} is not an ELF executable (magic "
+    if not magic.startswith(PINNED_SWAP_MAGIC):
+        print(f"ERROR: {path} is not a {PINNED_SWAP_FORMAT} executable (magic "
               f"{magic!r}) — refusing to run it as SWAP", file=sys.stderr)
         sys.exit(2)
 

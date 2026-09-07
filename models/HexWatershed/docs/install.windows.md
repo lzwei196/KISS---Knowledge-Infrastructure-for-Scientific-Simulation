@@ -1,0 +1,62 @@
+# HexWatershed: Windows installation experience
+
+This record is specific to Windows. Use the recipe for the current operating system; preserve macOS and Linux experience separately.
+
+Latest recorded attempt: **installed** (2026-09-06T14:19:11+08:00; 652.4 seconds).
+Provider: DeepSeek through GeoForge's installation-only HTTP/agent workflow; this was not a manual GUI click-through.
+
+Independent installation check: runnable (pe) — Start to run ecosystem model!
+
+Reported executable: `<workspace>\binaries\HexWatershed\build\hexwatershed.exe`.
+
+## Recipe and fixes
+
+Read [`../kiss.windows.yaml`](../kiss.windows.yaml) for the executable contract, pinned sources and dependencies. The same recipe is retained in the legacy shared manifest for older GeoForge versions.
+
+The official 1.5.0 source has no Windows release asset. Its CMake file
+hard-codes a site-local Linux GDAL include directory and libgdal.so, so a
+Windows build must replace those build paths with a real workspace GDAL SDK.
+Conda-forge's Windows GDAL uses the MSVC C++ ABI and cannot link to this
+model when it is compiled by MinGW; use the official MSYS2 UCRT64 GDAL
+package so compiler and dependency share one C++ ABI.
+
+Build the pinned official PNNL 1.5.0 source. The KI DAG explicitly identifies
+`https://github.com/pnnl/hexwatershed`; do not substitute the separate
+`changliao1025/hexwatershed` repository or a Python wrapper because its CLI,
+data contract, and provenance are not this KI's model of record. Missing
+GDAL is not a human blocker. Do not use conda-forge's MSVC-built `gdal.dll`
+with MinGW and do not generate an import library for it: the model calls
+GDAL's C++ API, so MSVC `?` symbols and MinGW/Itanium `_Z` symbols remain
+ABI-incompatible even when the C imports appear valid. Instead unpack the
+official portable MSYS2 base archive below a short workspace path and use
+only that workspace root's bounded pacman to install
+`mingw-w64-ucrt-x86_64-gcc`, `mingw-w64-ucrt-x86_64-cmake`,
+`mingw-w64-ucrt-x86_64-ninja`, `mingw-w64-ucrt-x86_64-gdal`, and
+`mingw-w64-ucrt-x86_64-netcdf-cxx` (the last package supplies the upstream
+source's `<netcdf>` C++ header). These are existing official MinGW/UCRT
+distributions, not a system modification or a reason to ask the user.
+Invoke the UCRT64 cmake/g++/ninja tools directly;
+do not use `bash -c` or `bash -lc`. Patch only the workspace CMake copy:
+remove its `/share/apps/gdal/2.3.1` paths, point `GDAL_INCLUDE_DIR` and
+`GDAL_LIBRARY` at that same MSYS2 UCRT64 prefix, then configure/build Release.
+Preserve the executable at the canonical path and use a small CMake
+`file(GET_RUNTIME_DEPENDENCIES)` install script with the UCRT64 bin directory
+to copy the recursive DLL closure next to it; do not rely on the setup
+process's temporary PATH. Do not run preflight or a mesh simulation during
+the installation-only test; finish with the binary startup probe and the
+declared Python import contract in one recorded interpreter. Do not install
+pyflowline with unresolved dependencies or treat `--no-deps` plus a shallow
+import as success. A separate workspace micromamba environment may supply the
+Python contract, but its selected interpreter must import osgeo, pyflowline,
+numpy, pandas, geopandas and rasterio and pass `pip check`. The final PE and
+its adjacent MSYS2 GDAL/runtime DLL closure must be placed at
+exactly `binaries/HexWatershed/build/hexwatershed.exe`, matching
+`acquire.produces`, before reporting completion.
+
+## Additional evidence or limitation
+
+The reviewed run verified the GDAL vector/startup path. The upstream v1.5 netCDF mesh branch was not scientifically validated; this record does not establish that branch as working.
+
+## Verification scope
+
+The recorded classification covers software installation and its startup/import probe. It does not establish successful basin/site simulation, scientific validity, available forcing/observations, or calibration readiness. Installation files can be cleaned after testing; retain this record and the test logs.

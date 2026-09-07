@@ -499,7 +499,8 @@ def input_files(workroot: Path, s: dict, limit: int = 300) -> list[dict]:
             stat = path.stat()
         except OSError:
             continue
-        out.append({"name": path.name, "relative_path": str(path.relative_to(project)),
+        out.append({"name": path.name,
+                    "relative_path": path.relative_to(project).as_posix(),
                     "size": stat.st_size, "modified": stat.st_mtime})
         if len(out) >= limit:
             break
@@ -515,7 +516,8 @@ def reference_files(workroot: Path, s: dict, limit: int = 100) -> list[dict]:
             stat = path.stat()
         except OSError:
             continue
-        out.append({"name": path.name, "relative_path": str(path.relative_to(project)),
+        out.append({"name": path.name,
+                    "relative_path": path.relative_to(project).as_posix(),
                     "size": stat.st_size, "modified": stat.st_mtime})
         if len(out) >= limit:
             break

@@ -219,7 +219,8 @@ class FlowSession:
                             approval_sha256=self.approval_id, forcing_source=forcing_source,
                             validation=validation)
         return {"receipt": str(path), "run_id": json.loads(path.read_text())["run_id"],
-                "outputs": [str(p.relative_to(self.project)) if _under(p, self.project) else str(p)
+                "outputs": [p.relative_to(self.project).as_posix()
+                            if _under(p, self.project) else str(p)
                             for p in outputs][:50],
                 "validation": validation["status"],
                 "failed_checks": [c["check"] for c in validation["checks"] if not c["ok"]][:12]}
@@ -277,13 +278,16 @@ class FlowSession:
             for it in self.inventory.get("items") or []:
                 if isinstance(it, dict) and str(it.get("id")) == item_id:
                     it["status"] = "ready"
-                    it.setdefault("local_paths", []).append(str(dest.relative_to(self.project)))
+                    it.setdefault("local_paths", []).append(
+                        dest.relative_to(self.project).as_posix())
             # inventory changes after approval are DRIFT by design — record the download
             # under runs/ instead of rewriting the approved inventory
             (self.project / "runs" / "inventory-updates.jsonl").open("a", encoding="utf-8").write(
                 json.dumps({"item_id": item_id, "status": "ready",
-                            "path": str(dest.relative_to(self.project)), "receipt": str(path)}) + "\n")
-        return {"receipt": str(path), "path": str(dest.relative_to(self.project)),
+                            "path": dest.relative_to(self.project).as_posix(),
+                            "receipt": str(path)}) + "\n")
+        return {"receipt": str(path),
+                "path": dest.relative_to(self.project).as_posix(),
                 "bytes": dest.stat().st_size, "http_status": status}
 
     # ---------------------------------------------------------------- evidence

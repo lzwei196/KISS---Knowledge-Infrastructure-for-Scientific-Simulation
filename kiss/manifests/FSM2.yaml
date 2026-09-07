@@ -1,0 +1,66 @@
+kiss_manifest_version: 1
+model: FSM2
+binary_type: PE32
+verified: unverified
+install_dir: FSM2/source/repo
+
+acquire:
+  strategy: build
+  repo: https://github.com/RichardEssery/FSM2.git
+  ref: f0c86be12274354c958c2b71661cefefd6ae79f3
+  commands:
+    - >-
+      gfortran.exe -cpp -O3 -o ../FSM2.exe FSM2_MODULES.F90 FSM2_PARAMS.F90
+      FSM2.F90 FSM2_DRIVE.F90 FSM2_OUTPUT.F90 FSM2_VEG.F90 FSM2_TIMESTEP.F90
+      CANOPY.F90 INTERCEPT.F90 LUDCMP.F90 PSIMH.F90 QSAT.F90 SNOW.F90
+      SOIL.F90 SOLARPOS.F90 SRFEBAL.F90 SWRAD.F90 THERMAL.F90 TRIDIAG.F90
+      TWOSTREAM.F90
+  produces: FSM2.exe
+  system_deps: [git, gfortran]
+
+system_deps: [git, gfortran]
+python_deps: [numpy, pandas]
+reference_case: FSM2.exe
+
+notes: >-
+  OBSERVED on Windows on 2026-09-07: a clean DeepSeek installation completed
+  in 177 seconds, compiling the pinned official source and passing the real
+  PE startup plus numpy/pandas imports and pip check. A separate execution
+  test ran the official two-point Alptal 2004-2005 example successfully:
+  5,832 rows in each flux, state, and subcanopy output, all finite.
+  The official FSM2 source can be compiled as a native Windows ASCII-output
+  executable using private MinGW-w64 gfortran. The default PROFNC=0 build has
+  no NetCDF, MPI, CMake, or POSIX-shell dependency. Windows startup consumes
+  its namelist from stdin; EOF with no namelist is expected and is not a
+  missing executable. Scientific runs still need their forcing and namelist.
+
+agent_hint: >-
+  Build the real official Fortran model at exact commit
+  `f0c86be12274354c958c2b71661cefefd6ae79f3` from
+  `https://github.com/RichardEssery/FSM2.git`. Clone directly into canonical
+  `binaries/FSM2/source/repo`, and produce
+  `binaries/FSM2/source/repo/FSM2.exe`. Use non-interactive git. Stage a private
+  WinLibs UCRT compiler inside the setup workspace. The pinned archive is
+  `https://github.com/brechtsanders/winlibs_mingw/releases/download/16.2.0posix-14.0.0-ucrt-r1/winlibs-x86_64-posix-seh-gcc-16.2.0-mingw-w64ucrt-14.0.0-r1.7z`,
+  SHA-256 `9714f9e55905000ec2a066ae033abdfe8c93083a925e3fe015d3c7cc4bb1c918`.
+  Windows bsdtar can extract the archive. No system compiler installation,
+  WSL, MSYS2, or bash is needed. Read the pinned upstream `compil.sh` and use
+  `write_work_file` to write its exact preprocessor definitions into
+  `src/OPTS.h`: ALBEDO=2, CANINT=1, CANMOD=1, CANRAD=1, CANUNL=1, CONDCT=1,
+  DENSTY=1, EXCHNG=1, HYDROL=1, SGRAIN=1, SNFRAC=1, DRIV1D=1, SWPART=0,
+  ZOFFST=0, PROFNC=0. Each definition is its own `#define NAME VALUE` line.
+  Invoke the staged gfortran.exe from the checkout's `src` directory with
+  `-cpp -O3 -o ../FSM2.exe` and exactly the ordered source list in acquire
+  commands. Modules must come first; do not use a wildcard or include the
+  optional NetCDF sources. Keep PROFNC=0, matching the official default ASCII
+  build. Do not patch scientific source or substitute a Python calculation.
+  Inspect the PE with the staged objdump.exe and copy the full non-system
+  runtime DLL closure beside FSM2.exe, normally libgfortran-5.dll,
+  libquadmath-0.dll, libgcc_s_seh-1.dll, and libwinpthread-1.dll. The independent
+  probe does not inherit the compiler PATH. Preserve official source, sample
+  namelist, and sample forcing. FSM2 has no --version flag: an empty-stdin
+  launch reaches `Fortran runtime error: End of file` in the official
+  namelist reader and proves startup. Do not run a simulation or KI preflight
+  during installation-only setup. Install numpy and pandas into one recorded
+  interpreter and require both imports plus pip check; Python alone is not
+  the FSM2 installation product.

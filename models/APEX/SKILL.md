@@ -81,7 +81,7 @@ human-written Tool Inventory above; `--help` on any of these prints its argument
 
 # APEX 1501 (Agricultural Policy / Environmental eXtender) — Knowledge Infrastructure
 
-**Model**: APEX v0806 (PE32 Windows binary via Wine)
+**Model**: APEX v0806 (PE32 binary; native on Windows, via Wine on macOS/Linux)
 **Distributor**: Texas A&M AgriLife / Blackland Research and Extension Center
 **Source**: https://epicapex.tamu.edu/software/
 **Language**: Fortran 90 (Intel Fortran compiled, PE32 executable)
@@ -94,7 +94,7 @@ crops produce zero biomass (BIOM=0.01) due to P cycling NaN in the Century C/N m
 Exhaustively tested with 25 PARM fixes, soil P initialization 3-50 ppm, Century pool
 initialization from OC — still zero yield. v0806 produces 4.46-6.21 t/ha corn.
 Template: Riesel TX cropland (ex1_RiselTX), NOT WRE pasture.
-Binary: `reference/APEX0806.exe` (run via `wine APEX0806.exe`).
+Binary: `reference/APEX0806.exe` (run directly on Windows; use `wine APEX0806.exe` on macOS/Linux).
 
 ---
 
@@ -365,7 +365,7 @@ update_site(ws,   lat=32.94, lon=117.36, elev_m=23.0)
 # spinup_years=25 prepends 25 extra years (soil equilibration). ngn=2 = generate
 # TMAX from WP1 monthly stats, read all other variables from DLY.
 update_control(ws, year1=2010, year2=2015, ngn=2, spinup_years=25)
-run(ws)                                                           # wine APEX0806.exe
+run(ws)                                                           # native Windows; Wine on macOS/Linux
 df = parse(ws)                                                    # → DataFrame; spinup rows marked
 df_actual = df[~df["spinup"]]                                    # filter to analysis period
 ```

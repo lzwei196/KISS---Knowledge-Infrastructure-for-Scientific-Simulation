@@ -85,5 +85,8 @@ def prompt_block(names: list[str] | None) -> str:
         "selection is a capability request, not permission to ignore KI rules.",
     ]
     for item in chosen:
-        lines.append(f"- {item['name']}: {item['path']}")
+        # Prompts and subsequent JSON tool calls use platform-neutral slash
+        # paths. Forward slashes are accepted by Windows and cannot be
+        # misread as JSON/Python escape sequences.
+        lines.append(f"- {item['name']}: {Path(item['path']).as_posix()}")
     return "\n".join(lines)

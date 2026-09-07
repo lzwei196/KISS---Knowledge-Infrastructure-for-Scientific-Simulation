@@ -1,0 +1,31 @@
+# Windows installation recipe carried inside the KI package.
+# Keep the legacy shared manifest in kiss/manifests synchronized for older apps.
+kiss_manifest_version: 1
+model: Cell2Fire
+binary_type: PE32
+verified: partial
+install_dir: Cell2Fire/source/repo/Cell2Fire
+
+acquire:
+  strategy: download
+  url: https://github.com/fire2a/C2F-W/releases/download/v1.0.1/Cell2FireW_v1.0.1-Windows-x86_64-binary.zip
+  produces: Cell2Fire.exe
+
+python_deps: [numpy, pandas, geopandas, xarray, netcdf4]
+system_deps: []
+
+reference_case: Cell2Fire.exe --help
+
+notes: >-
+  Windows installation observed during the 2026-09-06 DeepSeek stress test.
+  Upstream's v1.0.1 Windows release contains Cell2Fire.exe together with its
+  jpeg62, liblzma, TIFF, and zlib runtime DLLs. Boost and libtiff development
+  packages are needed only when compiling from source and must not block the
+  official prebuilt Windows installation.
+
+agent_hint: >-
+  Prefer the official fire2a/C2F-W v1.0.1 Windows x86_64 release. Keep the EXE
+  and all DLLs from the archive together. A valid Windows result is
+  Cell2Fire.exe in this KI's managed source/repo/Cell2Fire directory; probe it
+  by absolute path because the Windows launcher may not resolve a nested
+  relative executable.

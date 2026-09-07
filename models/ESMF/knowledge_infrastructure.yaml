@@ -1,8 +1,12 @@
 package:
   created: '2026-03-25T04:04:00.988520'
   domain: framework
+  language: fortran
   name: ESMF
-  version: auto-generated
+  version: 8.4.0
+  binary:
+    path: KISSPATH_BINARIES/ESMF/env/Library/bin/ESMF_RegridWeightGen.exe
+    type: PE32
 pipeline:
   stages:
   - depends_on: []

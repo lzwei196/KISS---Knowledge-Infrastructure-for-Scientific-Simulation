@@ -11,10 +11,13 @@ from pathlib import Path
 
 MODEL_ID = "MARRMoT"
 KI_DIR = Path(__file__).resolve().parent
+sys.path.insert(0, str(KI_DIR / "tools"))
+from octave_runtime import marrmot_source, octave_executable, octave_path
+
 DIAGNOSTICS = KI_DIR / "diagnostics" / "triplets.yaml"
 HYDROCRAFT_PYTHON = Path("KISSPATH_PYTHON_ENV/bin/python")
-OCTAVE_BINARY = Path("/usr/bin/octave")
-MARRMOT_SOURCE = Path("KISSPATH_KI_ROOT/MARRMoT/source/repo/MARRMoT")
+OCTAVE_BINARY = Path(octave_executable())
+MARRMOT_SOURCE = Path(marrmot_source() or "KISSPATH_KI_ROOT/MARRMoT/source/repo/MARRMoT")
 SOURCE_SENTINELS = [
     MARRMOT_SOURCE / "Models" / "Model files" / "MARRMoT_model.m",
     MARRMOT_SOURCE / "Models" / "Model files" / "m_01_collie1_1p_1s.m",
@@ -29,8 +32,6 @@ REQUIRED_KI_FILES = [
     KI_DIR / "tools" / "convert_parameters.py",
     KI_DIR / "tools" / "parse_output.py",
     KI_DIR / "tools" / "octave_shims" / "lsqnonlin.m",
-    KI_DIR / "calib" / "forcing.csv",
-    KI_DIR / "calib" / "params.json",
     DIAGNOSTICS,
 ]
 
@@ -175,7 +176,7 @@ def main():
             "--no-window-system",
             "--eval",
             (
-                f"addpath(genpath('{MARRMOT_SOURCE}')); "
+                f"addpath(genpath('{octave_path(MARRMOT_SOURCE)}')); "
                 "m=feval('m_01_collie1_1p_1s'); "
                 "assert(m.numParams==1); assert(m.numStores==1); "
                 "disp('marrmot-source-ok')"
@@ -188,6 +189,11 @@ def main():
 
     for path in REQUIRED_KI_FILES:
         check_file(path, path.name, critical=True)
+
+    # Calibration files belong to a scientific project and are not software
+    # installation prerequisites.
+    for name in ("forcing.csv", "params.json"):
+        check_file(KI_DIR / "calib" / name, name, critical=False)
 
     check_python_import("numpy", "NumPy for run_marrmot.py", critical=True)
     check_python_import("pandas", "pandas for converters/parsers", critical=False)

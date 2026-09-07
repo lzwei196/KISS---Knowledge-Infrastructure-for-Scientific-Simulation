@@ -1,0 +1,42 @@
+kiss_manifest_version: 1
+model: HYPE
+binary_type: PE32
+verified: observed
+install_dir: hype
+
+acquire:
+  strategy: download
+  url: https://downloads.sourceforge.net/project/hype/release_hype_5_35_0/hype_5_35_0_exe.zip
+  sha256: f029ddd0ab9377eea1effb2ae1081c236b6c99950bba3b947f012fbd405a966b
+  archive_member: hype_5_35_0_exe/HYPE.exe
+  produces: hype_5_35_0_exe/HYPE.exe
+
+python_deps:
+  - numpy
+  - pandas
+  - geopandas
+  - rasterio
+  - shapely
+  - xarray
+  - matplotlib
+
+system_deps: []
+
+reference_case: hype_5_35_0_exe/HYPE.exe --version
+
+notes: >-
+  OBSERVED on Windows on 2026-09-06: the official SMHI HYPE 5.35.0
+  executable archive was checksum-verified, extracted, and the PE loaded its
+  Fortran main routine and printed the HYPE 5.35.0 banner. HYPE treats normal
+  help/version flags as a run-directory argument, so its bounded startup probe
+  is expected to keep working until GeoForge's probe timeout.
+
+agent_hint: >-
+  Download the official release archive from the pinned SourceForge file URL;
+  the SourceForge project page is not a Git repository and must not be cloned.
+  Use the shipped HYPE.exe rather than rebuilding merely to prove installation.
+  Do not pass a demo/run directory in installation-only mode. The executable
+  does not implement --help or --version: a bounded probe that loads the PE and
+  reaches its HYPE 5.35.0 startup banner is sufficient; missing scientific run
+  inputs are not an installation failure. Install every declared Python import
+  in the same recorded workspace interpreter.

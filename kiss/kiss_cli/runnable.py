@@ -28,6 +28,7 @@ import re
 import shutil
 import subprocess
 import sys
+import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -80,6 +81,26 @@ def _runtime_gap(out: str) -> str:
         if needle in low:
             return why
     return ""
+
+
+def _started_before_missing_input(out: str, marker: str) -> bool:
+    """Did a real model start before reporting that project input is absent?
+
+    A missing executable/interpreter can also say ``No such file or
+    directory``.  Do not waive that generic error merely because there was
+    other output: require a manifest-owned startup marker and one of the
+    model-side file-opening diagnostics emitted after its own code is running.
+    Whitespace is normalized because Fortran banners use padded columns.
+    """
+    if not marker:
+        return False
+    normalized_out = " ".join(out.casefold().split())
+    normalized_marker = " ".join(marker.casefold().split())
+    if normalized_marker not in normalized_out:
+        return False
+    low = out.casefold()
+    return ("file config not found" in low or
+            "cannot open file" in low)
 
 #: Languages whose models are compiled: these must have a binary to be usable,
 #: whatever their preflight remembered to declare. Judging a Fortran model on
@@ -316,6 +337,24 @@ def declared_imports(ki) -> list[str]:
                 for target in node.targets:
                     if isinstance(target, ast.Name):
                         constants[target.id] = value
+            # Some hand-written preflights keep required imports in a named
+            # module-level list and loop over it inside a custom checker rather
+            # than calling a conventional check_import helper. That list is a
+            # deterministic declaration too (LISFLOOD is the real case).
+            target_names = [target.id for target in node.targets
+                            if isinstance(target, ast.Name)]
+            declares_modules = any(
+                "IMPORT" in name.upper() and "MODULE" in name.upper()
+                for name in target_names
+            )
+            if declares_modules and isinstance(node.value, (ast.List, ast.Tuple)):
+                for item in node.value.elts:
+                    module = item.value if isinstance(item, ast.Constant) else None
+                    if (isinstance(module, str) and
+                            re.fullmatch(r"[A-Za-z_]\w*(?:\.[A-Za-z_]\w*)*", module) and
+                            module not in seen):
+                        seen.add(module)
+                        out.append(module)
     for node in ast.walk(tree):
         if not isinstance(node, ast.Call):
             continue
@@ -401,10 +440,20 @@ def missing_imports(mods: list[str], python: str, cwd: Path | None = None) -> li
              "    if not ok:\n"
              "        print('%s' + m)" % (local_paths, mods, _MARK))
     try:
+        from .paths import with_python_runtime
+        env = with_python_runtime(python)
+        # Import probes are non-interactive. Packages such as SimFire import
+        # pygame/matplotlib at module scope and otherwise fail on a perfectly
+        # valid headless desktop/server session before model code is reached.
+        env.setdefault("SDL_VIDEODRIVER", "dummy")
+        env.setdefault("PYGAME_HIDE_SUPPORT_PROMPT", "1")
+        env.setdefault("MPLBACKEND", "Agg")
         r = subprocess.run([python, "-c", probe], capture_output=True, text=True,
-                           timeout=180, cwd=str(cwd) if cwd else None)
+                           timeout=180, cwd=str(cwd) if cwd else None, env=env)
     except (OSError, subprocess.TimeoutExpired):
-        return []
+        # An interpreter that cannot start has not proved any import. Returning
+        # an empty list here made a broken recorded python path look perfect.
+        return list(mods)
     return [ln.split(_MARK, 1)[1].strip() for ln in r.stdout.splitlines()
             if _MARK in ln]
 
@@ -434,9 +483,32 @@ def _python_candidates(cfg, configured: str) -> list[str]:
     root = Path(getattr(cfg, "root", Path.cwd())) if cfg is not None else Path.cwd()
     binaries = Path(roles.get("binaries", root / "binaries"))
     python_env = Path(roles.get("python_env", root / "venv"))
+    # The setup agent records its exact private interpreter in kiss.toml, but
+    # ``cfg`` was loaded before that agent turn. Read back only that field for
+    # the independent final probe. Accept it only inside this setup workspace;
+    # an agent-edited external role/path is not a new filesystem capability.
+    try:
+        from .paths import KissConfig
+        recorded = Path(str(KissConfig.load(root).python)).expanduser()
+        if not recorded.is_absolute():
+            recorded = root / recorded
+        recorded = recorded.resolve(strict=False)
+        root_resolved = root.resolve(strict=False)
+        if recorded == root_resolved or root_resolved in recorded.parents:
+            candidates.append(recorded)
+    except (OSError, RuntimeError, ValueError, tomllib.TOMLDecodeError):
+        pass
     for base in (python_env, root / "venv", root / ".venv",
                  binaries / "venv", binaries / ".venv"):
         candidates.extend((base / "bin" / "python", base / "Scripts" / "python.exe"))
+    # Agents sometimes need a model-specific Python minor and use venv39,
+    # venv310, etc. Keep discovery bounded to direct workspace children while
+    # accepting those conventional numbered names even if kiss.toml was
+    # written late or contained a path spelling the parser had to repair.
+    candidates.extend(root.glob("venv*/Scripts/python.exe"))
+    candidates.extend(root.glob("venv*/bin/python"))
+    candidates.extend(root.glob(".venv*/Scripts/python.exe"))
+    candidates.extend(root.glob(".venv*/bin/python"))
     if binaries.is_dir():
         candidates.extend(binaries.glob("*/venv/bin/python"))
         candidates.extend(binaries.glob("*/.venv/bin/python"))
@@ -453,11 +525,21 @@ def _python_candidates(cfg, configured: str) -> list[str]:
 
 
 def select_python(cfg, configured: str, modules: list[str], cwd: Path | None = None) -> str:
-    """Choose the project-contained interpreter that imports the model."""
+    """Choose the workspace interpreter that satisfies the most declarations.
+
+    Prefer a complete environment. If none is complete, keep the closest one
+    so the final error names its *actual remaining dependencies* instead of
+    falling back to a system Python that lacks the model package itself.
+    """
+    best = configured
+    best_missing = list(modules)
     for candidate in _python_candidates(cfg, configured):
-        if not modules or not missing_imports(modules, candidate, cwd):
+        missing = missing_imports(modules, candidate, cwd)
+        if not modules or not missing:
             return candidate
-    return configured
+        if len(missing) < len(best_missing):
+            best, best_missing = candidate, missing
+    return best
 
 
 def find_binary(ki, man=None, cfg=None, harvested: dict | None = None) -> Path | None:
@@ -489,8 +571,11 @@ def find_binary(ki, man=None, cfg=None, harvested: dict | None = None) -> Path |
     for c in cands:
         variants = [c]
         if os.name == "nt":
-            if not c.suffix:
-                variants.insert(0, c.with_suffix(".exe"))
+            if c.suffix.lower() not in {".exe", ".com", ".bat", ".cmd"}:
+                # ``Path.suffix`` mistakes versioned executable names such as
+                # rhessys7.4 for a declared ``.4`` extension. Windows still
+                # needs the native suffix appended, not substituted.
+                variants.insert(0, c.with_name(c.name + ".exe"))
             parts = list(c.parts)
             if len(parts) >= 2 and parts[-2:] in (["bin", "python"],
                                                   ["bin", "python3"]):
@@ -534,7 +619,8 @@ def find_binary(ki, man=None, cfg=None, harvested: dict | None = None) -> Path |
         wanted = {c.name.lower() for c in cands}
         if os.name == "nt":
             wanted |= {name + ".exe" for name in wanted
-                       if not Path(name).suffix}
+                       if Path(name).suffix.lower()
+                       not in {".exe", ".com", ".bat", ".cmd"}}
         matches: list[Path] = []
         for root in roots:
             if not root.is_dir():
@@ -597,6 +683,64 @@ def _interpreter(p: Path, python: str | None = None) -> list[str] | None:
         argv[0] = python                # the KI's own venv, not ours
     resolved = shutil.which(argv[0]) or (argv[0] if Path(argv[0]).is_file() else None)
     return [resolved] + argv[1:] if resolved else None
+
+
+def _managed_julia(cfg) -> Path | None:
+    """Find Julia installed privately by a setup agent for this KI."""
+    found = shutil.which("julia")
+    if found:
+        return Path(found)
+    if cfg is None:
+        return None
+    roles = getattr(cfg, "roles", {}) or {}
+    binaries = Path(roles.get("binaries", Path(cfg.root) / "binaries"))
+    candidates = [
+        binaries / "julia" / "bin" / "julia.exe",
+        binaries / "julia" / "bin" / "julia",
+    ]
+    for pattern in ("julia-*/bin/julia.exe", "julia-*/bin/julia"):
+        try:
+            candidates.extend(binaries.glob(pattern))
+        except OSError:
+            continue
+    return next((candidate for candidate in candidates if candidate.is_file()), None)
+
+
+def _probe_julia_project(ki, cfg, timeout: int) -> tuple[bool, str]:
+    """Load the packages declared by a KI's Julia project without running it."""
+    julia = _managed_julia(cfg)
+    if julia is None:
+        return False, "no Julia interpreter on PATH or in this KI's binaries"
+    project = Path(ki.root) / "julia"
+    manifest = project / "Project.toml"
+    try:
+        data = tomllib.loads(manifest.read_text(encoding="utf-8"))
+        packages = list((data.get("deps") or {}).keys())
+    except (OSError, tomllib.TOMLDecodeError):
+        packages = []
+    code = ("; ".join(f"using {name}" for name in packages)
+            if packages else "println(VERSION)")
+    env = os.environ.copy()
+    roles = getattr(cfg, "roles", {}) or {}
+    binaries = Path(roles.get("binaries", Path(cfg.root) / "binaries"))
+    for depot in (binaries / "julia_depot", binaries / ".julia"):
+        if depot.is_dir():
+            env["JULIA_DEPOT_PATH"] = str(depot)
+            break
+    try:
+        result = subprocess.run(
+            [str(julia), f"--project={project}", "-e", code],
+            capture_output=True, text=True, errors="replace", timeout=timeout,
+            cwd=str(project), env=env,
+        )
+    except (OSError, subprocess.TimeoutExpired) as error:
+        return False, f"Julia package probe failed: {error}"
+    output = (result.stdout + result.stderr).strip()
+    if result.returncode != 0:
+        tail = (output.splitlines() or [f"exit {result.returncode}"])[-1]
+        return False, f"Julia project does not load: {tail[:240]}"
+    loaded = ", ".join(packages) if packages else "Julia"
+    return True, f"Julia project loads {loaded} via {julia}"
 
 
 # ---------------------------------------------------------------- linkage
@@ -738,6 +882,17 @@ def check(ki, man=None, cfg=None, harvested: dict | None = None,
     v.present = True
     v.kind = _file_kind(b)
 
+    # A Julia KI is the package environment plus its thin .jl runner. Probing
+    # that runner with --version can exit before `using Wflow`, so it proves
+    # only that the script parser ran. Load Project.toml's declared packages
+    # with the workspace-local Julia/depot instead.
+    if b.suffix.lower() == ".jl":
+        v.shaped = True
+        v.linked, v.detail = _probe_julia_project(ki, cfg, timeout)
+        v.responds = v.linked
+        v.kind = "julia package"
+        return v
+
     argv0: list[str]
     native = {"Linux": "elf", "Darwin": "macho", "Windows": "pe"}.get(platform.system(), "elf")
     if v.kind == "script":
@@ -784,8 +939,12 @@ def check(ki, man=None, cfg=None, harvested: dict | None = None,
     for flag in PROBE_FLAGS:
         argv = argv0 + ([flag] if flag else [])
         try:
-            r = subprocess.run(argv, capture_output=True, text=True, timeout=timeout,
-                               errors="replace", cwd=str(b.parent), stdin=subprocess.DEVNULL)
+            from .paths import with_python_runtime
+            r = subprocess.run(
+                argv, capture_output=True, text=True, timeout=timeout,
+                errors="replace", cwd=str(b.parent), stdin=subprocess.DEVNULL,
+                env=with_python_runtime(py),
+            )
         except subprocess.TimeoutExpired:
             # A model that starts solving instead of printing help is running.
             v.responds = True
@@ -796,6 +955,13 @@ def check(ki, man=None, cfg=None, harvested: dict | None = None,
             return v
         rc, out = r.returncode, (r.stdout + r.stderr).strip()
         gap = _runtime_gap(out) if rc != 0 else ""
+        marker = getattr(man, "startup_marker", "") if man else ""
+        if (gap == "an interpreter or helper is missing" and
+                v.kind in ("elf", "macho", "pe") and
+                _started_before_missing_input(out, marker)):
+            v.responds = True
+            v.detail = " ".join(marker.split())[:160]
+            return v
         if gap:
             v.linked = False
             v.missing = scan or [gap]

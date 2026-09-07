@@ -72,7 +72,10 @@ def test_settings_updates_are_atomic_private_and_do_not_lose_fields(tmp_path,
     assert not errors
     saved = json.loads(path.read_text(encoding="utf-8"))
     assert set(saved["api_keys"]) == set(settings.KEY_NAMES)
-    assert stat.S_IMODE(path.stat().st_mode) == 0o600
+    if os.name != "nt":
+        # Windows reports synthetic POSIX mode bits; privacy is enforced by
+        # the user's profile ACL rather than chmod(0600).
+        assert stat.S_IMODE(path.stat().st_mode) == 0o600
     assert not list(path.parent.glob(".settings-*.json"))
 
     for key in settings.KEY_NAMES:

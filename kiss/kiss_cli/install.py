@@ -185,14 +185,24 @@ def _acq_download(man, prefix, python, env=None):
             return Step("acquire[download]", False,
                         f"checksum mismatch: expected {a.sha256[:16]}… got {got[:16]}…"), None
 
+    is_archive = False
     if dest.suffix == ".zip":
+        is_archive = True
         with zipfile.ZipFile(dest) as z:
             z.extractall(prefix)
     elif ".tar" in dest.suffixes or dest.suffix in (".tgz", ".gz", ".bz2", ".xz"):
+        is_archive = True
         with tarfile.open(dest) as t:
             t.extractall(prefix)
 
     binary = prefix / a.produces if a.produces else None
+    # Release assets commonly include their version in the download filename
+    # while the KI expects a stable executable name (swap4.2.0-mingw.exe ->
+    # swap.exe). For a direct file, ``produces`` is that canonical destination;
+    # materialise it instead of falsely reporting that the download omitted it.
+    if (binary and not binary.exists() and not is_archive and dest.is_file()):
+        binary.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(dest, binary)
     if binary and not binary.exists():
         return Step("acquire[download]", False,
                     f"archive extracted but expected binary missing: {a.produces}"), None
@@ -333,6 +343,27 @@ def place_where_the_ki_expects(ki, binary: Path | None, cfg,
 
     notes: list[str] = []
 
+    def link_directory(link: Path, target: Path) -> None:
+        """Create a directory alias without requiring Windows Developer Mode."""
+        try:
+            link.symlink_to(target, target_is_directory=True)
+            return
+        except OSError as symlink_error:
+            if os.name != "nt":
+                raise
+        # Directory junctions are available to ordinary Windows users, unlike
+        # symlinks on machines where Developer Mode is disabled. ``mklink`` is
+        # a cmd builtin, so invoke that one fixed builtin without shell=True.
+        command = f'mklink /J "{link}" "{target}"'
+        completed = subprocess.run(
+            ["cmd.exe", "/d", "/s", "/c", command],
+            capture_output=True, text=True, errors="replace",
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000),
+        )
+        if completed.returncode != 0 or not link.is_dir():
+            detail = (completed.stderr or completed.stdout).strip()
+            raise OSError(detail or str(symlink_error))
+
     def resolve(decl: str) -> Path | None:
         if decl.startswith("KISSPATH_"):
             if cfg is None:
@@ -361,7 +392,12 @@ def place_where_the_ki_expects(ki, binary: Path | None, cfg,
                 want = resolve(decl)
                 if want is None or len(want.parts) < len(rel_binary.parts):
                     continue
-                if tuple(want.parts[-len(rel_binary.parts):]) != rel_binary.parts:
+                declared_tail = tuple(want.parts[-len(rel_binary.parts):])
+                same_relative = declared_tail == rel_binary.parts
+                if (not same_relative and os.name == "nt" and
+                        rel_binary.suffix.lower() == ".exe"):
+                    same_relative = declared_tail == rel_binary.with_suffix("").parts
+                if not same_relative:
                     continue
                 declared_root = want
                 for _ in rel_binary.parts:
@@ -370,7 +406,7 @@ def place_where_the_ki_expects(ki, binary: Path | None, cfg,
                     continue
                 try:
                     declared_root.parent.mkdir(parents=True, exist_ok=True)
-                    declared_root.symlink_to(prefix, target_is_directory=True)
+                    link_directory(declared_root, prefix)
                     notes.append(f"linked install tree {declared_root} -> {prefix}")
                 except OSError as e:
                     notes.append(f"could not link install tree at {declared_root}: {e}")
@@ -391,7 +427,7 @@ def place_where_the_ki_expects(ki, binary: Path | None, cfg,
             continue
         try:
             want.parent.mkdir(parents=True, exist_ok=True)
-            want.symlink_to(have, target_is_directory=True)
+            link_directory(want, have)
             notes.append(f"linked {want} -> {have}")
         except OSError as e:
             notes.append(f"could not place {want.name}/ at {want}: {e}")
@@ -433,6 +469,12 @@ def place_agent_install(man: Manifest, binary: Path | None,
     binary = Path(binary)
     prefix = Path(cfg.roles["binaries"]) / (man.install_dir or man.model)
     relative = Path(man.acquire.produces)
+    if (os.name == "nt" and
+            binary.name.lower() == relative.name.lower() + ".exe"):
+        # Manifests inherited from POSIX commonly omit the native suffix.
+        # Normalise before comparing/copying so the complete source tree and
+        # its adjacent DLLs still land at the path find_binary() probes.
+        relative = relative.with_name(relative.name + ".exe")
     expected = prefix / relative
     if expected.is_file():
         return expected, []
@@ -492,8 +534,8 @@ def run_preflight(ki, python: str, cfg=None) -> Step:
             argv = sandbox_command(cfg, argv, cwd=ki.root)
     env = None
     if cfg is not None:
-        from .paths import with_ki_tools_common
-        env = with_ki_tools_common(cfg, {})
+        from .paths import with_ki_tools_common, with_python_runtime
+        env = with_python_runtime(python, with_ki_tools_common(cfg, {}))
     rc, out = _run(argv, cwd=ki.root, timeout=600, env=env)
     tail = "\n".join(out.strip().splitlines()[-25:])
     return Step("preflight", rc == 0, tail, commands=[" ".join(argv)])

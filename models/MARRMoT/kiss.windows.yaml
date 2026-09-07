@@ -1,0 +1,69 @@
+kiss_manifest_version: 1
+model: MARRMoT
+binary_type: PE32
+verified: observed
+install_dir: MARRMoT
+
+acquire:
+  strategy: build
+  repo: https://github.com/wknoben/MARRMoT.git
+  ref: a95b925669385e6c747637dec45c848601177ea4
+  commands: []
+  produces: octave/octave-11.3.0-w64/mingw64/bin/octave-cli.exe
+  system_deps: [git]
+
+system_deps: [git]
+python_deps: [numpy, pandas, xarray, matplotlib]
+reference_case: octave/octave-11.3.0-w64/mingw64/bin/octave-cli.exe --version
+
+notes: >-
+  OBSERVED on Windows on 2026-09-07: fresh DeepSeek installation completed
+  in 302 seconds and GeoForge independently resolved the real Octave 11.3.0
+  PE product and all four Python imports. An additional independent Octave
+  probe loaded optim/statistics and ran m_01_collie1_1p_1s for ten timesteps
+  with finite outputs and water-balance residual -1.42108547152e-14 mm.
+  MARRMoT v2.1.2 is a MATLAB/Octave source
+  toolbox, so its executable contract is the actual GNU Octave CLI runtime,
+  accompanied by pinned MARRMoT source and a successful model instantiation.
+  An arbitrary Python interpreter or an empty MATLAB wrapper is insufficient.
+
+agent_hint: >-
+  On Windows use the official GNU Octave portable Windows archive, not the
+  interactive installer. Download
+  `https://ftp.gnu.org/gnu/octave/windows/octave-11.3.0-w64.7z`
+  (481127074 bytes), SHA-256
+  `fd3cf0e885467a15211b8ceded42800432a5462481324d49a896ef257e05d1a0`;
+  official mirrors linked by https://octave.org/download may
+  be used if the GNU server is slow. Bootstrap workspace-only extraction with
+  official `https://www.7-zip.org/a/7zr.exe`, SHA-256
+  `ad4c82fadcbdf93c03b4fc440f300509c7d60c5c2f4d183e35d9d70d6957037d`.
+  Extract the complete Octave distribution below `binaries/MARRMoT/octave/`.
+  The exact product relative to `binaries/MARRMoT/` must be
+  `octave/octave-11.3.0-w64/mingw64/bin/octave-cli.exe`; inspect archive entries
+  and arrange the enclosing distribution directory if necessary, preserving
+  its entire bin/share/lib/package/DLL tree. Never copy just an executable or
+  rename the installer to the product. Record the archive SHA-256 in the
+  installation report. Clone the official MARRMoT repo at exact commit
+  `a95b925669385e6c747637dec45c848601177ea4` (v2.1.2) into
+  `binaries/MARRMoT/source/repo`, retaining the inner `MARRMoT` source folder.
+  The archive includes optim, struct, statistics and their native modules.
+  Invoke the actual octave-cli.exe with `--no-gui --no-window-system`; use
+  `pkg rebuild -global` if the included packages are not registered, then
+  require `pkg load optim; pkg load statistics`. Keep any package metadata
+  under the workspace; no user-profile or system installation is needed.
+  In installation-only mode use the permitted --version probe and verify
+  the pinned source files are present; do not attempt to bypass its external
+  runtime command restriction. For separate KI verification, use an Octave
+  script that adds the inner source with
+  `addpath(genpath('.../source/repo/MARRMoT'))`, constructs
+  `m_01_collie1_1p_1s`, asserts numParams and numStores are both 1, supplies
+  theta=100, S0=0, delta_t=1 and a short [P, Ep, T] forcing matrix, calls
+  get_output(), and verifies finite nonnegative Q of the expected length.
+  Set `m.solver_opts.resnorm_tolerance=0.1` and
+  `m.solver_opts.resnorm_maxiter=6` before get_output(); v2.1.2 otherwise leaves
+  solver_opts empty and fails with `matrix cannot be indexed with .`.
+  Use forward slashes in MATLAB/Octave path strings. The KI ships the optional
+  `tools/windows_smoke.m` for this separate numerical check. Keep its output
+  as additional verification evidence; scientific observations are not
+  required for installation. Configure a workspace Python environment for
+  the declared Python dependencies and record that interpreter in kiss.toml.

@@ -1,0 +1,30 @@
+# Windows installation recipe carried inside the KI package.
+# Keep the legacy shared manifest in kiss/manifests synchronized for older apps.
+kiss_manifest_version: 1
+model: Daisy
+binary_type: PE32
+verified: partial
+install_dir: Daisy
+
+acquire:
+  strategy: download
+  url: https://github.com/daisy-model/daisy/releases/download/v7.1.14/daisy-7.1.14-Windows-python3.13.zip
+  sha256: d2bdf99b907cda45f118e9719e5aa7597bc42bfa9352db05fd0a3d0afbdf3473
+  produces: daisy-7.1.14-Windows-python3.13/bin/daisy-bin.exe
+
+python_deps: [numpy, pandas, pyyaml]
+system_deps: []
+
+reference_case: daisy-bin.exe -v
+
+notes: >-
+  The KI was authored against an untagged 7.1.4 development build. Upstream
+  currently publishes the same 7.1 line as v7.1.14, including a self-contained
+  Windows archive with daisy-bin.exe, runtime DLLs, libraries, samples, and its
+  embedded Python. DeepSeek installed and started this exact archive during the
+  2026-09-06 Windows stress test; scientific verification remains separate.
+
+agent_hint: >-
+  Prefer the checksum-pinned official v7.1.14 Windows archive. Keep the whole
+  extracted directory together because daisy-bin.exe needs its adjacent DLLs,
+  lib directory, and embedded Python runtime. Probe with daisy-bin.exe -v.

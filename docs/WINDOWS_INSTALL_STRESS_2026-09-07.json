@@ -1,0 +1,1158 @@
+{
+  "schema_version": 1,
+  "platform": "windows",
+  "provider": "api:deepseek",
+  "mode": "installation_only",
+  "snapshot_date": "2026-09-07",
+  "counts": {
+    "installed": 91,
+    "needs-user": 35,
+    "failed": 1
+  },
+  "scope": "Latest recorded result per KI. Installed is startup/import verification, not scientific or calibration validation.",
+  "results": [
+    {
+      "model": "ADCIRC",
+      "result": "installed",
+      "seconds": 110.8,
+      "finished_at": "2026-09-04T21:20:14+08:00",
+      "probe": "runnable (pe) — Python 3.13.5",
+      "request_kind": null,
+      "test_run": "_stress_deepseek_windows_0652_install_only"
+    },
+    {
+      "model": "Alpine3D",
+      "result": "installed",
+      "seconds": 92.8,
+      "finished_at": "2026-09-06T14:25:49+08:00",
+      "probe": "runnable (pe) — <workspace>\\binaries\\Alpine3D\\source\\repo\\Source\\alpine3d\\bin\\alpine3d.exe 3.20 compiled on Sep  7 2020 22:05:00",
+      "request_kind": null,
+      "test_run": "ga4"
+    },
+    {
+      "model": "Amanzi_ATS",
+      "result": "installed",
+      "seconds": 142.4,
+      "finished_at": "2026-09-04T21:29:56+08:00",
+      "probe": "runnable (script) — usage: run_amanzi.py [-h] --xml_file XML_FILE [--binary BINARY] [--np NP]",
+      "request_kind": null,
+      "test_run": "_stress_deepseek_windows_0652_install_only"
+    },
+    {
+      "model": "ANUGA",
+      "result": "installed",
+      "seconds": 162.9,
+      "finished_at": "2026-09-04T21:32:39+08:00",
+      "probe": "runnable (python package) — all declared imports resolve",
+      "request_kind": null,
+      "test_run": "_stress_deepseek_windows_0652_install_only"
+    },
+    {
+      "model": "APEX",
+      "result": "needs-user",
+      "seconds": 144.6,
+      "finished_at": "2026-09-06T13:04:50+08:00",
+      "probe": "APEX runtime/py stack is installed and probe-verified, but the core model is a licence-gated proprietary Windows binary (APEX0806) absent from this workspace. GeoForge/manifest forbids substituting freely-downloadable APEX1501. Please obtain the exact v0806 asset from the Texas A&M AgriLife BREC distribution page and place: APEX0806.exe at <workspace>\\ki\\reference\\APEX0806.exe, and the ex1_RiselTX reference template at <workspace>\\ki\\examples\\ex1_RiselTX\\.\nAfter files arrive, re-check ki\\reference\\APEX0806.exe and ki\\examples\\ex1_RiselTX\\ presence and re-run the venv import probe.",
+      "request_kind": "download",
+      "test_run": "gfa"
+    },
+    {
+      "model": "APSIM",
+      "result": "installed",
+      "seconds": 464.5,
+      "finished_at": "2026-09-04T21:40:24+08:00",
+      "probe": "runnable (pe) — Python 3.11.0",
+      "request_kind": null,
+      "test_run": "_stress_deepseek_windows_0652_install_only"
+    },
+    {
+      "model": "AquaCrop",
+      "result": "installed",
+      "seconds": 111.9,
+      "finished_at": "2026-09-04T21:04:14+08:00",
+      "probe": "runnable (python package) — all declared imports resolve",
+      "request_kind": null,
+      "test_run": "_stress_deepseek_windows_0652_install_only"
+    },
+    {
+      "model": "BIOME_BGC",
+      "result": "installed",
+      "seconds": 80.6,
+      "finished_at": "2026-09-04T21:41:45+08:00",
+      "probe": "runnable (pe) — Python 3.13.5",
+      "request_kind": null,
+      "test_run": "_stress_deepseek_windows_0652_install_only"
+    },
+    {
+      "model": "BMI",
+      "result": "installed",
+      "seconds": 121.5,
+      "finished_at": "2026-09-05T20:06:46+08:00",
+      "probe": "runnable (python package) — all declared imports resolve",
+      "request_kind": null,
+      "test_run": "_stress_deepseek_windows_0652_retest_v3"
+    },
+    {
+      "model": "CAESAR_Lisflood",
+      "result": "installed",
+      "seconds": 116.6,
+      "finished_at": "2026-09-06T09:36:18+08:00",
+      "probe": "runnable (pe) — ##################################",
+      "request_kind": null,
+      "test_run": "_stress_deepseek_windows_0652_fixed_caesar_lisflood_py311"
+    },
+    {
+      "model": "CaMa_Flood",
+      "result": "installed",
+      "seconds": 164.1,
+      "finished_at": "2026-09-04T22:07:21+08:00",
+      "probe": "runnable (pe) — Python 3.13.5",
+      "request_kind": null,
+      "test_run": "_stress_deepseek_windows_0652_install_only"
+    },
+    {
+      "model": "CE_QUAL_W2",
+      "result": "installed",
+      "seconds": 252.8,
+      "finished_at": "2026-09-06T10:11:04+08:00",
+      "probe": "runnable (pe) — ran — still working after 25s (--version)",
+      "request_kind": null,
+      "test_run": "_stress_deepseek_windows_0652_diag4_cequal_manifest_py311"
+    },
+    {
+      "model": "Cell2Fire",
+      "result": "installed",
+      "seconds": 69.7,
+      "finished_at": "2026-09-06T09:46:52+08:00",
+      "probe": "runnable (pe) — version: v1.0.1",
+      "request_kind": null,
+      "test_run": "_stress_deepseek_windows_0652_cell2fire_normalized_py311"
+    },
+    {
+      "model": "CISM",
+      "result": "needs-user",
+      "seconds": 139.8,
+      "finished_at": "2026-09-04T22:14:25+08:00",
+      "probe": "not found — nothing at <workspace>\\models\\CISM\\source\\repo\\builds\\mpi\\cism_driver\\cism_driver",
+      "request_kind": "choice",
+      "test_run": "_stress_deepseek_windows_0652_install_only"
+    },
+    {
+      "model": "CLASSIC",
+      "result": "needs-user",
+      "seconds": 115,
+      "finished_at": "2026-09-04T22:16:20+08:00",
+      "probe": "not found — nothing at <workspace>\\binaries\\CLASSIC\\source\\repo\\bin\\CLASSIC_serial",
+      "request_kind": "permission",
+      "test_run": "_stress_deepseek_windows_0652_install_only"
+    },
+    {
+      "model": "Climate_Projection",
+      "result": "installed",
+      "seconds": 98.4,
+      "finished_at": "2026-09-04T22:17:59+08:00",
+      "probe": "runnable (python package) — all declared imports resolve",
+      "request_kind": null,
+      "test_run": "_stress_deepseek_windows_0652_install_only"
+    },
+    {
+      "model": "CLM5___CTSM",
+      "result": "needs-user",
+      "seconds": 119.4,
+      "finished_at": "2026-09-04T22:19:59+08:00",
+      "probe": "not found — nothing at <workspace>\\cesm\\src\\cesm-2.2.2\\cime\\scripts\\create_newcase",
+      "request_kind": "permission",
+      "test_run": "_stress_deepseek_windows_0652_install_only"
+    },
+    {
+      "model": "COAWST",
+      "result": "needs-user",
+      "seconds": 121.2,
+      "finished_at": "2026-09-04T22:22:01+08:00",
+      "probe": "not found — nothing at <workspace>\\binaries\\COAWST\\source\\repo\\coawstM",
+      "request_kind": "permission",
+      "test_run": "_stress_deepseek_windows_0652_install_only"
+    },
+    {
+      "model": "COSIPY",
+      "result": "installed",
+      "seconds": 203.4,
+      "finished_at": "2026-09-04T22:25:25+08:00",
+      "probe": "runnable (python package) — all declared imports resolve",
+      "request_kind": null,
+      "test_run": "_stress_deepseek_windows_0652_install_only"
+    },
+    {
+      "model": "CREST",
+      "result": "installed",
+      "seconds": 157.5,
+      "finished_at": "2026-09-04T22:28:03+08:00",
+      "probe": "runnable (pe) — Python 3.13.5",
+      "request_kind": null,
+      "test_run": "_stress_deepseek_windows_0652_install_only"
+    },
+    {
+      "model": "CRHM",
+      "result": "installed",
+      "seconds": 243,
+      "finished_at": "2026-09-05T20:51:07+08:00",
+      "probe": "runnable (pe) — Unrecognized option \"--version\" given. Use option --help for usage information.",
+      "request_kind": null,
+      "test_run": "_stress_deepseek_windows_0652_retest_v3"
+    },
+    {
+      "model": "CWatM",
+      "result": "installed",
+      "seconds": 271.5,
+      "finished_at": "2026-09-04T22:42:10+08:00",
+      "probe": "runnable (pe) — Python 3.13.5",
+      "request_kind": null,
+      "test_run": "_stress_deepseek_windows_0652_install_only"
+    },
+    {
+      "model": "Daisy",
+      "result": "installed",
+      "seconds": 217.3,
+      "finished_at": "2026-09-06T09:37:58+08:00",
+      "probe": "runnable (pe) — Daisy crop/soil simulation version 7.1.14. (Aug 31 2026)",
+      "request_kind": null,
+      "test_run": "_stress_deepseek_windows_0652_fixed_daisy_py311"
+    },
+    {
+      "model": "DART",
+      "result": "needs-user",
+      "seconds": 173.8,
+      "finished_at": "2026-09-04T22:48:42+08:00",
+      "probe": "cannot verify — a fortran model must have a binary, but the KI declares none — nothing to verify",
+      "request_kind": "permission",
+      "test_run": "_stress_deepseek_windows_0652_install_only"
+    },
+    {
+      "model": "DayCent",
+      "result": "needs-user",
+      "seconds": 74.4,
+      "finished_at": "2026-09-04T22:49:57+08:00",
+      "probe": "not found — nothing at <workspace>\\binaries\\DayCent\\source\\repo\\Linux_Version_491\\DDcentEVI_rev491",
+      "request_kind": "download",
+      "test_run": "_stress_deepseek_windows_0652_install_only"
+    },
+    {
+      "model": "Delft3D",
+      "result": "installed",
+      "seconds": 82.2,
+      "finished_at": "2026-09-04T22:51:20+08:00",
+      "probe": "runnable (pe) — Python 3.13.5",
+      "request_kind": null,
+      "test_run": "_stress_deepseek_windows_0652_install_only"
+    },
+    {
+      "model": "dfnWorks",
+      "result": "needs-user",
+      "seconds": 196,
+      "finished_at": "2026-09-04T22:54:36+08:00",
+      "probe": "cannot verify — a c++/c/python model must have a binary, but the KI declares none — nothing to verify",
+      "request_kind": "permission",
+      "test_run": "_stress_deepseek_windows_0652_install_only"
+    },
+    {
+      "model": "DHSVM",
+      "result": "installed",
+      "seconds": 178.7,
+      "finished_at": "2026-09-05T20:57:52+08:00",
+      "probe": "runnable (pe) — <workspace>\\binaries\\DHSVM\\source\\repo\\build\\DHSVM\\sourcecode",
+      "request_kind": null,
+      "test_run": "_stress_deepseek_windows_0652_retest_v3"
+    },
+    {
+      "model": "DLBreach",
+      "result": "needs-user",
+      "seconds": 153.8,
+      "finished_at": "2026-09-04T23:02:06+08:00",
+      "probe": "not found — nothing at <workspace>\\model\\dlbreach\\bin\\DLBreach_Barrier.exe",
+      "request_kind": "download",
+      "test_run": "_stress_deepseek_windows_0652_install_only"
+    },
+    {
+      "model": "DNDC",
+      "result": "installed",
+      "seconds": 296.8,
+      "finished_at": "2026-09-06T09:15:04+08:00",
+      "probe": "runnable (pe) — ran — still working after 25s (--version)",
+      "request_kind": null,
+      "test_run": "_stress_deepseek_windows_0652_parallel_b_py311"
+    },
+    {
+      "model": "DSSAT",
+      "result": "installed",
+      "seconds": 274.1,
+      "finished_at": "2026-09-06T10:35:38+08:00",
+      "probe": "runnable (pe) — -----------------------------------------------------------------------------",
+      "request_kind": null,
+      "test_run": "_stress_deepseek_windows_0652_diag7_dssat_portable_py311"
+    },
+    {
+      "model": "DualSPHysics",
+      "result": "installed",
+      "seconds": 940.6,
+      "finished_at": "2026-09-04T23:24:09+08:00",
+      "probe": "runnable (pe) — Python 3.13.5",
+      "request_kind": null,
+      "test_run": "_stress_deepseek_windows_0652_install_only"
+    },
+    {
+      "model": "DuMux",
+      "result": "needs-user",
+      "seconds": 170.1,
+      "finished_at": "2026-09-04T23:27:00+08:00",
+      "probe": "not found — nothing at <workspace>\\binaries\\DuMux\\dumux_real_run\\example_1ptracer",
+      "request_kind": "choice",
+      "test_run": "_stress_deepseek_windows_0652_install_only"
+    },
+    {
+      "model": "EF5",
+      "result": "installed",
+      "seconds": 185,
+      "finished_at": "2026-09-04T23:30:05+08:00",
+      "probe": "runnable (pe) — Python 3.13.5",
+      "request_kind": null,
+      "test_run": "_stress_deepseek_windows_0652_install_only"
+    },
+    {
+      "model": "ELM",
+      "result": "needs-user",
+      "seconds": 165.1,
+      "finished_at": "2026-09-04T23:32:51+08:00",
+      "probe": "cannot verify — a fortran model must have a binary, but the KI declares none — nothing to verify",
+      "request_kind": "permission",
+      "test_run": "_stress_deepseek_windows_0652_install_only"
+    },
+    {
+      "model": "Elmer_Ice",
+      "result": "needs-user",
+      "seconds": 162.1,
+      "finished_at": "2026-09-04T23:35:33+08:00",
+      "probe": "not found — nothing at <workspace>\\bin\\bin\\ElmerSolver",
+      "request_kind": "other",
+      "test_run": "_stress_deepseek_windows_0652_install_only"
+    },
+    {
+      "model": "ELMFIRE",
+      "result": "installed",
+      "seconds": 336.4,
+      "finished_at": "2026-09-04T23:41:10+08:00",
+      "probe": "runnable (pe) — Python 3.13.5",
+      "request_kind": null,
+      "test_run": "_stress_deepseek_windows_0652_install_only"
+    },
+    {
+      "model": "EPANET",
+      "result": "installed",
+      "seconds": 128.1,
+      "finished_at": "2026-09-06T09:17:44+08:00",
+      "probe": "runnable (pe) — Usage:",
+      "request_kind": null,
+      "test_run": "_stress_deepseek_windows_0652_parallel_a_py311"
+    },
+    {
+      "model": "EPIC",
+      "result": "needs-user",
+      "seconds": 195.3,
+      "finished_at": "2026-09-04T23:47:27+08:00",
+      "probe": "cannot verify — a fortran model must have a binary, but the KI declares none — nothing to verify",
+      "request_kind": "download",
+      "test_run": "_stress_deepseek_windows_0652_install_only"
+    },
+    {
+      "model": "ESMF",
+      "result": "installed",
+      "seconds": 243.8,
+      "finished_at": "2026-09-06T14:45:29+08:00",
+      "probe": "runnable (pe) — ESMF_VERSION_STRING:       8.4.0",
+      "request_kind": null,
+      "test_run": "ge2"
+    },
+    {
+      "model": "FATES",
+      "result": "needs-user",
+      "seconds": 116.5,
+      "finished_at": "2026-09-04T23:51:38+08:00",
+      "probe": "not found — nothing at <workspace>\\cesm\\scratch\\test_fates\\bld\\cesm.exe",
+      "request_kind": "permission",
+      "test_run": "_stress_deepseek_windows_0652_install_only"
+    },
+    {
+      "model": "FloPy",
+      "result": "installed",
+      "seconds": 150,
+      "finished_at": "2026-09-05T15:33:40+08:00",
+      "probe": "runnable (python package) — all declared imports resolve",
+      "request_kind": null,
+      "test_run": "_stress_deepseek_windows_0652_retest_failed"
+    },
+    {
+      "model": "ForeFire",
+      "result": "installed",
+      "seconds": 274.6,
+      "finished_at": "2026-09-04T23:57:54+08:00",
+      "probe": "runnable (pe) — Python 3.13.5",
+      "request_kind": null,
+      "test_run": "_stress_deepseek_windows_0652_install_only"
+    },
+    {
+      "model": "FSM2",
+      "result": "installed",
+      "seconds": 177,
+      "finished_at": "2026-09-07T19:36:26+0800",
+      "probe": "runnable (pe) — At line 128 of file FSM2_PARAMS.F90 (unit = 5, file = 'stdin')",
+      "request_kind": null,
+      "test_run": "gfsm1"
+    },
+    {
+      "model": "GemPy",
+      "result": "installed",
+      "seconds": 146.1,
+      "finished_at": "2026-09-05T00:03:26+08:00",
+      "probe": "runnable (python package) — all declared imports resolve",
+      "request_kind": null,
+      "test_run": "_stress_deepseek_windows_0652_install_only"
+    },
+    {
+      "model": "GeoClaw",
+      "result": "installed",
+      "seconds": 106.6,
+      "finished_at": "2026-09-05T00:05:14+08:00",
+      "probe": "runnable (pe) — Python 3.13.5",
+      "request_kind": null,
+      "test_run": "_stress_deepseek_windows_0652_install_only"
+    },
+    {
+      "model": "GEOPHIRES",
+      "result": "installed",
+      "seconds": 209.9,
+      "finished_at": "2026-09-05T15:37:11+08:00",
+      "probe": "runnable (python package) — all declared imports resolve",
+      "request_kind": null,
+      "test_run": "_stress_deepseek_windows_0652_retest_failed"
+    },
+    {
+      "model": "GEOtop",
+      "result": "installed",
+      "seconds": 192.9,
+      "finished_at": "2026-09-05T21:04:58+08:00",
+      "probe": "runnable (pe) — geotop:STATEMENT:",
+      "request_kind": null,
+      "test_run": "_stress_deepseek_windows_0652_retest_v3"
+    },
+    {
+      "model": "GIFMod",
+      "result": "needs-user",
+      "seconds": 102.3,
+      "finished_at": "2026-09-05T00:13:09+08:00",
+      "probe": "cannot verify — a c++ model must have a binary, but the KI declares none — nothing to verify",
+      "request_kind": "other",
+      "test_run": "_stress_deepseek_windows_0652_install_only"
+    },
+    {
+      "model": "GLM",
+      "result": "installed",
+      "seconds": 144.4,
+      "finished_at": "2026-09-05T00:15:33+08:00",
+      "probe": "runnable (pe) — Python 3.13.5",
+      "request_kind": null,
+      "test_run": "_stress_deepseek_windows_0652_install_only"
+    },
+    {
+      "model": "GR4J___airGR",
+      "result": "installed",
+      "seconds": 103.4,
+      "finished_at": "2026-09-05T21:06:42+08:00",
+      "probe": "runnable (script) — During startup - Warning messages:",
+      "request_kind": null,
+      "test_run": "_stress_deepseek_windows_0652_retest_v3"
+    },
+    {
+      "model": "GSFLOW",
+      "result": "installed",
+      "seconds": 262.2,
+      "finished_at": "2026-09-05T00:23:30+08:00",
+      "probe": "runnable (pe) — Python 3.13.5",
+      "request_kind": null,
+      "test_run": "_stress_deepseek_windows_0652_install_only"
+    },
+    {
+      "model": "HEC_HMS",
+      "result": "installed",
+      "seconds": 192.2,
+      "finished_at": "2026-09-05T00:26:43+08:00",
+      "probe": "runnable (script) — usage: run_hec_hms.py [-h] --forcing_csv FORCING_CSV",
+      "request_kind": null,
+      "test_run": "_stress_deepseek_windows_0652_install_only"
+    },
+    {
+      "model": "HEC_RAS",
+      "result": "needs-user",
+      "seconds": 49.8,
+      "finished_at": "2026-09-05T00:27:33+08:00",
+      "probe": "cannot verify — a fortran model must have a binary, but the KI declares none — nothing to verify",
+      "request_kind": "login",
+      "test_run": "_stress_deepseek_windows_0652_install_only"
+    },
+    {
+      "model": "HexWatershed",
+      "result": "installed",
+      "seconds": 652.4,
+      "finished_at": "2026-09-06T14:19:11+08:00",
+      "probe": "runnable (pe) — Start to run ecosystem model!",
+      "request_kind": null,
+      "test_run": "gfx4"
+    },
+    {
+      "model": "HydroCNHS",
+      "result": "installed",
+      "seconds": 150.6,
+      "finished_at": "2026-09-05T00:39:02+08:00",
+      "probe": "runnable (python package) — all declared imports resolve",
+      "request_kind": null,
+      "test_run": "_stress_deepseek_windows_0652_install_only"
+    },
+    {
+      "model": "HydroTrend",
+      "result": "installed",
+      "seconds": 159.8,
+      "finished_at": "2026-09-05T15:50:15+08:00",
+      "probe": "runnable (pe) — HydroTrend version 3.0.5",
+      "request_kind": null,
+      "test_run": "_stress_deepseek_windows_0652_retest_failed"
+    },
+    {
+      "model": "HYPE",
+      "result": "installed",
+      "seconds": 742.1,
+      "finished_at": "2026-09-06T13:19:18+08:00",
+      "probe": "runnable (pe) — ran — still working after 25s (--version)",
+      "request_kind": null,
+      "test_run": "gfh"
+    },
+    {
+      "model": "icepack",
+      "result": "needs-user",
+      "seconds": 241.8,
+      "finished_at": "2026-09-05T00:47:54+08:00",
+      "probe": "cannot verify — the KI declares nothing to run — no executable and no imports to check, so its state cannot be established",
+      "request_kind": "permission",
+      "test_run": "_stress_deepseek_windows_0652_install_only"
+    },
+    {
+      "model": "ISSM",
+      "result": "needs-user",
+      "seconds": 116,
+      "finished_at": "2026-09-05T00:49:51+08:00",
+      "probe": "cannot verify — a c++ model must have a binary, but the KI declares none — nothing to verify",
+      "request_kind": "permission",
+      "test_run": "_stress_deepseek_windows_0652_install_only"
+    },
+    {
+      "model": "KINEROS2",
+      "result": "installed",
+      "seconds": 275.4,
+      "finished_at": "2026-09-05T00:54:27+08:00",
+      "probe": "runnable (pe) — Python 3.11.0",
+      "request_kind": null,
+      "test_run": "_stress_deepseek_windows_0652_install_only"
+    },
+    {
+      "model": "Landlab",
+      "result": "installed",
+      "seconds": 149.7,
+      "finished_at": "2026-09-05T00:56:57+08:00",
+      "probe": "runnable (python package) — all declared imports resolve",
+      "request_kind": null,
+      "test_run": "_stress_deepseek_windows_0652_install_only"
+    },
+    {
+      "model": "LDNDC",
+      "result": "needs-user",
+      "seconds": 150.8,
+      "finished_at": "2026-09-05T00:59:29+08:00",
+      "probe": "not found — nothing at <workspace>\\model\\ldndc\\ldndc-1.37.linux64\\bin\\ldndc",
+      "request_kind": "download",
+      "test_run": "_stress_deepseek_windows_0652_install_only"
+    },
+    {
+      "model": "LISFLOOD",
+      "result": "installed",
+      "seconds": 446.9,
+      "finished_at": "2026-09-06T13:00:46+08:00",
+      "probe": "runnable (python package) — all declared imports resolve",
+      "request_kind": null,
+      "test_run": "gfl2"
+    },
+    {
+      "model": "Lohmann_Routing",
+      "result": "needs-user",
+      "seconds": 181.6,
+      "finished_at": "2026-09-05T01:04:25+08:00",
+      "probe": "not found — nothing at <workspace>\\binaries\\route_1.0\\src\\rout",
+      "request_kind": "permission",
+      "test_run": "_stress_deepseek_windows_0652_install_only"
+    },
+    {
+      "model": "LPJ_GUESS",
+      "result": "installed",
+      "seconds": 103.7,
+      "finished_at": "2026-09-05T15:51:59+08:00",
+      "probe": "runnable (python package) — all declared imports resolve",
+      "request_kind": null,
+      "test_run": "_stress_deepseek_windows_0652_retest_failed"
+    },
+    {
+      "model": "LPJmL",
+      "result": "needs-user",
+      "seconds": 193.2,
+      "finished_at": "2026-09-05T01:09:55+08:00",
+      "probe": "cannot verify — a c model must have a binary, but the KI declares none — nothing to verify",
+      "request_kind": "permission",
+      "test_run": "_stress_deepseek_windows_0652_install_only"
+    },
+    {
+      "model": "MARRMoT",
+      "result": "installed",
+      "seconds": 302,
+      "finished_at": "2026-09-07T19:38:59+0800",
+      "probe": "runnable (pe) — GNU Octave (x86_64-w64-mingw32) version 11.3.0",
+      "request_kind": null,
+      "test_run": "gmarr1"
+    },
+    {
+      "model": "mHM",
+      "result": "needs-user",
+      "seconds": 248.9,
+      "finished_at": "2026-09-05T01:16:48+08:00",
+      "probe": "cannot verify — a fortran model must have a binary, but the KI declares none — nothing to verify",
+      "request_kind": "permission",
+      "test_run": "_stress_deepseek_windows_0652_install_only"
+    },
+    {
+      "model": "mizuRoute",
+      "result": "needs-user",
+      "seconds": 110.9,
+      "finished_at": "2026-09-05T01:18:39+08:00",
+      "probe": "cannot verify — a fortran model must have a binary, but the KI declares none — nothing to verify",
+      "request_kind": "permission",
+      "test_run": "_stress_deepseek_windows_0652_install_only"
+    },
+    {
+      "model": "MODFLOW6",
+      "result": "installed",
+      "seconds": 301.6,
+      "finished_at": "2026-09-04T21:12:35+08:00",
+      "probe": "runnable (pe) — Python 3.11.0",
+      "request_kind": null,
+      "test_run": "_stress_deepseek_windows_0652_install_only"
+    },
+    {
+      "model": "MOM6",
+      "result": "needs-user",
+      "seconds": 114.9,
+      "finished_at": "2026-09-05T01:20:35+08:00",
+      "probe": "not found — nothing at <workspace>\\binaries\\MOM6\\source\\repo\\.testing\\build\\symmetric\\MOM6",
+      "request_kind": "permission",
+      "test_run": "_stress_deepseek_windows_0652_install_only"
+    },
+    {
+      "model": "MONICA",
+      "result": "needs-user",
+      "seconds": 121.1,
+      "finished_at": "2026-09-05T01:22:36+08:00",
+      "probe": "cannot verify — a c++ model must have a binary, but the KI declares none — nothing to verify",
+      "request_kind": "permission",
+      "test_run": "_stress_deepseek_windows_0652_install_only"
+    },
+    {
+      "model": "MOSART",
+      "result": "installed",
+      "seconds": 302.7,
+      "finished_at": "2026-09-05T15:57:02+08:00",
+      "probe": "runnable (python package) — all declared imports resolve",
+      "request_kind": null,
+      "test_run": "_stress_deepseek_windows_0652_retest_failed"
+    },
+    {
+      "model": "Noah_MP",
+      "result": "needs-user",
+      "seconds": 156.3,
+      "finished_at": "2026-09-05T01:29:10+08:00",
+      "probe": "not found — nothing at <workspace>\\binaries\\Noah_MP\\source\\hrldas\\hrldas\\run\\hrldas.exe",
+      "request_kind": "permission",
+      "test_run": "_stress_deepseek_windows_0652_install_only"
+    },
+    {
+      "model": "OGGM",
+      "result": "installed",
+      "seconds": 102.6,
+      "finished_at": "2026-09-05T01:30:53+08:00",
+      "probe": "runnable (python package) — all declared imports resolve",
+      "request_kind": null,
+      "test_run": "_stress_deepseek_windows_0652_install_only"
+    },
+    {
+      "model": "openAMUNDSEN",
+      "result": "installed",
+      "seconds": 120.1,
+      "finished_at": "2026-09-05T01:32:54+08:00",
+      "probe": "runnable (pe) — Python 3.13.5",
+      "request_kind": null,
+      "test_run": "_stress_deepseek_windows_0652_install_only"
+    },
+    {
+      "model": "OpenFOAM",
+      "result": "needs-user",
+      "seconds": 100.3,
+      "finished_at": "2026-09-05T01:34:35+08:00",
+      "probe": " of the attempt. I'll leave a note but not fight for deletion since no deletion tool exists. Let me verify the tree integrity and record the definitive environment blockers.\n\nLet me now produce the structured setup request — this is the mandated action when a missing shared/system toolchain + protected environment requires a person. This is precisely option severity for an installation-only test where native Windows cannot host OpenFOAM-dev at all.\n\nLet me create the structured setup request with clear, actionable options for the human.\n\nFirst, let me update the project progress.\n`> report_project_progress(stage='software', status='failed', summary='OpenFOAM-dev (9,257 C++ files, POSIX)`\nNow let me create the structured setup request. This is the sanctioned path: the missing/runtime toolchain (a POSIX Linux environment capable of running the official OpenFOAM binaries) is a system-level resource that only a human can provide by either (a) installing WSL with Ubuntu plus OpenFOAM, or (b) making a prebuilt Linux OpenFOAM container/files available, or (c) pointing at a Linux host. Each requires system privilege/protected resource access outside the sandbox.\n\nLet me build the most actionable request.\n`> request_user_action(kind='choice', title='OpenFOAM needs a POSIX/Linux runtime that this Windows san)`\nI have escalated via a structured setup request, which is the correct and mandated disposition for this test. Let me verify the workspace is left in a clean, honest state and summarize.\n\nLet me confirm what remains in the workspace root (the throwaway scratch files and the genuine source tree).\n`> list_work_files(subdir='OpenFOAM-dev')`\n\nsetup agent failed: FileNotFoundError: [WinError 3] 系统找不到指定的路径。: 'D:\\\\BaiduNetdiskDownload\\\\kiss-source-v0.6.9-windows\\\\kiss\\\\_stress_deepseek_windows_0652_install_only\\\\installs\\\\OpenFOAM\\\\OpenFOAM-dev\\\\applications\\\\modules\\\\multiphaseEuler\\\\momentumTransportModels\\\\kineticTheoryModels\\\\frictionalStressModel\\\\JohnsonJacksonSchaeffer'\n",
+      "request_kind": "choice",
+      "test_run": "_stress_deepseek_windows_0652_install_only"
+    },
+    {
+      "model": "OpenGeoSys",
+      "result": "installed",
+      "seconds": 202.6,
+      "finished_at": "2026-09-05T01:37:59+08:00",
+      "probe": "runnable (pe) — Python 3.11.0",
+      "request_kind": null,
+      "test_run": "_stress_deepseek_windows_0652_install_only"
+    },
+    {
+      "model": "OpenHydroQual",
+      "result": "needs-user",
+      "seconds": 275.7,
+      "finished_at": "2026-09-06T13:24:49+08:00",
+      "probe": "OpenHydroQual cannot be compiled on this machine yet because Qt6 is a hard, unconditional dependency of the engine source and I have no compatible Qt kit or MSVC toolchain.\n\nEVIDENCE (verified, not assumed):\n- aquifolium/include/Utilities.h includes <QJsonArray> unconditionally; System.h uses Qt types under Q_JSON_SUPPORT/QT_GUI_SUPPORT, both set by the official build.\n- Real g++ -fsyntax-only of aquifolium/src/Object.cpp fails immediately: \"QJsonArray: No such file or directory\".\n- The repo's own BUILD.md declares the Windows route as MSVC 2019/2022 + Qt6-for-MSVC + vcpkg GSL. There is no official Qt-free engine build.\n- Installed toolchain here is only tdm64-gcc (MinGW) 10.3.0 + cmake + git; no MSVC, no Qt, no GSL, no qmake. The git 'libs/lapack-blas_lib_win64' LAPACK/BLAS folder is not tracked in the repo, and the jsoncpp submodule content is not checked out either.\n\nBoth supported Windows paths end at the same point I cannot cross in-workspace: the Qt/Visual-Studio installer requires an account login / licence, and MSVC is a system-wide install that also needs a licence.\n\nHow should I proceed?\nChoose an installation route for the missing Qt6 + C++ toolchain, or supply a prebuilt artifact / archive. The official OHQ source is already staged under <workspace>\\src (tags v2.0.4 and master/2.0.7).",
+      "request_kind": "licence",
+      "test_run": "gfo"
+    },
+    {
+      "model": "ParFlow",
+      "result": "needs-user",
+      "seconds": 71.9,
+      "finished_at": "2026-09-05T01:40:40+08:00",
+      "probe": "not found — nothing at <workspace>\\binaries\\parflow\\install\\bin\\parflow",
+      "request_kind": "permission",
+      "test_run": "_stress_deepseek_windows_0652_install_only"
+    },
+    {
+      "model": "PCR_GLOBWB_2",
+      "result": "installed",
+      "seconds": 202.7,
+      "finished_at": "2026-09-05T16:00:27+08:00",
+      "probe": "runnable (pe) — Python 3.13.5",
+      "request_kind": null,
+      "test_run": "_stress_deepseek_windows_0652_retest_failed"
+    },
+    {
+      "model": "PFLOTRAN",
+      "result": "needs-user",
+      "seconds": 88.2,
+      "finished_at": "2026-09-05T01:43:53+08:00",
+      "probe": "not found — nothing at <workspace>\\models\\PFLOTRAN\\source\\repo\\src\\pflotran\\pflotran",
+      "request_kind": "permission",
+      "test_run": "_stress_deepseek_windows_0652_install_only"
+    },
+    {
+      "model": "PHREEQC",
+      "result": "installed",
+      "seconds": 572.7,
+      "finished_at": "2026-09-05T16:10:04+08:00",
+      "probe": "runnable (pe) — ran — still working after 25s (--version)",
+      "request_kind": null,
+      "test_run": "_stress_deepseek_windows_0652_retest_failed"
+    },
+    {
+      "model": "PIHM",
+      "result": "installed",
+      "seconds": 375.7,
+      "finished_at": "2026-09-06T09:21:20+08:00",
+      "probe": "runnable (pe) — MM-PIHM Version 1.0.0",
+      "request_kind": null,
+      "test_run": "_stress_deepseek_windows_0652_parallel_b_py311"
+    },
+    {
+      "model": "PISM",
+      "result": "installed",
+      "seconds": 147.7,
+      "finished_at": "2026-09-05T02:10:46+08:00",
+      "probe": "runnable (pe) — Python 3.13.5",
+      "request_kind": null,
+      "test_run": "_stress_deepseek_windows_0652_install_only"
+    },
+    {
+      "model": "PorePy",
+      "result": "installed",
+      "seconds": 194.6,
+      "finished_at": "2026-09-05T21:15:39+08:00",
+      "probe": "runnable (python package) — all declared imports resolve",
+      "request_kind": null,
+      "test_run": "_stress_deepseek_windows_0652_retest_v3"
+    },
+    {
+      "model": "PRMS",
+      "result": "installed",
+      "seconds": 110.8,
+      "finished_at": "2026-09-05T02:16:11+08:00",
+      "probe": "runnable (pe) — Python 3.13.5",
+      "request_kind": null,
+      "test_run": "_stress_deepseek_windows_0652_install_only"
+    },
+    {
+      "model": "PyAEZ",
+      "result": "installed",
+      "seconds": 96.3,
+      "finished_at": "2026-09-06T09:58:04+08:00",
+      "probe": "runnable (python package) — all declared imports resolve",
+      "request_kind": null,
+      "test_run": "_stress_deepseek_windows_0652_diag3_pyaez_py311"
+    },
+    {
+      "model": "pyBadlands",
+      "result": "installed",
+      "seconds": 456.6,
+      "finished_at": "2026-09-06T10:45:38+08:00",
+      "probe": "runnable (python package) — all declared imports resolve",
+      "request_kind": null,
+      "test_run": "_stress_deepseek_windows_0652_diag8_pybadlands_winlibs_py311"
+    },
+    {
+      "model": "PyDeltaRCM",
+      "result": "installed",
+      "seconds": 93.5,
+      "finished_at": "2026-09-05T02:24:28+08:00",
+      "probe": "runnable (python package) — all declared imports resolve",
+      "request_kind": null,
+      "test_run": "_stress_deepseek_windows_0652_install_only"
+    },
+    {
+      "model": "pyGIMLi",
+      "result": "installed",
+      "seconds": 60.8,
+      "finished_at": "2026-09-05T02:25:29+08:00",
+      "probe": "runnable (python package) — all declared imports resolve",
+      "request_kind": null,
+      "test_run": "_stress_deepseek_windows_0652_install_only"
+    },
+    {
+      "model": "PyMT",
+      "result": "installed",
+      "seconds": 211,
+      "finished_at": "2026-09-06T09:24:51+08:00",
+      "probe": "runnable (python package) — all declared imports resolve",
+      "request_kind": null,
+      "test_run": "_stress_deepseek_windows_0652_parallel_b_py311"
+    },
+    {
+      "model": "pySTEPS",
+      "result": "installed",
+      "seconds": 438.1,
+      "finished_at": "2026-09-05T02:37:03+08:00",
+      "probe": "runnable (python package) — all declared imports resolve",
+      "request_kind": null,
+      "test_run": "_stress_deepseek_windows_0652_install_only"
+    },
+    {
+      "model": "PySWMM",
+      "result": "installed",
+      "seconds": 74.7,
+      "finished_at": "2026-09-05T02:38:18+08:00",
+      "probe": "runnable (python package) — all declared imports resolve",
+      "request_kind": null,
+      "test_run": "_stress_deepseek_windows_0652_install_only"
+    },
+    {
+      "model": "Pywr",
+      "result": "installed",
+      "seconds": 99.6,
+      "finished_at": "2026-09-05T02:39:58+08:00",
+      "probe": "runnable (python package) — all declared imports resolve",
+      "request_kind": null,
+      "test_run": "_stress_deepseek_windows_0652_install_only"
+    },
+    {
+      "model": "QUINCY",
+      "result": "installed",
+      "seconds": 103.5,
+      "finished_at": "2026-09-05T02:41:43+08:00",
+      "probe": "runnable (python package) — all declared imports resolve",
+      "request_kind": null,
+      "test_run": "_stress_deepseek_windows_0652_install_only"
+    },
+    {
+      "model": "RAPID",
+      "result": "failed",
+      "seconds": 1988.9,
+      "finished_at": "2026-09-06T15:20:29+08:00",
+      "probe": "not found — nothing at <workspace>\\binaries\\RAPID\\source\\repo\\src\\rapid.exe",
+      "request_kind": null,
+      "test_run": "gfp3"
+    },
+    {
+      "model": "Raven",
+      "result": "installed",
+      "seconds": 141.3,
+      "finished_at": "2026-09-05T02:46:16+08:00",
+      "probe": "runnable (pe) — ============================================================",
+      "request_kind": null,
+      "test_run": "_stress_deepseek_windows_0652_install_only"
+    },
+    {
+      "model": "RHESSys",
+      "result": "installed",
+      "seconds": 384.1,
+      "finished_at": "2026-09-06T14:10:33+08:00",
+      "probe": "runnable (pe) — FATAL ERROR: in construct_command_line option #1 is invalid.",
+      "request_kind": null,
+      "test_run": "gfr5"
+    },
+    {
+      "model": "Ribasim",
+      "result": "installed",
+      "seconds": 209.1,
+      "finished_at": "2026-09-05T21:26:15+08:00",
+      "probe": "runnable (script) — usage: run_ribasim.py [-h] [--toml_path TOML_PATH]",
+      "request_kind": null,
+      "test_run": "_stress_deepseek_windows_0652_retest_v3"
+    },
+    {
+      "model": "ROMS",
+      "result": "needs-user",
+      "seconds": 140.1,
+      "finished_at": "2026-09-05T02:52:14+08:00",
+      "probe": "not found — nothing at <workspace>\\binaries\\ROMS\\source\\repo\\build\\romsS",
+      "request_kind": "permission",
+      "test_run": "_stress_deepseek_windows_0652_install_only"
+    },
+    {
+      "model": "RZWQM2",
+      "result": "needs-user",
+      "seconds": 57.3,
+      "finished_at": "2026-09-05T02:53:12+08:00",
+      "probe": "cannot verify — a fortran model must have a binary, but the KI declares none — nothing to verify",
+      "request_kind": "download",
+      "test_run": "_stress_deepseek_windows_0652_install_only"
+    },
+    {
+      "model": "SFINCS",
+      "result": "installed",
+      "seconds": 332.4,
+      "finished_at": "2026-09-05T02:58:44+08:00",
+      "probe": "runnable (pe) — Python 3.13.5",
+      "request_kind": null,
+      "test_run": "_stress_deepseek_windows_0652_install_only"
+    },
+    {
+      "model": "SHAW",
+      "result": "needs-user",
+      "seconds": 164.8,
+      "finished_at": "2026-09-05T03:01:30+08:00",
+      "probe": "not found — nothing at <workspace>\\model\\shaw\\shaw",
+      "request_kind": "permission",
+      "test_run": "_stress_deepseek_windows_0652_install_only"
+    },
+    {
+      "model": "SimFire",
+      "result": "installed",
+      "seconds": 436.1,
+      "finished_at": "2026-09-06T13:30:56+08:00",
+      "probe": "runnable (python package) — all declared imports resolve",
+      "request_kind": null,
+      "test_run": "gfi6"
+    },
+    {
+      "model": "SimPEG",
+      "result": "installed",
+      "seconds": 58.8,
+      "finished_at": "2026-09-05T03:08:49+08:00",
+      "probe": "runnable (python package) — all declared imports resolve",
+      "request_kind": null,
+      "test_run": "_stress_deepseek_windows_0652_install_only"
+    },
+    {
+      "model": "SNOWPACK",
+      "result": "installed",
+      "seconds": 239.6,
+      "finished_at": "2026-09-05T21:30:19+08:00",
+      "probe": "runnable (pe) — Snowpack version 20260905.b324cbd compiled on Sep  5 2026 21:29:21",
+      "request_kind": null,
+      "test_run": "_stress_deepseek_windows_0652_retest_v3"
+    },
+    {
+      "model": "SUMMA",
+      "result": "installed",
+      "seconds": 990.9,
+      "finished_at": "2026-09-06T13:44:06+08:00",
+      "probe": "runnable (pe) — ----------------------------------------------------------------------",
+      "request_kind": null,
+      "test_run": "gfs3"
+    },
+    {
+      "model": "SuperflexPy",
+      "result": "installed",
+      "seconds": 227.9,
+      "finished_at": "2026-09-05T03:18:47+08:00",
+      "probe": "runnable (python package) — all declared imports resolve",
+      "request_kind": null,
+      "test_run": "_stress_deepseek_windows_0652_install_only"
+    },
+    {
+      "model": "SWAN",
+      "result": "installed",
+      "seconds": 272.8,
+      "finished_at": "2026-09-05T03:23:20+08:00",
+      "probe": "runnable (pe) — Python 3.13.5",
+      "request_kind": null,
+      "test_run": "_stress_deepseek_windows_0652_install_only"
+    },
+    {
+      "model": "SWAP",
+      "result": "installed",
+      "seconds": 146.1,
+      "finished_at": "2026-09-06T10:26:59+08:00",
+      "probe": "runnable (pe) — running swap ....",
+      "request_kind": null,
+      "test_run": "_stress_deepseek_windows_0652_diag6_swap_manifest_py311"
+    },
+    {
+      "model": "SWAT_Plus",
+      "result": "installed",
+      "seconds": 291,
+      "finished_at": "2026-09-06T10:55:10+08:00",
+      "probe": "runnable (pe) — SWAT+",
+      "request_kind": null,
+      "test_run": "_stress_deepseek_windows_0652_diag9_swatplus_winlibs_py311"
+    },
+    {
+      "model": "SWMM",
+      "result": "installed",
+      "seconds": 140.9,
+      "finished_at": "2026-09-05T21:32:41+08:00",
+      "probe": "runnable (pe) — Python 3.13.5",
+      "request_kind": null,
+      "test_run": "_stress_deepseek_windows_0652_retest_v3"
+    },
+    {
+      "model": "TELEMAC_MASCARET",
+      "result": "installed",
+      "seconds": 295.6,
+      "finished_at": "2026-09-06T14:38:15+08:00",
+      "probe": "runnable (pe) — 2D VERSION 9.1 FORTRAN 2003",
+      "request_kind": null,
+      "test_run": "gt3"
+    },
+    {
+      "model": "TOPMODEL",
+      "result": "installed",
+      "seconds": 205.5,
+      "finished_at": "2026-09-05T21:38:37+08:00",
+      "probe": "runnable (pe) — exit 0, no output",
+      "request_kind": null,
+      "test_run": "_stress_deepseek_windows_0652_retest_v3"
+    },
+    {
+      "model": "TopoFlow",
+      "result": "installed",
+      "seconds": 126.1,
+      "finished_at": "2026-09-06T09:52:39+08:00",
+      "probe": "runnable (python package) — all declared imports resolve",
+      "request_kind": null,
+      "test_run": "_stress_deepseek_windows_0652_diag2_topoflow_py311"
+    },
+    {
+      "model": "tRIBS",
+      "result": "installed",
+      "seconds": 164,
+      "finished_at": "2026-09-05T04:02:33+08:00",
+      "probe": "runnable (pe) — Python 3.13.5",
+      "request_kind": null,
+      "test_run": "_stress_deepseek_windows_0652_install_only"
+    },
+    {
+      "model": "TRIGRS",
+      "result": "installed",
+      "seconds": 162,
+      "finished_at": "2026-09-06T14:07:29+08:00",
+      "probe": "runnable (pe) — TRIGRS: Transient Rainfall Infiltration",
+      "request_kind": null,
+      "test_run": "gft3"
+    },
+    {
+      "model": "VELMA",
+      "result": "installed",
+      "seconds": 339.8,
+      "finished_at": "2026-09-05T04:11:55+08:00",
+      "probe": "runnable (script) — usage: run_velma.py [-h] --mode {simulate,calibrate} --forcing FORCING",
+      "request_kind": null,
+      "test_run": "_stress_deepseek_windows_0652_install_only"
+    },
+    {
+      "model": "VIC",
+      "result": "installed",
+      "seconds": 363.9,
+      "finished_at": "2026-09-05T04:18:00+08:00",
+      "probe": "runnable (pe) — Usage: <workspace>\\binaries\\VIC-5.1.0\\vic\\drivers\\classic\\vi",
+      "request_kind": null,
+      "test_run": "_stress_deepseek_windows_0652_install_only"
+    },
+    {
+      "model": "WASP",
+      "result": "installed",
+      "seconds": 140.2,
+      "finished_at": "2026-09-04T21:14:56+08:00",
+      "probe": "runnable (script) — usage: run_wasp.py [-h] --mode {simulate,calibrate,profile}",
+      "request_kind": null,
+      "test_run": "_stress_deepseek_windows_0652_install_only"
+    },
+    {
+      "model": "wflow",
+      "result": "installed",
+      "seconds": 311.7,
+      "finished_at": "2026-09-06T10:29:45+08:00",
+      "probe": "runnable (julia package) — Julia project loads Wflow via <workspace>\\binaries\\julia-1.10.7\\bin\\julia.exe",
+      "request_kind": null,
+      "test_run": "_stress_deepseek_windows_0652_diag6_wflow_runtime_py311"
+    },
+    {
+      "model": "WOFOST",
+      "result": "installed",
+      "seconds": 135.7,
+      "finished_at": "2026-09-05T04:22:04+08:00",
+      "probe": "runnable (python package) — all declared imports resolve",
+      "request_kind": null,
+      "test_run": "_stress_deepseek_windows_0652_install_only"
+    },
+    {
+      "model": "WRF",
+      "result": "needs-user",
+      "seconds": 80.3,
+      "finished_at": "2026-09-05T04:23:24+08:00",
+      "probe": "cannot verify — a fortran model must have a binary, but the KI declares none — nothing to verify",
+      "request_kind": "other",
+      "test_run": "_stress_deepseek_windows_0652_install_only"
+    },
+    {
+      "model": "WRF_Hydro",
+      "result": "needs-user",
+      "seconds": 138.7,
+      "finished_at": "2026-09-04T21:17:15+08:00",
+      "probe": "not found — nothing at <workspace>\\binaries\\wrf_hydro\\source\\trunk\\NDHMS\\Run\\wrf_hydro_NoahMP.exe",
+      "request_kind": "permission",
+      "test_run": "_stress_deepseek_windows_0652_install_only"
+    },
+    {
+      "model": "WSIMOD",
+      "result": "installed",
+      "seconds": 94.3,
+      "finished_at": "2026-09-05T04:24:59+08:00",
+      "probe": "runnable (python package) — all declared imports resolve",
+      "request_kind": null,
+      "test_run": "_stress_deepseek_windows_0652_install_only"
+    }
+  ]
+}

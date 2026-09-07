@@ -50,10 +50,11 @@ INPUT_GROUPS = (
 )
 
 SETUP_BUILD_COMMANDS = (
-    "git", "cmake", "make", "gmake", "ninja", "meson", "dotnet",
+    "git", "cmake", "make", "gmake", "mingw32-make", "ninja", "meson", "dotnet",
     "python", "python3", "pip", "pip3", "uv", "cargo", "go",
     "gcc", "g++", "clang", "clang++", "gfortran", "tar", "unzip",
-    "curl", "patch", "file",
+    "7z", "7za", "7zr", "innoextract", "micromamba", "curl", "patch",
+    "file", "ar", "ranlib", "dlltool", "gendef", "nm", "objdump", "strip",
 )
 
 
@@ -111,6 +112,55 @@ def _with_heartbeats(stream, interval: float = 12.0):
             raise payload
         else:
             return
+
+
+def _installation_import_contract(ki, man) -> str:
+    """Tell the setup agent exactly what GeoForge's final import probe checks."""
+    imports = runnable.declared_imports(ki)
+    package = runnable._package_module(man)
+    if package and package not in imports:
+        imports.append(package)
+    requirements = list(getattr(man, "python_deps", []) or [])
+    if not imports and not requirements:
+        return ""
+    return (
+        "\nGeoForge's independent final Python probe will check these import "
+        f"names in one interpreter: {json.dumps(imports)}. The manifest's "
+        f"additional Python requirements are: {json.dumps(requirements)}. "
+        "Install all of them into the same recorded workspace interpreter; "
+        "successful import of only the primary package is not completion."
+    )
+
+
+def _installation_manifest_guidance(man) -> str:
+    """Render the actionable manifest record, not only its prose hint."""
+    if man is None:
+        return ""
+    acquire = getattr(man, "acquire", None)
+    lines = ["Manifest acquisition record:"]
+    for label, value in (
+            ("strategy", getattr(acquire, "strategy", "")),
+            ("package/source", getattr(acquire, "package", "")),
+            ("repository", getattr(acquire, "repo", "")),
+            ("source revision", getattr(acquire, "ref", "")),
+            ("download URL", getattr(acquire, "url", "")),
+            ("archive SHA-256", getattr(acquire, "sha256", "")),
+            ("install directory under the binaries role", getattr(man, "install_dir", "")),
+            ("expected product", getattr(acquire, "produces", ""))):
+        if value:
+            lines.append(f"- {label}: {value}")
+    product = getattr(acquire, "produces", None)
+    install_dir = getattr(man, "install_dir", "")
+    if product:
+        lines.append(
+            "- canonical executable: <binaries role>/"
+            + "/".join(part.strip("/\\") for part in (install_dir, product) if part)
+            + "; expected product is relative to the install directory, not the workspace root"
+        )
+    hint = str(getattr(man, "agent_hint", "") or "").strip()
+    if hint:
+        lines += ["", "Manifest installation guidance:", hint]
+    return "\n".join(lines)
 
 
 CHAT_KEEPALIVE = "\u200b"
@@ -2353,6 +2403,8 @@ class Handler(BaseHTTPRequestHandler):
                 emit(f"\n{ki.name} is already verified and ready to use.\n")
                 return
             if installation_only:
+                man_for_setup = self._manifest(ki)
+                manifest_hint = _installation_manifest_guidance(man_for_setup)
                 instructions = f"""[INSTALLATION-ONLY TEST CONTRACT]
 Install the official {ki.name} software and its runtime dependencies. Never
 call `run_preflight` and never run an example, reference case, simulation,
@@ -2360,9 +2412,12 @@ calibration, data-preparation, or result-generation command. Do not acquire
 scientific/project datasets. A cheap executable startup probe or declared
 Python import is the only runtime action allowed. Installation success and KI
 verification are different states; never claim this test verified the KI."""
+                instructions += _installation_import_contract(
+                    live_ki, man_for_setup)
                 system = (prompt.compose(live_ki, cfg, headless=True) +
                           "\n\n" + instructions)
             else:
+                manifest_hint = ""
                 instructions = (root / "CLAUDE.md").read_text(encoding="utf-8")
                 system = (prompt.compose(live_ki, cfg, headless=True) +
                           "\n\n[SOFTWARE SETUP CONTRACT]\n" + instructions)
@@ -2384,6 +2439,7 @@ verification are different states; never claim this test verified the KI."""
                 installation_mode=binding.get("installation_mode") or "new",
                 existing_paths=existing_paths,
                 installation_only=installation_only,
+                manifest_hint=manifest_hint,
             )
             kind, _, pname = want.partition(":")
             if not pname:

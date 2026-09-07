@@ -1,6 +1,6 @@
 kiss_manifest_version: 1
 model: APEX
-binary_type: PE32_wine
+binary_type: PE32
 verified: manual
 install_dir: APEX
 
@@ -10,7 +10,9 @@ acquire:
   strategy: manual
   exe: APEX0806.exe
 
-system_deps: [wine]
+# Windows launches the PE executable directly. Wine is a non-Windows runtime
+# choice and must not block a native Windows installation before acquisition.
+system_deps: []
 python_deps: [numpy, pandas]
 
 data:
@@ -18,7 +20,7 @@ data:
     name: APEX project directory (subarea, soil, weather, management)
     why: APEX is driven by a directory of fixed-width text files alongside the exe.
 
-reference_case: wine APEX0806.exe
+reference_case: APEX0806.exe
 
 notes: >-
   Deliberately manual. APEX0806.exe is present on the authoring machine but is
@@ -31,7 +33,17 @@ agent_hint: >-
   assets in the shared APEX KI and automatically reuses them in each session;
   do not ask the user to download or copy them again when they are already
   present there. If this is a first install, place them at
-  ki/reference/APEX0806.exe and ki/examples/ex1_RiselTX/. Ensure `wine` is installed.
+  ki/reference/APEX0806.exe and ki/examples/ex1_RiselTX/. Run the executable
+  directly on Windows; install Wine only on macOS/Linux hosts.
+  Do not substitute the freely downloadable APEX1501 executable: this KI's
+  v0806 input formats, operation codes and documented crop-yield behavior are
+  not interchangeable with v1501. If the exact v0806 protected asset is not
+  already present, create a structured licence/download request instead of
+  installing another APEX version or claiming installation success. If an
+  official v0806 Windows installer is publicly downloadable without accepting
+  a new licence, first stage portable 7zr/innoextract inside the workspace and
+  try a headless extraction of the exact APEX0806.exe payload; a GUI wrapper
+  alone is not proof that human interaction is required.
   APEX writes output next to the exe, so the whole project directory must be
   writable. Check diagnostics/ for the fixed-width column traps before parsing
   any output — they are the most common source of silently wrong results.

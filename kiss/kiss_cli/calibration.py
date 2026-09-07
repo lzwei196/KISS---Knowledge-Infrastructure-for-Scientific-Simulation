@@ -225,9 +225,11 @@ def _adapter(project: Path, ki) -> dict:
     return {
         "ki": name,
         "status": "ready" if contract and runner else "authoring-needed",
-        "contract": str((destination / "calibration.yaml").relative_to(project))
+        "contract": (destination / "calibration.yaml").relative_to(
+            project).as_posix()
         if contract else None,
-        "runner": str((destination / "tools" / "calib_run.py").relative_to(project))
+        "runner": (destination / "tools" / "calib_run.py").relative_to(
+            project).as_posix()
         if runner else None,
         "source_has_contract": (source / "calibration.yaml").is_file(),
         "source_has_runner": (source / "tools" / "calib_run.py").is_file(),
@@ -260,8 +262,10 @@ def _saved_adapters(root: Path) -> list[dict]:
             "ki": name,
             "status": "ready" if contract.is_file() and runner.is_file()
             else "authoring-needed",
-            "contract": str(contract.relative_to(root.parent)) if contract.is_file() else None,
-            "runner": str(runner.relative_to(root.parent)) if runner.is_file() else None,
+            "contract": contract.relative_to(root.parent).as_posix()
+            if contract.is_file() else None,
+            "runner": runner.relative_to(root.parent).as_posix()
+            if runner.is_file() else None,
         })
         out.append(item)
     return sorted(out, key=lambda item: str(item.get("ki", "")).casefold())
@@ -323,7 +327,7 @@ def _case_files(project: Path, limit: int = 200) -> list[dict]:
             stat = path.stat()
             files.append({
                 "name": path.name,
-                "relative_path": str(path.relative_to(project)),
+                "relative_path": path.relative_to(project).as_posix(),
                 "size": stat.st_size,
                 "modified_at": stat.st_mtime,
             })
@@ -361,8 +365,9 @@ def _run_summaries(project: Path, limit: int = 20) -> list[dict]:
                 "best_params": report.get("best_params"),
                 "reason": report.get("reason"),
                 "holdout": holdout if isinstance(holdout, dict) else None,
-                "report_path": str(report_path.relative_to(project)),
-                "log_path": str((report_path.parent / "engine.log").relative_to(project)),
+                "report_path": report_path.relative_to(project).as_posix(),
+                "log_path": (report_path.parent / "engine.log").relative_to(
+                    project).as_posix(),
                 "modified_at": stat.st_mtime,
             }))
         except (OSError, json.JSONDecodeError):
@@ -405,7 +410,8 @@ def _runtime_ki(project: Path, ki_name: str, ki_path: Path) -> Path:
     if not contract.is_file() or not runner.is_file():
         raise RuntimeError(
             f"{ki_name} has no runnable project calibration adapter; expected "
-            f"{contract.relative_to(project)} and {runner.relative_to(project)}")
+            f"{contract.relative_to(project).as_posix()} and "
+            f"{runner.relative_to(project).as_posix()}")
 
     parent = project / "calibration" / "runtime"
     parent.mkdir(parents=True, exist_ok=True)
@@ -521,15 +527,15 @@ def run_project(*, project: Path, ki_name: str, ki_path: Path,
         "seed": int(seed),
         "obs_shape_by_var": shapes,
         "expected_case_id": expected_case_id,
-        "runtime_ki": str(runtime_ki.relative_to(project)),
+        "runtime_ki": runtime_ki.relative_to(project).as_posix(),
         "report": report,
     }
     report_path.write_text(json.dumps(payload, indent=2, ensure_ascii=False,
                                       default=str), encoding="utf-8")
     return {
         **payload,
-        "report_path": str(report_path.relative_to(project)),
-        "log_path": str(log_path.relative_to(project)),
+        "report_path": report_path.relative_to(project).as_posix(),
+        "log_path": log_path.relative_to(project).as_posix(),
         "log_tail": stream.getvalue()[-12000:],
     }
 

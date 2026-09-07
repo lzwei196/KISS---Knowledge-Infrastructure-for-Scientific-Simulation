@@ -444,6 +444,7 @@ def test_setup_turn_keeps_the_desktop_setup_grants_on_cli(tmp_path):
 def test_launcher_is_rewritten_when_the_executable_changes(monkeypatch, tmp_path):
     monkeypatch.setattr(sys, "frozen", True, raising=False)
     monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    monkeypatch.setenv("USERPROFILE", str(tmp_path / "home"))
     monkeypatch.setattr(sys, "executable", str(tmp_path / "GeoForge Desktop v1"))
     w1 = flowrun.wrapper_commands()["run_tool"].rsplit(" run-tool", 1)[0]
     monkeypatch.setattr(sys, "executable", str(tmp_path / "GeoForge Desktop v2"))
@@ -534,7 +535,7 @@ def test_claude_planning_paths_and_tool_surface(tmp_path):
     project = tmp_path / "带 空格的项目"; ki = _ki(tmp_path, "M")
     policy = p.for_state(flowrun._flow().states.State.PLANNING, "claude", project, {"M": ki.root})
     grants = policy.argv_delta[1]
-    assert f"Write(/{project}/runs/plan.json)" in grants
+    assert f"Write({p.claude_path(project / 'runs' / 'plan.json')})" in grants
     assert "Bash(" not in grants and "bypassPermissions" not in policy.argv_delta
     assert "dontAsk" in policy.argv_delta
     assert p.claude_path(r"C:\Users\User Name\项目") == "//c/Users/User Name/项目"

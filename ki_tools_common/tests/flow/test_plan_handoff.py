@@ -78,7 +78,9 @@ def test_preflight_is_not_a_readonly_planning_tool(state):
 
 def test_unicode_absolute_claude_paths_and_planning_contract(tmp_path):
     project = tmp_path / "带 空格的项目"
-    assert policy.claude_path(project) == "/" + str(project)
+    expected = (f"//{project.drive[0].lower()}{project.as_posix()[2:]}"
+                if project.drive else "/" + str(project))
+    assert policy.claude_path(project) == expected
     assert policy.claude_path(r"C:\Users\User Name\项目") == "//c/Users/User Name/项目"
     pp = policy.for_state(states.State.PLANNING, "claude", project, {})
     assert "dontAsk" in pp.argv_delta and "Bash(" not in " ".join(pp.argv_delta)

@@ -12,13 +12,23 @@ from pathlib import Path
 
 
 MODEL_ID = "SWAP"
-PINNED_SWAP_BINARY = (
-    "KISSPATH_INTERNAL_NOT_SHIPPED/auto_dissect/"
-    "_work/SWAP/source/repo/builddir/swap"
-)
-PINNED_SWAP_SHA256 = (
-    "a696efc5344daa53b3ddeebd3664656d0822959a5b2f4f863efc710469f1cf97"
-)
+if os.name == "nt":
+    PINNED_SWAP_BINARY = "KISSPATH_BINARIES/SWAP/swap.exe"
+    PINNED_SWAP_SHA256 = (
+        "55a0de22beb0dfedf9d0bca64a7a6ac816ccef02237b2ce9f94c3e750127b257"
+    )
+    PINNED_SWAP_MAGIC = b"MZ"
+    PINNED_SWAP_FORMAT = "Windows PE"
+else:
+    PINNED_SWAP_BINARY = (
+        "KISSPATH_INTERNAL_NOT_SHIPPED/auto_dissect/"
+        "_work/SWAP/source/repo/builddir/swap"
+    )
+    PINNED_SWAP_SHA256 = (
+        "a696efc5344daa53b3ddeebd3664656d0822959a5b2f4f863efc710469f1cf97"
+    )
+    PINNED_SWAP_MAGIC = b"\x7fELF"
+    PINNED_SWAP_FORMAT = "ELF"
 PYTHON_ENV = "KISSPATH_PYTHON_ENV/bin/python"
 
 KI_DIR = Path(__file__).resolve().parent
@@ -148,18 +158,18 @@ def check_swap_binary():
     try:
         with open(path, "rb") as f:
             magic = f.read(4)
-        if magic != b"\x7fELF":
-            print(f"  FAIL  SWAP binary format: expected ELF, got {magic!r}")
+        if not magic.startswith(PINNED_SWAP_MAGIC):
+            print(f"  FAIL  SWAP binary format: expected {PINNED_SWAP_FORMAT}, got {magic!r}")
             add_check(
                 "binary",
                 realpath,
                 True,
                 "fail",
-                fix_hint("rebuild SWAP v4.2.0 with Meson so builddir/swap is an ELF executable"),
+                fix_hint(f"restore the pinned SWAP v4.2.0 {PINNED_SWAP_FORMAT} executable"),
             )
             ok = False
         else:
-            print(f"  OK    SWAP binary format: ELF executable")
+            print(f"  OK    SWAP binary format: {PINNED_SWAP_FORMAT} executable")
             add_check("binary", realpath, True, "pass", "")
     except OSError as exc:
         print(f"  FAIL  SWAP binary readable: {exc}")
