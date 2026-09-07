@@ -19,7 +19,7 @@ class InstallExperienceTests(unittest.TestCase):
         repo = Path(__file__).resolve().parents[2]
         kis = list(catalog.Catalog(repo / "models"))
         self.assertEqual(len(kis), 127)
-        report = json.loads((repo / "docs" / "WINDOWS_INSTALL_STRESS_2026-09-07.json").read_text())
+        report = json.loads((repo / "docs" / "WINDOWS_INSTALL_STRESS_2026-09-07.json").read_text(encoding="utf-8"))
         self.assertEqual({row["model"] for row in report["results"]}, {ki.name for ki in kis})
         counts = {}
         for row in report["results"]:

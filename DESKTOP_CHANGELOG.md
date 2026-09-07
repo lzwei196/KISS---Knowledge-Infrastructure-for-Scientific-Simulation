@@ -6,6 +6,29 @@ Desktop update agents should read the JSON manifest first and use this file to e
 这是 `release-manifest.json` 的用户版说明。Windows、macOS 和 Linux 的更新 Agent
 应先读取 JSON，再用本文件向用户解释更新内容。
 
+## v0.6.53 — 2026-09-07 (Windows)
+
+### 中文
+
+- 将 Windows 压测经验写入全部 127 个 KI 的 `docs/install.windows.md`；23 个 KI
+  同时携带 `kiss.windows.yaml` 安装配方。Agent 会读取当前系统的经验，不覆盖 macOS 配方。
+- 修复便携工具链、依赖命令路径、超时子进程树及输出管道回收；安装位置和验证结果保持分离。
+- FSM2 通过官方 Alptal 示例（5,832 行），MARRMoT 通过真实 Octave 的 10 天合成测试。
+  安装压测快照为 91 installed / 35 needs-user / 1 failed（RAPID）；这不代表全部已完成科学校准。
+- 更新自带 Python 3.11 的 Windows 安装器和便携包；仅打包正式 127 个 KI，排除压测临时目录。
+  增加可重复的冻结程序、安装后启动与卸载检查。KI 更新来源继续为 `main`。
+- 保留稳定的浏览器前端、托盘退出及既有 Kimi 全电脑访问确认选项。
+
+### English
+
+- Ship Windows installation experience in all 127 KIs and platform-specific recipes in 23 KIs.
+  Setup agents read the current platform's notes without replacing macOS recipes.
+- Fix portable toolchain/dependency paths and bounded cleanup of timed-out process trees and pipes.
+- Record real FSM2 Alptal and MARRMoT Octave smoke runs. The installation snapshot is
+  91 installed, 35 needs-user and 1 failed (RAPID), not scientific calibration certification.
+- Refresh the self-contained Python 3.11 installer and portable archive, exclude scratch KI folders,
+  and add repeatable frozen-runtime and installed-app smoke checks. KI updates still use `main`.
+
 ## v0.6.52 — 2026-09-03
 
 ### 中文

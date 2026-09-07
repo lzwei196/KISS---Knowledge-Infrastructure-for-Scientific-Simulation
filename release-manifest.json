@@ -1,12 +1,14 @@
 {
   "schema_version": 1,
   "product": "GeoForge Desktop",
-  "version": "0.6.52",
-  "release_date": "2026-09-03",
+  "version": "0.6.53",
+  "release_date": "2026-09-07",
   "source": {
     "branch": "windows-version",
-    "code_commit": "7bcb52ebdaeb3c34e11e2c8f7e2fcf286e45753a",
-    "repository": "https://github.com/lzwei196/KISS---Knowledge-Infrastructure-for-Scientific-Simulation"
+    "code_commit": "9000f4d16dedfc85bd9bc7a326363047a58d7457",
+    "repository": "https://github.com/lzwei196/KISS---Knowledge-Infrastructure-for-Scientific-Simulation",
+    "release_tag": "windows-v0.6.53",
+    "commit_scope": "Application and KI fixes; release packaging is identified by release_tag."
   },
   "ki_library": {
     "package_count": 127,
@@ -18,86 +20,35 @@
       "VIC calibration and plotting tools",
       "CaMa-Flood downscaling tools",
       "Lohmann Routing VIC preprocessing tool"
-    ]
+    ],
+    "windows_overlay_commit": "9000f4d16dedfc85bd9bc7a326363047a58d7457",
+    "windows_installation_notes": 127,
+    "windows_platform_recipes": 23
   },
   "changes": [
     {
-      "id": "windows-flow-gate-portability",
-      "area": "agent-runtime",
-      "summary": "Flow Gate, plan approval, execution receipts and Observatory are bundled in the Windows executable, with native handling for Claude's Windows permission paths.",
-      "user_action": "No migration is required. Existing projects can continue through the new plan and approval states."
-    },
-    {
-      "id": "windows-atomic-settings",
-      "area": "settings",
-      "summary": "Atomic settings writes no longer call the unavailable POSIX fchmod API on Windows.",
-      "user_action": "AI, Kimi and proxy settings can be saved normally."
-    },
-    {
-      "id": "windows-kimi-access-choice",
-      "area": "security",
-      "summary": "Windows AI Settings now clearly offers either disabling Kimi Code or explicitly enabling it with full-computer access after a risk confirmation.",
-      "user_action": "To use Kimi Code on Windows, open AI Settings, choose Enable Kimi with full computer access, confirm the warning, and save."
-    },
-    {
-      "id": "ki-updater-network-route",
-      "area": "connectivity",
-      "summary": "The built-in GitHub and KI updater now has an explicit proxy target available from both Chat and KI Library settings.",
-      "user_action": "Open the gear menu, choose Network & proxy, then enable GitHub & KI updates. Use an HTTP or mixed proxy port for the built-in updater."
-    },
-    {
-      "id": "commit-pinned-ki-archive",
-      "area": "knowledge-infrastructure",
-      "summary": "KI updates resolve the branch commit first and download that immutable commit archive, preventing GitHub API and codeload branch-cache mismatches.",
-      "user_action": "Use Check again after changing the route. The report shows the route and exact source commit."
-    },
-    {
-      "id": "ki-library-network-settings",
-      "area": "user-interface",
-      "summary": "The KI Library gear and update report now expose network settings directly instead of hiding proxy controls only in the Chat page.",
-      "user_action": "From a failed KI update report, choose Network settings, save the route, and retry."
-    },
-    {
-      "id": "provider-proxy-routing",
-      "area": "connectivity",
-      "summary": "One user-configurable proxy route now covers the selected AI provider and its agent-run Git, pip, curl and model-download commands.",
-      "user_action": "Use AI Settings > Network route. Auto detects the system proxy; Manual accepts an HTTP or SOCKS URL; Off keeps direct access. Select only the providers that need it."
-    },
-    {
-      "id": "provider-connection-handoff",
-      "area": "user-interface",
-      "summary": "Claude, Codex and Kimi DNS, proxy, VPN and authentication failures now become a specific Needs You popup instead of an unexplained Load failed state.",
-      "user_action": "Follow the popup to test or change the route, then retry the same turn."
-    },
-    {
-      "id": "model-install-location",
+      "id": "per-ki-windows-installation-experience",
       "area": "model-setup",
-      "summary": "Users can choose a model installation folder, including a folder that does not exist yet. GeoForge creates it and records the location in kiss.toml and .geoforge-install.json.",
-      "user_action": "Choose the folder on the Agent setup page before starting or continuing setup."
+      "summary": "All 127 KIs carry Windows installation experience; 23 carry platform-specific recipes. Setup agents read the current platform's notes and canonical executable paths.",
+      "user_action": "Retry affected setup tasks. macOS and Linux recipes are kept separate; KI updates still use main."
     },
     {
-      "id": "legacy-ki-layout-bridge",
-      "area": "model-setup",
-      "summary": "GeoForge maps the current portable KI layout to legacy model paths before the first preflight, preventing installed tools from being reported missing.",
-      "user_action": "No migration is required; rerun setup for an affected KI."
-    },
-    {
-      "id": "canonical-ki-refresh",
-      "area": "knowledge-infrastructure",
-      "summary": "All 127 bundled KIs were refreshed from the canonical main snapshot and server-only links needed by VIC, CaMa-Flood and Lohmann Routing were converted to portable files.",
-      "user_action": "Existing chat projects remain unchanged. The desktop KI library updates independently."
-    },
-    {
-      "id": "harness-and-calibration-proof",
+      "id": "portable-toolchain-and-process-cleanup",
       "area": "agent-runtime",
-      "summary": "The full KI harness contract is bundled and import-checked, and calibration dependency/backend readiness is checked from real imports rather than a stale cached result.",
-      "user_action": "Environment Check reports the loaded harness source and calibration readiness."
+      "summary": "Repair portable toolchain discovery, dependency command paths, pacman hook PATH, timeout process-tree cleanup and bounded output-pipe draining.",
+      "user_action": "Resume installation from the existing project. No step-count limit is introduced."
     },
     {
-      "id": "single-version-source",
+      "id": "verified-fsm2-and-marrmot-runtimes",
+      "area": "model-validation",
+      "summary": "FSM2 passed the official Alptal example with 5,832 output rows; MARRMoT passed a real Octave 10-day synthetic model run. These are smoke tests, not scientific calibration certification.",
+      "user_action": "Supply project-specific input data and observations before calibration."
+    },
+    {
+      "id": "self-contained-windows-installer-refresh",
       "area": "release-engineering",
-      "summary": "macOS, Windows and CLI builds now read the same version from pyproject.toml. Release assets include this manifest, the desktop changelog and SHA256SUMS.txt.",
-      "user_action": "Update agents should compare version, code_commit and ki_library.source_commit before replacing software or KI content."
+      "summary": "Refresh the Python 3.11 x64 installer and portable bundle, include Windows executable version resources, exclude scratch KI directories, and check the actual installed executable outside the checkout.",
+      "user_action": "Use the Setup executable. Portable users must extract the whole archive and keep _internal next to GeoForge Desktop.exe."
     }
   ],
   "compatibility": {
@@ -105,29 +56,34 @@
     "saved_model_install_locations_preserved": true,
     "proxy_credentials_stored_in_release": false,
     "platform_notes": {
-      "macos": "The local release is built for Apple Silicon.",
-      "windows": "Use the Windows asset built from the same version and read this manifest before updating.",
-      "linux": "Use the Linux asset built from the same version."
+      "windows": "Windows x64 only. Python is included; AI providers and scientific models are configured or installed separately. Browser frontend and tray exit are retained.",
+      "macos": "This release does not replace the macOS application assets.",
+      "linux": "This release does not replace the Linux application assets."
     }
   },
   "validation": {
-    "geoforge_tests": {
-      "passed": 42,
-      "failed": 0,
-      "command": "python -m pytest kiss/tests/test_flowrun.py kiss/tests/test_flow_cli_wrappers.py -q (excluding two macOS-format assertions)"
-    },
-    "python_compile_check": "passed",
-    "ki_catalog": "passed",
-    "ki_broken_link_scan": "passed",
-    "windows_frozen_smoke": "passed: python311.dll, 127 KIs, Flow modules, and seven web routes",
-    "windows_installer_smoke": "passed: silent install and uninstall returned 0"
+    "source_regression_tests": "passed with PYTHONUTF8=1: 343 app tests and 255 shared-library tests. Exact commands and final results are in the evidence asset.",
+    "windows_frozen_smoke": "passed: Python 3.11 DLL, 127 KIs and Windows notes, 23 platform recipes, nine HTTP routes, full harness, Flow, calibration dependency imports and main KI update source",
+    "windows_installer_smoke": "passed: silent install, actual installed-executable runtime checks and silent uninstall; both installer exit codes were 0",
+    "evidence_asset": "Windows-release-validation.json"
   },
   "agent_update_protocol": [
     "Read release-manifest.json before changing an installation.",
-    "Compare product version and source.code_commit for application changes.",
-    "Compare ki_library.source_commit for KI-only changes.",
+    "Compare product version, source.code_commit and source.release_tag for application changes.",
+    "Compare ki_library.source_commit and windows_overlay_commit for bundled KI changes.",
     "Preserve user settings, API keys, proxy choices, projects, data and recorded model installation paths.",
-    "Verify the downloaded asset against SHA256SUMS.txt.",
+    "Verify the downloaded Windows asset against SHA256SUMS-Windows.txt.",
     "Report the applied change IDs and any migration or retry action to the user."
-  ]
+  ],
+  "installation_test_snapshot": {
+    "date": "2026-09-07",
+    "installed": 91,
+    "needs_user": 35,
+    "failed": 1,
+    "failed_models": [
+      "RAPID"
+    ],
+    "evidence": "docs/WINDOWS_INSTALL_STRESS_2026-09-07.json",
+    "scope": "Installation outcomes, not certification that all scientific workflows or calibrations pass."
+  }
 }

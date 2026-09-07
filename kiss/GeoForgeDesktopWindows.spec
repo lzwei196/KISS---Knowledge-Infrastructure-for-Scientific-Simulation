@@ -11,6 +11,10 @@ from PyInstaller.utils.hooks import (
     collect_dynamic_libs,
     copy_metadata,
 )
+from PyInstaller.utils.win32.versioninfo import (
+    FixedFileInfo, StringFileInfo, StringStruct, StringTable,
+    VarFileInfo, VarStruct, VSVersionInfo,
+)
 
 
 SOURCE = Path(SPECPATH).resolve()
@@ -24,6 +28,25 @@ with (SOURCE / "pyproject.toml").open("rb") as version_file:
     VERSION = tomllib.load(version_file)["project"]["version"]
 ICON = REPO / "assets" / "logo.ico"
 KI_TOOLS_SOURCE = REPO / "ki_tools_common"
+# Development/stress-test scratch directories are not KI packages.
+ki_packages = sorted(p for p in (REPO / "models").iterdir()
+                     if p.is_dir() and (p / "SKILL.md").is_file()
+                     and not p.name.startswith("_"))
+if len(ki_packages) != 127:
+    raise RuntimeError(f"Expected 127 canonical KI packages, found {len(ki_packages)}")
+version_tuple = tuple(int(part) for part in VERSION.split(".")) + (0,)
+version_info = VSVersionInfo(
+    ffi=FixedFileInfo(filevers=version_tuple, prodvers=version_tuple,
+                     mask=0x3f, flags=0, OS=0x40004, fileType=1,
+                     subtype=0, date=(0, 0)),
+    kids=[StringFileInfo([StringTable("040904B0", [
+        StringStruct("FileDescription", "GeoForge Desktop"),
+        StringStruct("FileVersion", VERSION),
+        StringStruct("ProductName", "GeoForge Desktop"),
+        StringStruct("ProductVersion", VERSION),
+        StringStruct("OriginalFilename", "GeoForge Desktop.exe"),
+    ])]), VarFileInfo([VarStruct("Translation", [1033, 1200])])],
+)
 
 trust_datas, trust_binaries, trust_hidden = collect_all("truststore")
 certifi_datas = collect_data_files("certifi")
@@ -69,7 +92,7 @@ a = Analysis(
     binaries=[*trust_binaries, *calibration_binaries],
     datas=[
         (str(SOURCE / "kiss_cli" / "web"), "kiss_cli/web"),
-        (str(REPO / "models"), "models"),
+        *((str(p), f"models/{p.name}") for p in ki_packages),
         (str(REPO / "ki_tools_common"), "ki_tools_common"),
         (str(SOURCE / "vendor" / "agent-calibration-framework"),
          "agent-calibration-framework"),
@@ -116,6 +139,7 @@ exe = EXE(
     codesign_identity=None,
     entitlements_file=None,
     icon=str(ICON),
+    version=version_info,
 )
 coll = COLLECT(
     exe,

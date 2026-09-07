@@ -32,6 +32,19 @@ class ReleaseMetadataTests(unittest.TestCase):
         self.assertIn("release-manifest.json DESKTOP_CHANGELOG.md SHA256SUMS.txt", workflow)
         self.assertIn('sha256sum "${ASSETS[@]}"', workflow)
 
+    def test_windows_release_versions_and_runtime_gate_agree(self):
+        with (REPO / "kiss" / "pyproject.toml").open("rb") as stream:
+            version = tomllib.load(stream)["project"]["version"]
+        spec = (REPO / "kiss" / "GeoForgeDesktopWindows.spec").read_text(encoding="utf-8")
+        installer = (REPO / "kiss" / "installer" / "GeoForgeDesktopWindows.iss").read_text(encoding="utf-8")
+        workflow = (REPO / ".github" / "workflows" / "windows-release.yml").read_text(encoding="utf-8")
+        self.assertIn(f'#define AppVersion "{version}"', installer)
+        self.assertIn(f'default: windows-v{version}', workflow)
+        self.assertIn('version=version_info', spec)
+        self.assertIn('if len(ki_packages) != 127:', spec)
+        self.assertNotIn('(str(REPO / "models"), "models")', spec)
+        self.assertEqual(workflow.count('python tools/windows_release_smoke.py'), 2)
+
 
 if __name__ == "__main__":
     unittest.main()
