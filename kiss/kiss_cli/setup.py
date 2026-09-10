@@ -411,7 +411,10 @@ def agent_task(ki, cfg, root: Path, *, resumed: dict | None = None,
                existing_paths: list[str] | None = None,
                installation_only: bool = False) -> str:
     """Short task layered over the provider's auto-loaded setup instructions."""
-    prior = ""
+    notes = getattr(ki, "installation_notes", None)
+    experience = (f"Read `{notes}` for this model's current-OS installation record. "
+                  "Previous results are evidence, not a guarantee on this host.\n" if notes else "")
+    prior = experience
     if resumed:
         prior = (
             "\nThe user has completed the earlier request.\n"
@@ -444,10 +447,38 @@ the configured model installation workspace unless a structured user request
 is required.
 """
     if installation_only:
+        from . import runnable
+        import_contract = runnable.declared_imports(ki)
+        executable_contract = runnable.declared(ki)
+        variant = (getattr(ki, "meta", {}) or {}).get("impl_id")
+        from .python_script import VARIANTS
+        variant_info = VARIANTS.get(ki.name)
+        variant_guidance = ""
+        if variant_info and variant == variant_info[0]:
+            variant_guidance = (
+                f"This KI explicitly declares {variant}, an existing bundled Python implementation. "
+                f"Install that declared implementation using the original {variant_info[1]}; "
+                "do not replace it with another implementation or an official upstream product. "
+                "Its fixed installation probe is --help (exit 0), not --version. "
+                "Read its Mac manifest for all required dependencies. This result establishes "
+                "only the declared variant, never official upstream installation or equivalence.\n"
+            )
+        contract = ("The independent installation check will also verify these KI Python imports: "
+                    + json.dumps(import_contract) + ".\n"
+                    "Install their real dependencies in a workspace environment even when the model "
+                    "itself is a native executable. GeoForge supplies ki_tools_common from the bundled "
+                    "workspace library; do not replace it with an unrelated PyPI project.\n"
+                    "Declared executable locations for this materialised KI: "
+                    + json.dumps(executable_contract) + ".\n"
+                    "If upstream builds elsewhere, reconcile its real product with the install "
+                    "configuration so the independent check can locate it; do not report completion "
+                    "solely because a binary exists at another path.\n")
         return f"""Install {ki.name} on this machine now.
 
+{contract}
+{variant_guidance}
 This is an **installation-only stress test**, not a scientific verification
-run. Install or build the official model software and its runtime dependencies
+run. Install the declared implementation and its runtime dependencies
 inside the selected workspace. You may use a cheap startup probe such as
 `--version` or `--help` to prove that the executable loads, links, and responds.
 
@@ -457,14 +488,17 @@ forcing, observation, parameter, initial-condition, boundary-condition, or
 reference-output datasets. Missing project/scientific data is not an
 installation failure in this test.
 
-Keep diagnosing build and runtime problems until the official executable or
-declared Python package responds. Do not substitute a toy implementation,
+Keep diagnosing build and runtime problems until the declared executable,
+source-bound Python runner, or Python package responds. Do not substitute a toy implementation,
 launcher, or mock executable. If a licence, login, protected download, system
 privilege, or missing shared toolchain requires a person, create one structured
 setup request and stop. If you create or select a Python environment, record
-its real interpreter in `{Path(root) / 'kiss.toml'}` under `kiss.python`; do
-not leave GeoForge pointing at the system Python after the package was installed
-into a workspace venv.
+the absolute environment launcher path (for example, `<workspace>/venv/bin/python`)
+in `{Path(root) / 'kiss.toml'}` under `kiss.python`. Preserve this venv path even
+when it is a symlink: do NOT use realpath, resolve(), or the symlink target.
+Launching the resolved base interpreter loses the venv and its packages. Verify
+`sys.prefix` identifies the intended workspace environment using an inspection
+script, and keep GeoForge pointed at that environment launcher.
 {existing}
 {prior}"""
 

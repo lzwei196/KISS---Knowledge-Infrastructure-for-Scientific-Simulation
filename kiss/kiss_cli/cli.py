@@ -211,7 +211,7 @@ def cmd_init(args) -> int:
             f"not run because {blocker.name} failed: {blocker.detail}", skipped=True,
         ), None
     else:
-        s, binary = install.acquire(man, prefix, cfg.python)
+        s, binary = install.acquire(man, prefix, cfg.python, ki=ki)
     result.add(s)
     result.binary = binary
     for note in install.place_where_the_ki_expects(ki, binary, cfg, prefix):

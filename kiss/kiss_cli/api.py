@@ -22,6 +22,8 @@ a tool meant to install cleanly anywhere.
 from __future__ import annotations
 
 import csv
+import http.client
+import ssl
 import json
 import os
 import re
@@ -561,7 +563,7 @@ class ToolError(Exception):
     pass
 
 
-_INSTALL_ONLY_PROBE_FLAGS = {"--version", "-v", "--help", "-h"}
+_INSTALL_ONLY_PROBE_FLAGS = {"--version", "-version", "-V", "-v", "--help", "-h"}
 _INSTALL_ONLY_BUILD_NAMES = (
     "build", "compile", "configure", "setup", "install", "bootstrap",
     "quickbuild", "mkmf", "checkout", "external",
@@ -579,6 +581,27 @@ def _guard_installation_only_command(argv: list[str], cwd: Path,
     """
     command = Path(argv[0]).name.lower()
     args = argv[1:]
+    if command in {"octave", "octave-cli"}:
+        from .octpackage import guard
+        try:
+            guard(args, cwd, workroot)
+        except (ValueError, OSError, UnicodeError) as e:
+            raise ToolError(str(e)) from e
+        return
+    if command == "julia":
+        from .jpackage import guard
+        try:
+            guard(args, cwd, workroot)
+        except ValueError as e:
+            raise ToolError(str(e)) from e
+        return
+    if command in {"r", "rscript"}:
+        from .rpackage import guard
+        try:
+            guard(command, args, cwd, workroot)
+        except ValueError as e:
+            raise ToolError(str(e)) from e
+        return
 
     if command in {"awk", "find"}:
         raise ToolError(
@@ -759,6 +782,8 @@ def execute_tool(name: str, args: dict, ki, cfg, *, setup_mode: bool = False,
         return "\n".join(names[:400]) or "(empty)"
 
     if name == "run_preflight":
+        if bool((setup_context or {}).get("installation_only")):
+            raise ToolError("Full preflight is outside installation-only scope; use the declared import and executable startup checks.")
         from . import install as _install
         step = _install.run_preflight(ki, cfg.python, cfg)
         return f"{'PASS' if step.ok else 'FAIL'}\n{step.detail}"
@@ -912,7 +937,8 @@ def execute_tool(name: str, args: dict, ki, cfg, *, setup_mode: bool = False,
                 timeout=timeout,
             )
         except subprocess.TimeoutExpired as e:
-            tail = ((e.stdout or "") + (e.stderr or ""))[-12000:]
+            tail = "".join(part.decode("utf-8", errors="replace") if isinstance(part, bytes) else (part or "")
+                           for part in (e.stdout, e.stderr))[-12000:]
             if flow is not None:
                 try:
                     flow.record_tool_run(ki=tool_ki_name, ki_root=tool_root, command=command, cwd=cwd,
@@ -1140,9 +1166,13 @@ def execute_tool(name: str, args: dict, ki, cfg, *, setup_mode: bool = False,
         allowed = {
             "git", "cmake", "make", "gmake", "ninja", "meson", "pkg-config",
             "python", "python3", "pip", "pip3", "uv", "cargo", "rustc", "go",
-            "gcc", "g++", "clang", "clang++", "gfortran", "tar", "unzip",
+            "gcc", "g++", "cc", "c++", "clang", "clang++", "gfortran", "tar", "unzip", "mkdir",
             "curl", "wget", "patch", "sed", "awk", "find", "ls", "cp", "mv", "ln",
-            "chmod", "file", "otool", "xcode-select", "brew",
+            "chmod", "file", "otool", "xcode-select", "brew", "which",
+            "cat", "grep", "head", "tail", "uname", "sw_vers",
+            "autoreconf", "autoconf", "automake", "aclocal", "libtoolize", "glibtoolize",
+            "ar", "ranlib", "nm", "nf-config", "nc-config", "gdal-config",
+            "mpicc", "mpicxx", "mpif90", "mpifort", "flex", "bison", "R", "Rscript", "julia", "octave", "octave-cli",
         }
         exe_path = Path(executable)
         external_roots = []
@@ -1160,8 +1190,34 @@ def execute_tool(name: str, args: dict, ki, cfg, *, setup_mode: bool = False,
                                *external_roots]
             if resolved != cfg_python and not any(
                     resolved == base or base in resolved.parents for base in permitted_roots):
-                raise ToolError(f"executable is outside the setup workspace: {executable}")
-            argv[0] = str(resolved)
+                # A workspace venv may use a different installed Python than cfg.python.
+                # Validate its actual prefix, without dereferencing the launcher we execute.
+                launcher = (workroot / exe_path) if not exe_path.is_absolute() else exe_path
+                launcher = launcher.parent.resolve() / launcher.name
+                workspace_venv = False
+                if (workroot in launcher.parents and
+                        re.fullmatch(r"python(?:\d+(?:\.\d+)*)?(?:\.exe)?", launcher.name)):
+                    probe_env = {key: value for key, value in os.environ.items()
+                                 if not any(secret in key.upper() for secret in
+                                            ("API_KEY", "TOKEN", "SECRET", "PASSWORD", "CREDENTIAL"))}
+                    try:
+                        probe = subprocess.run(
+                            [str(launcher), "-c", "import sys; print(sys.prefix)"],
+                            capture_output=True, text=True, timeout=10, env=probe_env)
+                        prefix = Path(probe.stdout.strip()).resolve()
+                        workspace_venv = (probe.returncode == 0 and
+                                          (prefix == workroot or workroot in prefix.parents))
+                    except (OSError, subprocess.TimeoutExpired, ValueError):
+                        pass
+                if not workspace_venv:
+                    hint = (f" Use the allowlisted tool name {exe_path.name!r} without an absolute path."
+                            if exe_path.name in allowed else "")
+                    raise ToolError(f"executable is outside the setup workspace: {executable}.{hint}")
+            # Validate the resolved target, but execute the original venv path.
+            # Dereferencing venv/bin/python here launches the base interpreter
+            # without pyvenv.cfg and can send pip installs outside the workspace.
+            argv[0] = str((workroot / exe_path).absolute()
+                          if not exe_path.is_absolute() else exe_path)
         elif executable not in allowed:
             raise ToolError(f"command is not in the setup allowlist: {executable}")
         if Path(argv[0]).name == "brew" and len(argv) > 1 and argv[1] not in (
@@ -1171,7 +1227,8 @@ def execute_tool(name: str, args: dict, ki, cfg, *, setup_mode: bool = False,
         cwd = _inside_work(args.get("cwd") or ".")
         if not cwd.is_dir():
             raise ToolError(f"command directory does not exist: {args.get('cwd')}")
-        if bool((setup_context or {}).get("installation_only")):
+        if (bool((setup_context or {}).get("installation_only"))
+                or Path(argv[0]).name.lower() in {"r", "rscript", "julia", "octave", "octave-cli"}):
             _guard_installation_only_command(argv, cwd, workroot)
         # Reject path arguments that escape the workspace. This is not a
         # shell, but programs such as cp, curl and git still accept output
@@ -1210,12 +1267,16 @@ def execute_tool(name: str, args: dict, ki, cfg, *, setup_mode: bool = False,
         if not isinstance(extra_env, dict):
             raise ToolError("env must be an object")
         safe_env = {}
-        banned = {"HOME", "PATH", "SHELL", "DYLD_INSERT_LIBRARIES", "PYTHONPATH"}
+        banned = {"HOME", "PATH", "SHELL", "DYLD_INSERT_LIBRARIES", "PYTHONPATH", "PIP_REQUIRE_VIRTUALENV"}
         for key, value in extra_env.items():
             if (not re.fullmatch(r"[A-Z_][A-Z0-9_]{0,63}", str(key)) or
                     key in banned or not isinstance(value, str) or len(value) > 8000):
                 raise ToolError(f"unsafe environment override: {key}")
             safe_env[key] = value
+        if Path(argv[0]).name.lower() == "julia" and len(argv) > 2:
+            from . import jpackage
+            jpackage.guard(argv[1:], cwd, workroot)
+            safe_env.update(jpackage.startup_env(jpackage.scoped(argv[8], cwd, workroot)))
         # A tool or build script must never inherit the API key that is driving
         # the agent. Keep the normal build environment, remove credentials.
         child_env = {
@@ -1228,13 +1289,39 @@ def execute_tool(name: str, args: dict, ki, cfg, *, setup_mode: bool = False,
         if provider_id:
             from .settings import with_provider_proxy
             child_env = with_provider_proxy(provider_id, child_env)
+        pip_guard = "true"
+        # Conda prefixes are isolated too, although pip does not call them venvs.
+        # Permit that interpreter's pip only after checking its actual prefix.
+        if len(argv) > 2 and argv[1:3] == ["-m", "pip"]:
+            try:
+                prefix_probe = subprocess.run(
+                    [argv[0], "-c", "import sys; print(sys.prefix)"],
+                    cwd=str(cwd), env=child_env, capture_output=True,
+                    text=True, timeout=10)
+                prefix = Path(prefix_probe.stdout.strip()).resolve()
+                if prefix_probe.returncode == 0 and (prefix == workroot or workroot in prefix.parents):
+                    pip_guard = "false"
+            except (OSError, subprocess.TimeoutExpired, ValueError):
+                pass
+        from contextlib import nullcontext
+        import tempfile
+        isolate_probe = (bool((setup_context or {}).get("installation_only"))
+                         and Path(argv[0]).is_absolute() and len(argv) == 2
+                         and argv[1] in _INSTALL_ONLY_PROBE_FLAGS)
+        if isolate_probe:
+            timeout = min(timeout, 25)
         try:
-            proc = subprocess.run(
-                argv, cwd=str(cwd), env={**child_env, **safe_env},
-                capture_output=True, text=True, errors="replace", timeout=timeout,
-            )
+            directory = (tempfile.TemporaryDirectory(prefix="startup-probe-", dir=str(workroot))
+                         if isolate_probe else nullcontext(str(cwd)))
+            with directory as execution_cwd:
+                proc = subprocess.run(
+                    argv, cwd=execution_cwd, env={**child_env, **safe_env, "PIP_REQUIRE_VIRTUALENV": pip_guard},
+                    capture_output=True, text=True, errors="replace", timeout=timeout,
+                    stdin=subprocess.DEVNULL if isolate_probe else None,
+                )
         except subprocess.TimeoutExpired as e:
-            tail = ((e.stdout or "") + (e.stderr or ""))[-12000:]
+            tail = "".join(part.decode("utf-8", errors="replace") if isinstance(part, bytes) else (part or "")
+                           for part in (e.stdout, e.stderr))[-12000:]
             return f"TIMEOUT after {timeout}s\n{tail}"
         except OSError as e:
             # A non-executable script, missing command, or platform launch
@@ -1242,7 +1329,9 @@ def execute_tool(name: str, args: dict, ki, cfg, *, setup_mode: bool = False,
             # choose another invocation (usually ``python3 script.py``)
             # instead of aborting the entire API turn.
             return f"FAILED_TO_START: {type(e).__name__}: {e}"
-        output = (proc.stdout + proc.stderr)[-50000:]
+        output = proc.stdout[-25000:] + "\n" + proc.stderr[-25000:]
+        if isolate_probe:
+            output = "Startup probe used an empty workspace directory (no bundled case inputs).\n" + output
         return f"exit_code={proc.returncode}\n{output}"
 
     if setup_mode and project_mode and name == "publish_setup_output":
@@ -1323,21 +1412,31 @@ def _post(url: str, headers: dict, payload: dict, *, provider: str) -> dict:
         url, data=json.dumps(payload).encode(), method="POST",
         headers={"Content-Type": "application/json", **headers},
     )
-    try:
-        from .settings import proxy_url_for
-        proxy = proxy_url_for(provider)
-        handlers = [
-            urllib.request.ProxyHandler(
-                {"http": proxy, "https": proxy} if proxy else {}),
-            urllib.request.HTTPSHandler(context=tls.context()),
-        ]
-        with urllib.request.build_opener(*handlers).open(req, timeout=TIMEOUT) as r:
-            return json.loads(r.read())
-    except urllib.error.HTTPError as e:
-        body = e.read().decode("utf-8", "replace")[:800]
-        raise ToolError(f"HTTP {e.code} from {url}: {body}") from None
-    except urllib.error.URLError as e:
-        raise ToolError(f"cannot reach {url}: {e.reason}") from None
+    from .settings import proxy_url_for
+    proxy = proxy_url_for(provider)
+    # Only retry the provider response, before any returned tool is executed.
+    # A transient disconnect must not discard a whole installation repair loop.
+    for attempt in range(3):
+        try:
+            handlers = [
+                urllib.request.ProxyHandler(
+                    {"http": proxy, "https": proxy} if proxy else {}),
+                urllib.request.HTTPSHandler(context=tls.context()),
+            ]
+            with urllib.request.build_opener(*handlers).open(req, timeout=TIMEOUT) as r:
+                return json.loads(r.read())
+        except urllib.error.HTTPError as e:
+            body = e.read().decode("utf-8", "replace")[:800]
+            if e.code not in {429, 502, 503, 504} or attempt == 2:
+                raise ToolError(f"HTTP {e.code} from {url}: {body}") from None
+        except urllib.error.URLError as e:
+            if isinstance(e.reason, ssl.SSLCertVerificationError) or attempt == 2:
+                raise ToolError(f"cannot reach {url}: {e.reason}") from None
+        except (http.client.RemoteDisconnected, http.client.IncompleteRead,
+                TimeoutError, ConnectionError) as e:
+            if attempt == 2:
+                raise ToolError(f"provider connection interrupted: {type(e).__name__}") from None
+        time.sleep(2 ** attempt)
 
 
 def _cacheable_system(system: str) -> list[dict]:

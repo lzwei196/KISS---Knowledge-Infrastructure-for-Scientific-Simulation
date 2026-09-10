@@ -29,6 +29,7 @@ import threading
 import time
 import webbrowser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from socketserver import TCPServer
 from http.cookies import SimpleCookie
 from pathlib import Path
 from urllib.parse import parse_qs, quote, unquote, urlparse
@@ -36,6 +37,17 @@ from urllib.parse import parse_qs, quote, unquote, urlparse
 from . import api, calibration, clipboard, doctor, flowrun, handoff, harness_runtime, install, install_locations, kdtstudio, ki_updates, mcp, observatory, paths, policy, port, preparation, projectrun, projectview, prompt, providers, recipe, runnable, sessions, settings, setup as setup_flow, skilllib, tls
 from .catalog import Catalog, KI
 from .manifest import Manifest
+
+def _installation_config_after_setup(cfg):
+    """Read the installer's saved environment before independent verification."""
+    root = Path(cfg.root).resolve()
+    if not (root / "kiss.toml").is_file():
+        raise FileNotFoundError(f"installation configuration missing: {root / 'kiss.toml'}")
+    current = paths.KissConfig.load(root)
+    if Path(current.root).resolve() != root:
+        raise ValueError("setup changed the installation workspace root")
+    return current
+
 
 PAGE = (Path(__file__).parent / "web" / "app.html")
 SETUP_PAGE = (Path(__file__).parent / "web" / "setup.html")
@@ -53,7 +65,7 @@ SETUP_BUILD_COMMANDS = (
     "git", "cmake", "make", "gmake", "ninja", "meson", "dotnet",
     "python", "python3", "pip", "pip3", "uv", "cargo", "go",
     "gcc", "g++", "clang", "clang++", "gfortran", "tar", "unzip",
-    "curl", "patch", "file",
+    "curl", "patch", "file", "R", "Rscript",
 )
 
 
@@ -2391,6 +2403,7 @@ verification are different states; never claim this test verified the KI."""
                     )
 
             if installation_only:
+                cfg = _installation_config_after_setup(cfg)
                 verdict = runnable.check(
                     live_ki, self._manifest(ki), cfg, timeout=25,
                     python=cfg.python,
@@ -3823,7 +3836,7 @@ def run_install(ki, man: Manifest, root: Path, emit, repo_root: Path,
             f"not run because {blocker.name} failed: {blocker.detail}", skipped=True,
         ), None
     else:
-        s, binary = install.acquire(man, prefix, cfg.python, env=network_env)
+        s, binary = install.acquire(man, prefix, cfg.python, env=network_env, ki=ki)
     result.binary = binary
     for note in install.place_where_the_ki_expects(ki, binary, cfg, prefix):
         emit(f"      {note}\n")
@@ -3883,6 +3896,16 @@ def run_install(ki, man: Manifest, root: Path, emit, repo_root: Path,
              "diagnostics.\n")
 
 
+class GeoForgeHTTPServer(ThreadingHTTPServer):
+    """Bind without reverse DNS, which can stall offline/proxied Macs."""
+
+    def server_bind(self):
+        TCPServer.server_bind(self)
+        # HTTPServer's default calls socket.getfqdn(). The local UI uses its
+        # bound numeric address; DNS is neither needed nor a readiness gate.
+        self.server_name, self.server_port = self.server_address[:2]
+
+
 def serve(models_dir: Path | None, port: int = 8765, open_browser: bool = True,
           workroot: Path | None = None, host: str = "127.0.0.1",
           auto_update: bool = False) -> int:
@@ -3923,7 +3946,7 @@ def serve(models_dir: Path | None, port: int = 8765, open_browser: bool = True,
     else:
         Handler.ki_update_manager = None
 
-    srv = ThreadingHTTPServer((host, port), Handler)
+    srv = GeoForgeHTTPServer((host, port), Handler)
     url = f"http://127.0.0.1:{port}/"
     if host not in ("127.0.0.1", "localhost"):
         # The GUI has no authentication: whoever reaches this port can install
@@ -3932,8 +3955,9 @@ def serve(models_dir: Path | None, port: int = 8765, open_browser: bool = True,
         print(f"WARNING: listening on {host}:{port} with NO authentication — "
               f"anyone who can reach this address controls the agent. "
               f"Prefer an SSH tunnel: ssh -L {port}:127.0.0.1:{port} <this-host>")
-    agents = ", ".join(p.label for p in providers.available()) or "none ready"
-    print(f"GeoForge Desktop — {len(cat)} KISS KI packages · agents ready: {agents}")
+    # Provider login checks can each take several seconds. Serve the native
+    # window immediately; the provider-health routes perform checks on demand.
+    print(f"GeoForge Desktop — {len(cat)} KISS KI packages")
     print(f"  {url}\n  workdir root: {Handler.workroot}\nCtrl-C to stop.")
     if open_browser:
         threading.Timer(0.6, lambda: webbrowser.open(url)).start()

@@ -9,6 +9,8 @@ installable without any hand-maintained index.
 from __future__ import annotations
 
 import re
+import sys
+import platform as host_platform
 from dataclasses import dataclass, field
 from functools import cached_property
 from pathlib import Path
@@ -19,6 +21,11 @@ try:
     import yaml
 except ImportError:  # pragma: no cover - surfaced by cli with a clear message
     yaml = None
+
+
+def installation_platform() -> str:
+    return {"win32": "windows", "darwin": "macos"}.get(
+        sys.platform, "linux" if sys.platform.startswith("linux") else "")
 
 
 @dataclass
@@ -55,7 +62,24 @@ class KI:
 
     @property
     def manifest(self) -> Path | None:
+        # Keep installation experience with its KI. A Windows recipe must not
+        # replace a macOS/Linux recipe when all platforms fetch the same library.
+        platform = installation_platform()
+        if platform:
+            architecture = host_platform.machine().lower()
+            architecture = {"aarch64": "arm64", "amd64": "x86_64"}.get(architecture, architecture)
+            specific = self._maybe(f"kiss.{platform}.{architecture}.yaml")
+            if specific:
+                return specific
+            specific = self._maybe(f"kiss.{platform}.yaml")
+            if specific:
+                return specific
         return self._maybe("kiss.yaml")
+
+    @property
+    def installation_notes(self) -> Path | None:
+        platform = installation_platform()
+        return self._maybe(f"docs/install.{platform}.md") if platform else None
 
     def _maybe(self, rel: str) -> Path | None:
         p = self.root / rel
