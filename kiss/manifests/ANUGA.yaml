@@ -19,3 +19,4 @@ notes: >-
   and the KI's own preflight_check.py passed with no hand-written recipe. The
   package name was resolved from the KI directory name and confirmed by import,
   not assumed from a PyPI name match.
+linux_verified: "software installs on Linux 2026-09-11 (acquire ok; preflight needs project data, added per run)"

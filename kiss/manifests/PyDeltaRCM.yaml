@@ -20,3 +20,4 @@ reference_case: >-
 notes: >-
   OBSERVED 2026-08-18: preflight passes. Recorded because the package/module
   name mismatch cannot be guessed.
+linux_verified: "observed on Linux 2026-09-11 (software installs and preflight passes)"

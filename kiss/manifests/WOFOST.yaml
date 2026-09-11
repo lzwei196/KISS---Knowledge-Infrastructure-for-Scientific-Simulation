@@ -37,3 +37,4 @@ agent_hint: >-
   WOFOST runs entirely in Python via PCSE. If preflight fails it is almost
   always a missing crop/soil/agromanagement YAML rather than a broken install.
   Read SKILL.md for the parameter conventions before touching anything.
+linux_verified: "software installs on Linux 2026-09-11 (acquire ok; preflight needs project data, added per run)"
