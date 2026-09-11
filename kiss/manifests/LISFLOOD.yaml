@@ -1,0 +1,56 @@
+kiss_manifest_version: 1
+model: LISFLOOD
+binary_type: Python
+verified: partial
+install_dir: LISFLOOD
+
+acquire:
+  strategy: pip
+  package: "lisflood-model==5.0.0"
+  produces: lisflood
+
+python_deps:
+  - netCDF4
+  - numpy
+  - numba
+  - xarray
+  - pandas
+  - lxml
+  - beautifulsoup4
+
+system_deps: []
+
+reference_case: lisflood --help
+
+notes: >-
+  Windows installation end state independently checked on 2026-09-06:
+  runnable (python package) — all declared imports resolve. This is partial recipe evidence; scientific validation and
+  calibration readiness are not established by the installation probe.
+  Official LISFLOOD-OS v5.0.0. Upstream documents Python >=3.10,<3.13 and
+  installs the mandatory PCRaster/GDAL native runtime from conda-forge. The
+  Windows fresh installation passed the full declared import check on 2026-09-06.
+
+agent_hint: >-
+  Stage the official standalone micromamba Windows executable inside the
+  workspace. Use explicit workspace-local `--root-prefix` and `--prefix`
+  arguments to create a Python 3.11 environment and install `pcraster` and
+  `gdal` plus `numpy<2.3` and the declared Python imports from conda-forge; this
+  is already authorized and must not be handed to
+  the user as a Miniconda permission request. Windows hosts may have
+  LongPathsEnabled=0: use exactly the shortest workspace-top-level prefixes
+  `r` (root), `e` (environment), and `p` (`CONDA_PKGS_DIRS`), and confirm the
+  selected paths with `micromamba info`. This workspace-local cache workaround
+  must be tried before requesting a registry change or shorter workspace.
+  Invoke that environment's Python
+  directly (do not use `micromamba run`) to pip-install the pinned
+  `lisflood-model==5.0.0` package and every declared import. The official
+  sdist assumes POSIX `gdal-config` and a development-checkout VERSION layout.
+  On Windows, patch the unpacked official source before building its wheel:
+  obtain GDAL metadata from the already-installed environment `osgeo` package,
+  and let `lisflood/__init__.py` also resolve `sys.prefix/VERSION`. Do not edit
+  the installed site-packages copy. These are packaging/layout fixes only.
+  `--no-deps` is
+  acceptable only after all upstream constraints are already satisfied in that
+  interpreter; finish with `python -m pip check`, then record the environment
+  interpreter in kiss.toml.
+linux_verified: "NO — lisflood-model==5.0.0 wheel build needs osgeo/GDAL; install GDAL first"

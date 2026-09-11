@@ -1,0 +1,29 @@
+kiss_manifest_version: 1
+model: TopoFlow
+binary_type: Python
+verified: observed
+install_dir: TopoFlow
+
+acquire:
+  strategy: pip
+  # TopoFlow 3.6 is not published on PyPI and upstream has no release tags.
+  # Pin the official repository commit that was exercised on Windows instead
+  # of leaving every setup agent to rediscover the GitHub fallback.
+  package: "git+https://github.com/peckhams/topoflow36.git@a1c07d0a72185cbd0baeff1ef77feadad09c3f88"
+  produces: topoflow
+
+python_deps: [numpy, scipy, netCDF4, cfunits]
+
+reference_case: >-
+  python -c "import topoflow.framework.emeli; print('TopoFlow 3.6 importable')"
+
+notes: >-
+  OBSERVED on Windows with Python 3.11 on 2026-09-06: the official TopoFlow
+  repository installed into a clean workspace venv; topoflow,
+  topoflow.framework.emeli, and the console module all loaded successfully.
+
+agent_hint: >-
+  TopoFlow is not on PyPI. Install the pinned official GitHub source and its
+  declared numpy, scipy, netCDF4, and cfunits runtime dependencies into the
+  workspace Python environment.
+linux_verified: "observed on Linux 2026-09-11 (git commit install+import)"
